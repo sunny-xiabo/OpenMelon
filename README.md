@@ -5,7 +5,7 @@
 ## 项目结构
 
 ```
-testcase_generator_20250713/
+testcase_generator_platform/
 ├── backend/          # FastAPI后端服务
 │   ├── main.py      # 主应用入口
 │   ├── requirements.txt  # Python依赖
