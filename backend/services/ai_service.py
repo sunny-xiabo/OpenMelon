@@ -8,7 +8,7 @@ from autogen_core import Image as AGImage
 from PIL import Image as PILImage
 
 from models.test_case import TestCase
-from utils.llms import model_client, deepseek_model_client
+from utils.llms import model_client, deepseek_model_client, QWEN_MODEL_NAME, DEEPSEEK_MODEL_NAME
 # 移除结构化输出模型导入以避免兼容性问题
 # from models.test_case import TestCase, TestCaseResponse
 from services.pdf_service import pdf_service
@@ -292,7 +292,7 @@ API端点概览:
         yield "# 正在生成测试用例...\n\n"
         yield f"**文件信息**\n"
         yield f"- 文件类型: {file_extension.upper() if file_extension else '未知'}\n"
-        yield f"- 使用模型: {'DeepSeek (文本优化)' if selected_model_client == deepseek_model_client else 'Qwen-VL (多模态)'}\n\n"
+        yield f"- 使用模型: {DEEPSEEK_MODEL_NAME if selected_model_client == deepseek_model_client else QWEN_MODEL_NAME}\n\n"
         yield "---\n\n"  # 添加分隔线，明确区分文件信息和测试用例内容
 
         # 流式输出生成的测试用例
