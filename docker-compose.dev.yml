@@ -1,0 +1,34 @@
+# =============================================================
+# Docker Compose 开发覆盖文件（容器化热重载模式）
+# =============================================================
+#
+# 【用途】
+#   为 app 容器开启代码热重载，同时挂载本地代码到容器中实时同步。
+#   适用于需要在容器环境中验证行为、但又不想每次改代码都重新 build 的场景。
+#
+# 【启动命令】
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile full up
+#
+# 【普通本地开发（推荐）无需此文件，直接：】
+#   1. docker compose up -d          ← 仅启动基础设施（Neo4j + Qdrant）
+#   2. uvicorn app.main:app \        ← 本地运行后端
+#        --host 0.0.0.0 --port 8000 --reload
+# =============================================================
+
+services:
+  app:
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/config:/app/config
