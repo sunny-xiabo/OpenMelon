@@ -512,6 +512,7 @@ OpenMelon/
 |------|------|---------|
 | **README.md**（本文） | 项目概览、快速开始、技术栈、数据流 | 所有人 |
 | **[MANUAL.md](MANUAL.md)** | 完整操作手册：架构详解、环境配置、功能说明、API 参考、运维排查 | 开发者、运维 |
+| **[CHANGELOG.md](CHANGELOG.md)** | 项目版本的变更记录与架构优化历史归档 | 开发者、代码审核者 |
 | **[DEMO.md](DEMO.md)** | 快速演示指南：分场景上手操作 | 新用户、演示 |
 | **[docs/FRONTEND_DEPLOYMENT.md](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/docs/FRONTEND_DEPLOYMENT.md)** | 前端独立部署：Nginx 示例、环境变量、常见问题 | 前端、运维 |
 | **[deploy/nginx/openmelon-frontend.conf](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/deploy/nginx/openmelon-frontend.conf)** | 前端独立部署用 Nginx 配置示例 | 运维 |
