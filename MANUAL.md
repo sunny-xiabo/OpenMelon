@@ -18,8 +18,8 @@ cp .env.example .env
 
 docker compose up -d neo4j
 cd backend
-uv pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 如果你更习惯分终端操作，可以直接用下面这组命令：
@@ -34,8 +34,8 @@ docker compose up -d qdrant
 
 # 终端 2：后端
 cd OpenMelon/backend
-uv pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd OpenMelon/frontend
@@ -89,7 +89,7 @@ docker compose logs -f app
 | `.env` 至少要填什么？ | 最少填 `LLM_PROVIDER` 和 `API_KEY` |
 | 一定要用 Qdrant 吗？ | 不一定。默认不开启外部向量库；开启后才会使用 Qdrant |
 | 启动后先看哪里确认正常？ | 先看 `http://localhost:8000/docs` 和 `http://localhost:3000` 能不能打开 |
-| 高频改后端时该用什么？ | 优先用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` 或本机 `uvicorn --reload` |
+| 高频改后端时该用什么？ | 优先用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` 或本机 `uv run uvicorn --reload` |
 
 ### 0.5 启动成功检查清单
 
@@ -316,7 +316,7 @@ docker compose logs -f app
 ```
 
 > 开发模式会挂载本地 `backend/app`、`backend/config`，并在容器内使用 `uvicorn --reload` 启动。
-> 日常修改后端代码时通常不需要 rebuild；只有 `backend/requirements.txt` 变更时，才需要重新执行 `docker compose build app`。
+> 日常修改后端代码时通常不需要 rebuild；只有 `backend/pyproject.toml` 或 `uv.lock` 变更时，才需要重新执行 `docker compose build app`。
 > 如果你要启用外部向量库，请同时启动 `qdrant`，并在 `.env` 中设置 `USE_EXTERNAL_VECTOR=true`。
 >
 > ```bash
@@ -338,7 +338,7 @@ docker compose logs -f app
 
 > 生产模式不挂载本地源码，容器运行的是后端镜像内代码。
 > 当前 Docker 镜像不再包含前端静态资源，前端需要独立开发或独立部署。
-> 修改了 `backend/app`、`backend/config` 或 `backend/requirements.txt` 后，需要重新 build 并重建后端容器。
+> 修改了 `backend/app`、`backend/config` 或 `backend/pyproject.toml` 后，需要重新 build 并在开发态重建后端容器。
 >
 > ```bash
 > docker compose build app
@@ -364,7 +364,7 @@ docker compose up -d neo4j
 # 终端 1: 启动后端
 conda activate openmlon
 cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 2: 启动前端
 cd frontend && npm install && npm run dev
@@ -384,8 +384,8 @@ docker compose up -d qdrant
 
 # 终端 2：后端
 cd backend
-uv pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd frontend
@@ -398,7 +398,7 @@ npm run dev
 ```bash
 # 终端 1：后端
 cd backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # 终端 2：前端
 cd frontend

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { Box, AppBar, Toolbar, Typography, Button } from '@mui/material';
 import {
   QuestionAnswerRounded,
@@ -11,13 +11,15 @@ import {
 } from '@mui/icons-material';
 import { SnackbarProvider } from './components/SnackbarProvider';
 import ErrorBoundary from './components/ErrorBoundary';
-import QAPage from './pages/QAPage';
-import GraphPage from './pages/GraphPage';
-import ManagePage from './pages/ManagePage';
-import CoveragePage from './pages/CoveragePage';
-import MarkMapPage from './pages/MarkMapPage';
-import TestCasePage from './pages/TestCasePage';
-import SettingsPage from './pages/SettingsPage';
+import LoadingOverlay from './components/LoadingOverlay';
+
+// Lazy loaded page components
+const QAPage = lazy(() => import('./pages/QAPage'));
+const GraphPage = lazy(() => import('./pages/GraphPage'));
+const ManagePage = lazy(() => import('./pages/ManagePage'));
+const CoveragePage = lazy(() => import('./pages/CoveragePage'));
+const TestCasePage = lazy(() => import('./pages/TestCasePage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
 const TABS = [
   { label: '问答', component: QAPage, icon: <QuestionAnswerRounded fontSize="small" /> },
@@ -30,6 +32,14 @@ const TABS = [
 
 function App() {
   const [tab, setTab] = useState(0);
+  const [mountedTabs, setMountedTabs] = useState([0]);
+
+  const handleTabChange = (newIndex) => {
+    setTab(newIndex);
+    if (!mountedTabs.includes(newIndex)) {
+      setMountedTabs((prev) => [...prev, newIndex]);
+    }
+  };
 
   return (
     <SnackbarProvider>
@@ -66,7 +76,7 @@ function App() {
                 <Button
                   key={t.label}
                   disableRipple
-                  onClick={() => setTab(i)}
+                  onClick={() => handleTabChange(i)}
                   sx={{
                     borderRadius: '10px 10px 0 0',
                     display: 'flex',
@@ -112,6 +122,8 @@ function App() {
         <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <ErrorBoundary>
             {TABS.map((t, i) => {
+              if (!mountedTabs.includes(i)) return null;
+              
               const Page = t.component;
               return (
                 <Box
@@ -121,9 +133,12 @@ function App() {
                     flex: 1,
                     overflow: 'hidden',
                     flexDirection: 'column',
+                    position: 'relative',
                   }}
                 >
-                  <Page isActive={tab === i} />
+                  <Suspense fallback={<LoadingOverlay message={`正在加载 ${t.label} 模块...`} />}>
+                    <Page isActive={tab === i} />
+                  </Suspense>
                 </Box>
               );
             })}

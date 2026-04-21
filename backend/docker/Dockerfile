@@ -13,9 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Install Python dependencies first for better Docker layer caching
-COPY requirements.txt ./
-# Use uv for faster installations
-RUN uv pip install --system --no-cache -r requirements.txt
+COPY pyproject.toml uv.lock ./
+# Sync dependencies securely from the lock file
+RUN uv sync --frozen --no-cache --no-dev --no-install-project
 
 # Copy application code
 COPY app/ ./app
@@ -28,4 +28,5 @@ EXPOSE 8000
 RUN adduser --system --group appuser && chown -R appuser:appuser /app
 USER appuser
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run using uv to auto-activate the virtual environment
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
