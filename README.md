@@ -20,8 +20,8 @@ cp .env.example .env
 
 docker compose up -d neo4j
 cd backend
-uv pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 也可以按 3 个终端来启动：
@@ -36,8 +36,8 @@ docker compose up -d qdrant
 
 # 终端 2：后端
 cd OpenMelon/backend
-uv pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd OpenMelon/frontend
@@ -189,14 +189,14 @@ conda create -n openmlon python=3.11
 conda activate openmlon
 
 cd backend
-uv pip install -r requirements.txt
+uv sync
 ```
 
 ### 第四步：启动后端服务
 
 ```bash
 cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 启动成功后会看到：
@@ -230,8 +230,8 @@ docker compose up -d qdrant
 
 # 终端 2：后端
 cd backend
-uv pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd frontend
@@ -243,7 +243,7 @@ npm run dev
 
 ```bash
 cd backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 > 如果你在本机先执行了 `cd frontend && npm run build`，后端会自动挂载本地 `frontend/dist` 静态文件；这是本机便利用法，不属于 Docker 后端镜像的一部分。
@@ -260,7 +260,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
 
 > 开发模式会把本地 `backend/app` 和 `backend/config` 挂载到容器内，并以 `uvicorn --reload` 启动，适合频繁修改后端代码。
-> 日常修改 Python 代码或 `backend/config/node_types.json` 时通常不需要重新 build；只有 `backend/requirements.txt` 变更时才需要重新执行 `docker compose build app`。
+> 日常修改 Python 代码或 `backend/config/node_types.json` 时通常不需要重新 build；只有 `backend/pyproject.toml` 或 `uv.lock` 变更时才需要重新执行 `docker compose build app`。
 > 如果你启用了 `USE_EXTERNAL_VECTOR=true`，还需要额外启动 `qdrant`。
 
 #### Docker 生产模式
@@ -412,7 +412,9 @@ OpenMelon/
 │   │   ├── main.py                   # 应用入口 + 生命周期管理
 │   │   ├── config.py                 # 环境配置（读取项目根目录 .env）
 │   │   ├── api/                      # API 路由层
-│   │   │   ├── routes.py             # 主 API 路由（问答/图谱/上传/覆盖率）
+│   │   │   ├── routes.py             # 主 API 路由（统一聚合映射层）
+│   │   │   ├── deps.py               # 全局依赖注入模块 (DI)
+│   │   │   ├── routers/              # 按领域拆分的 5 大路由模块
 │   │   │   ├── management_routes.py  # 文件管理路由
 │   │   │   └── schemas.py            # Pydantic 请求/响应模型
 │   │   ├── engine/                   # RAG 引擎核心
@@ -459,7 +461,8 @@ OpenMelon/
 │   ├── scripts/
 │   │   ├── clear_vector_db.py        # 清理向量库脚本
 │   │   └── migrate_vectors_to_qdrant.py # 向量迁移脚本
-│   ├── requirements.txt              # Python 依赖清单
+│   ├── pyproject.toml                # 现代 Python 依赖配置
+│   ├── uv.lock                       # uv 环境高速锁定文件
 │   └── .dockerignore                 # 后端镜像忽略规则
 ├── frontend/                         # React 前端应用
 │   ├── src/
