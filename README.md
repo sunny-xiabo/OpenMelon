@@ -21,7 +21,7 @@ cp .env.example .env
 docker compose up -d neo4j
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 也可以按 3 个终端来启动：
@@ -37,7 +37,7 @@ docker compose up -d qdrant
 # 终端 2：后端
 cd OpenMelon/backend
 uv sync
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd OpenMelon/frontend
@@ -184,19 +184,23 @@ docker ps | grep neo4j
 ### 第三步：安装 Python 依赖
 
 ```bash
-# 推荐使用 conda 环境
+# 推荐使用 conda 来提供隔离干净的 Python 环境
 conda create -n openmlon python=3.11
 conda activate openmlon
 
 cd backend
-uv sync
+# 选项 1：直接将依赖安装到当前 conda 环境（推荐目前用户）
+uv pip install --system -r pyproject.toml
+
+# 选项 2：如果不使用 conda，可直接在 backend 下执行
+# uv sync
 ```
 
 ### 第四步：启动后端服务
 
 ```bash
 cd backend
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 启动成功后会看到：
@@ -231,7 +235,7 @@ docker compose up -d qdrant
 # 终端 2：后端
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd frontend
@@ -243,7 +247,7 @@ npm run dev
 
 ```bash
 cd backend
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 > 如果你在本机先执行了 `cd frontend && npm run build`，后端会自动挂载本地 `frontend/dist` 静态文件；这是本机便利用法，不属于 Docker 后端镜像的一部分。

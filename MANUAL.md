@@ -19,7 +19,7 @@ cp .env.example .env
 docker compose up -d neo4j
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 如果你更习惯分终端操作，可以直接用下面这组命令：
@@ -35,7 +35,7 @@ docker compose up -d qdrant
 # 终端 2：后端
 cd OpenMelon/backend
 uv sync
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd OpenMelon/frontend
@@ -89,7 +89,7 @@ docker compose logs -f app
 | `.env` 至少要填什么？ | 最少填 `LLM_PROVIDER` 和 `API_KEY` |
 | 一定要用 Qdrant 吗？ | 不一定。默认不开启外部向量库；开启后才会使用 Qdrant |
 | 启动后先看哪里确认正常？ | 先看 `http://localhost:8000/docs` 和 `http://localhost:3000` 能不能打开 |
-| 高频改后端时该用什么？ | 优先用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` 或本机 `uv run uvicorn --reload` |
+| 高频改后端时该用什么？ | 优先用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` 或本机 `uvicorn --reload` |
 
 ### 0.5 启动成功检查清单
 
@@ -364,7 +364,7 @@ docker compose up -d neo4j
 # 终端 1: 启动后端
 conda activate openmlon
 cd backend
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 2: 启动前端
 cd frontend && npm install && npm run dev
@@ -385,7 +385,7 @@ docker compose up -d qdrant
 # 终端 2：后端
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
 cd frontend
@@ -398,7 +398,7 @@ npm run dev
 ```bash
 # 终端 1：后端
 cd backend
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # 终端 2：前端
 cd frontend
