@@ -96,6 +96,7 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
           </Tabs>
         </Box>
         
+        {/* Temporarily hidden until user management is implemented 
         <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, ml: 1 }}>
           <Tooltip title="用户设置 (User)">
              <IconButton size="small" sx={{ color: 'rgba(255,255,255,0.7)', '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.1)' } }}>
@@ -103,6 +104,7 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
              </IconButton>
           </Tooltip>
         </Box>
+        */}
       </Toolbar>
     </AppBar>
   );
