@@ -17,6 +17,7 @@ import {
   useMediaQuery,
   Stack,
 } from '@mui/material';
+import { Delete as DeleteIcon, Edit as EditIcon, Check as CheckIcon, Close as CloseIcon } from '@mui/icons-material';
 import { AutoAwesome, Add, AccountTree, Forum } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { Network } from 'vis-network';
@@ -34,6 +35,7 @@ import {
 } from '../theme/nodeTypes';
 import LoadingOverlay from '../components/LoadingOverlay';
 import EmptyState from '../components/EmptyState';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 const METHOD_LABELS = {
   graph: 'Graph',
@@ -43,8 +45,23 @@ const METHOD_LABELS = {
 };
 const GRAPH_DATA_UPDATED_EVENT = 'graph-data-updated';
 
+const formatRelativeTime = (isoStr) => {
+  if (!isoStr) return '';
+  const date = new Date(isoStr);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return '刚刚';
+  if (diffMin < 60) return `${diffMin}分钟前`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}小时前`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}天前`;
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+};
+
 export default function QAPage() {
-  const { sessions, currentSession, createSession, switchSession, deleteSession, loadHistory } = useSession();
+  const { sessions, currentSession, createSession, switchSession, deleteSession, renameSession, updateSessionTitle, loadHistory, loadSessions } = useSession();
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
   const [messages, setMessages] = useState([]);
@@ -64,6 +81,10 @@ export default function QAPage() {
   const [graphExpanded, setGraphExpanded] = useState(true);
   const [includeHistory, setIncludeHistory] = useState(true);
   const [graphReady, setGraphReady] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, sessionId: null, title: '' });
+  const [editingSession, setEditingSession] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [sessionListExpanded, setSessionListExpanded] = useState(true);
   const [nodeTypeConfigs, setNodeTypeConfigs] = useState([]);
   const [nodeTypeOverrides, setNodeTypeOverrides] = useState({});
   const { legend, getVisualMeta } = useMemo(
@@ -202,10 +223,18 @@ export default function QAPage() {
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
-    setMessages(prev => [...prev, { role: 'user', content: input }]);
-    const q = input; setInput(''); setLoading(true);
+    const q = input.trim();
+    // Auto-create session if none
+    let sid = currentSession;
+    if (!sid) {
+      sid = createSession();
+    }
+    setMessages(prev => [...prev, { role: 'user', content: q }]);
+    // Optimistically update session title from first message
+    updateSessionTitle(sid, q.slice(0, 50));
+    setInput(''); setLoading(true);
     try {
-      const r = await chatAPI.query(q, currentSession, includeHistory);
+      const r = await chatAPI.query(q, sid, includeHistory);
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: r.answer,
@@ -228,6 +257,27 @@ export default function QAPage() {
     switchSession(sid);
     const h = await loadHistory(sid);
     setMessages(h.map(m => ({ role: m.role, content: m.content })));
+  };
+  const handleDeleteSession = (sid, title) => {
+    setDeleteConfirm({ open: true, sessionId: sid, title: title || sid.slice(0, 8) });
+  };
+  const confirmDeleteSession = async () => {
+    const { sessionId } = deleteConfirm;
+    setDeleteConfirm({ open: false, sessionId: null, title: '' });
+    await deleteSession(sessionId);
+    if (currentSession === sessionId) setMessages([]);
+    showSnackbar('会话已删除', 'success');
+  };
+  const handleStartRename = (sid, currentTitle) => {
+    setEditingSession(sid);
+    setEditTitle(currentTitle);
+  };
+  const handleSaveRename = async () => {
+    if (editingSession && editTitle.trim()) {
+      await renameSession(editingSession, editTitle.trim());
+    }
+    setEditingSession(null);
+    setEditTitle('');
   };
 
   const handlePushToWecom = async (answer) => {
@@ -275,31 +325,104 @@ export default function QAPage() {
         </Box>
 
         <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Typography variant="caption" fontWeight={700} color="text.secondary">历史会话</Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer' }} onClick={() => setSessionListExpanded(!sessionListExpanded)}>
+              <Typography variant="caption" fontWeight={700} color="text.secondary">
+                历史会话 {sessions.length > 0 && `(${sessions.length})`}
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+                {sessionListExpanded ? '▾' : '▸'}
+              </Typography>
+            </Box>
             <Button size="small" startIcon={<Add fontSize="small" />} onClick={handleNewSession}>新建会话</Button>
           </Box>
-          <Stack direction="row" spacing={0.75} sx={{ overflowX: 'auto', pb: 0.25 }}>
-            {sessions.length === 0 ? (
-              <Typography variant="caption" color="text.disabled" sx={{ py: 0.5 }}>
-                暂无历史会话
-              </Typography>
-            ) : (
-              sessions.map(sid => (
-                <Chip
-                  key={sid}
-                  label={sid}
-                  onClick={() => handleSwitchSession(sid)}
-                  onDelete={() => deleteSession(sid)}
-                  color={sid === currentSession ? 'primary' : 'default'}
-                  variant={sid === currentSession ? 'filled' : 'outlined'}
-                  size="small"
-                  sx={{ borderRadius: 2, maxWidth: 140, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
-                />
-              ))
-            )}
-          </Stack>
+          <Collapse in={sessionListExpanded}>
+            <Box sx={{ mt: 0.75, maxHeight: 180, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {sessions.length === 0 ? (
+                <Typography variant="caption" color="text.disabled" sx={{ py: 1, textAlign: 'center' }}>
+                  暂无历史会话，发送消息将自动创建
+                </Typography>
+              ) : (
+                sessions.map(s => {
+                  const isActive = s.id === currentSession;
+                  const isEditing = editingSession === s.id;
+                  return (
+                    <Box
+                      key={s.id}
+                      onClick={() => !isEditing && handleSwitchSession(s.id)}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        px: 1.5,
+                        py: 0.85,
+                        borderRadius: 2,
+                        cursor: isEditing ? 'default' : 'pointer',
+                        bgcolor: isActive ? 'rgba(99,102,241,0.08)' : 'transparent',
+                        border: '1px solid',
+                        borderColor: isActive ? 'rgba(99,102,241,0.25)' : 'transparent',
+                        transition: 'all 0.15s',
+                        '&:hover': {
+                          bgcolor: isActive ? 'rgba(99,102,241,0.1)' : 'rgba(0,0,0,0.03)',
+                          '& .session-actions': { opacity: 1 },
+                        },
+                      }}
+                    >
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        {isEditing ? (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }} onClick={e => e.stopPropagation()}>
+                            <TextField
+                              size="small"
+                              value={editTitle}
+                              onChange={e => setEditTitle(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') handleSaveRename(); if (e.key === 'Escape') { setEditingSession(null); setEditTitle(''); } }}
+                              autoFocus
+                              sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: 12, py: 0.5 }, '& .MuiOutlinedInput-root': { borderRadius: 1 } }}
+                            />
+                            <IconButton size="small" onClick={handleSaveRename} sx={{ p: 0.25 }}>
+                              <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
+                            </IconButton>
+                            <IconButton size="small" onClick={() => { setEditingSession(null); setEditTitle(''); }} sx={{ p: 0.25 }}>
+                              <CloseIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Box>
+                        ) : (
+                          <>
+                            <Typography variant="body2" sx={{ fontSize: 12.5, fontWeight: isActive ? 600 : 500, color: isActive ? '#4f46e5' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.title || s.id.slice(0, 8)}
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontSize: 10.5, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                              {formatRelativeTime(s.updated_at)}
+                              {s.message_count > 0 && <span>· {s.message_count} 条消息</span>}
+                            </Typography>
+                          </>
+                        )}
+                      </Box>
+                      {!isEditing && (
+                        <Box className="session-actions" sx={{ display: 'flex', opacity: 0, transition: 'opacity 0.15s', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                          <IconButton size="small" onClick={() => handleStartRename(s.id, s.title)} sx={{ p: 0.25 }}>
+                            <EditIcon sx={{ fontSize: 13, color: '#94a3b8' }} />
+                          </IconButton>
+                          <IconButton size="small" onClick={() => handleDeleteSession(s.id, s.title)} sx={{ p: 0.25 }}>
+                            <DeleteIcon sx={{ fontSize: 13, color: '#f87171' }} />
+                          </IconButton>
+                        </Box>
+                      )}
+                    </Box>
+                  );
+                })
+              )}
+            </Box>
+          </Collapse>
         </Box>
+
+        <ConfirmDialog
+          open={deleteConfirm.open}
+          message={`确认删除会话「${deleteConfirm.title}」？\n删除后不可恢复。`}
+          onConfirm={confirmDeleteSession}
+          onCancel={() => setDeleteConfirm({ open: false, sessionId: null, title: '' })}
+          danger
+        />
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.25, md: 2 }, display: 'flex', flexDirection: 'column', gap: 1.5, bgcolor: '#f8fafc' }}>
           {messages.length === 0 ? (
