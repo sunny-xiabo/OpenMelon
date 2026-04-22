@@ -53,13 +53,13 @@ LOG_DIR = os.path.join(
 )
 
 LOG_FILES = {
-    "graph_rag.log": LOG_DIR,
-    "graph_rag_error.log": LOG_DIR,
+    "openmelon.log": LOG_DIR,
+    "openmelon_error.log": LOG_DIR,
 }
 
 @router.get("/logs")
 async def get_logs(
-    filename: str = Query(default="graph_rag.log"),
+    filename: str = Query(default="openmelon.log"),
     lines: int = Query(default=200, ge=1, le=5000),
 ):
     if filename not in LOG_FILES:

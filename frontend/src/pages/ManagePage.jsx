@@ -209,10 +209,13 @@ export default function ManagePage() {
         setFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'reindexing' } : f));
         showSnackbar('开始重新索引，请稍候...', 'info');
         try {
-          await fileAPI.reindex(id);
+          const res = await fileAPI.reindex(id);
+          if (res.success === false) {
+             throw new Error(res.message || '重新索引失败');
+          }
           showSnackbar('重新索引完成！', 'success');
-        } catch {
-          showSnackbar('重新索引失败', 'error');
+        } catch (err) {
+          showSnackbar(err.message || '重新索引失败', 'error');
         } finally {
           loadFiles();
         }
