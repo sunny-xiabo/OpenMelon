@@ -31,6 +31,10 @@ import {
   SaveAlt as SaveAltIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Widgets as WidgetsIcon,
+  AccountTree as FeaturesIcon,
+  BugReport as CasesIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { graphAPI } from '../services/api';
 import PageHeader from '../components/PageHeader';
@@ -43,7 +47,7 @@ function getCoverageTone(pct) {
   return { color: 'error', label: '风险' };
 }
 
-function MetricCard({ label, value, helper, accent }) {
+function MetricCard({ label, value, helper, accent, icon, trend }) {
   return (
     <Paper
       elevation={0}
@@ -55,14 +59,29 @@ function MetricCard({ label, value, helper, accent }) {
         borderColor: 'divider',
         borderRadius: 3,
         background: `linear-gradient(180deg, ${accent} 0%, #ffffff 100%)`,
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.06)',
+        },
       }}
     >
-      <Typography variant="caption" color="text.secondary">
-        {label}
-      </Typography>
-      <Typography variant="h4" sx={{ mt: 0.75, fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>
-        {value}
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Typography variant="caption" color="text.secondary">
+          {label}
+        </Typography>
+        {icon && <Box sx={{ opacity: 0.5, fontSize: 18 }}>{icon}</Box>}
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mt: 0.75 }}>
+        <Typography variant="h4" sx={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>
+          {value}
+        </Typography>
+        {trend && (
+          <Typography variant="caption" sx={{ color: trend.color, fontWeight: 600 }}>
+            {trend.text}
+          </Typography>
+        )}
+      </Box>
       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
         {helper}
       </Typography>
@@ -77,11 +96,10 @@ function DonutChart({ value }) {
   const circumference = 2 * Math.PI * radius;
   const dash = (normalized / 100) * circumference;
 
-  // Dynamic gradient based on coverage level
   const getGradientColors = (pct) => {
-    if (pct >= 80) return { start: '#22c55e', end: '#16a34a' };
-    if (pct >= 50) return { start: '#f59e0b', end: '#d97706' };
-    return { start: '#ef4444', end: '#dc2626' };
+    if (pct >= 80) return { start: '#22c55e', end: '#16a34a', glow: 'rgba(34,197,94,0.2)' };
+    if (pct >= 50) return { start: '#f59e0b', end: '#d97706', glow: 'rgba(245,158,11,0.2)' };
+    return { start: '#ef4444', end: '#dc2626', glow: 'rgba(239,68,68,0.2)' };
   };
   const gradient = getGradientColors(normalized);
 
@@ -93,19 +111,22 @@ function DonutChart({ value }) {
             <stop offset="0%" stopColor={gradient.start} />
             <stop offset="100%" stopColor={gradient.end} />
           </linearGradient>
+          <filter id="coverageGlow">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
         </defs>
-        <circle cx="74" cy="74" r={radius} fill="none" stroke="#e8eaed" strokeWidth={stroke} />
+        <circle cx="74" cy="74" r={radius} fill="none" stroke="#f1f5f9" strokeWidth={stroke} />
         <circle
-          cx="74"
-          cy="74"
-          r={radius}
+          cx="74" cy="74" r={radius}
           fill="none"
           stroke="url(#coverageGradient)"
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={`${dash} ${circumference - dash}`}
           transform="rotate(-90 74 74)"
-          style={{ transition: 'stroke-dasharray 0.6s ease' }}
+          filter="url(#coverageGlow)"
+          style={{ transition: 'stroke-dasharray 0.8s cubic-bezier(0.4,0,0.2,1)' }}
         />
       </svg>
       <Box sx={{ position: 'absolute', textAlign: 'center' }}>
@@ -125,35 +146,48 @@ function HorizontalBars({ modules }) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      {modules.map((item) => {
+      {modules.map((item, idx) => {
         const tone = getCoverageTone(item.coverage_percentage);
         return (
-          <Box key={item.module_name}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.5, gap: 1 }}>
-              <Typography variant="body2" fontWeight={600} noWrap>
-                {item.module_name}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {item.coverage_percentage.toFixed(1)}%
-              </Typography>
+          <Tooltip
+            key={item.module_name}
+            title={`功能 ${item.feature_count} · 用例 ${item.test_case_count}`}
+            placement="right"
+            arrow
+          >
+            <Box sx={{ '&:hover .bar-fill': { filter: 'brightness(1.1)' }, cursor: 'default' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.5, gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 700, fontSize: 10, minWidth: 16 }}>
+                    #{idx + 1}
+                  </Typography>
+                  <Typography variant="body2" fontWeight={600} noWrap>
+                    {item.module_name}
+                  </Typography>
+                </Box>
+                <Typography variant="caption" sx={{ fontWeight: 600, color: tone.color === 'success' ? '#22c55e' : tone.color === 'warning' ? '#f59e0b' : '#ef4444' }}>
+                  {item.coverage_percentage.toFixed(1)}%
+                </Typography>
+              </Box>
+              <Box sx={{ height: 10, borderRadius: 999, bgcolor: '#f1f5f9', overflow: 'hidden' }}>
+                <Box
+                  className="bar-fill"
+                  sx={{
+                    width: `${(item.coverage_percentage / maxCoverage) * 100}%`,
+                    height: '100%',
+                    borderRadius: 999,
+                    transition: 'width 0.5s ease, filter 0.2s',
+                    background:
+                      tone.color === 'success'
+                        ? 'linear-gradient(90deg, #34d399 0%, #22c55e 100%)'
+                        : tone.color === 'warning'
+                          ? 'linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%)'
+                          : 'linear-gradient(90deg, #fb7185 0%, #ef4444 100%)',
+                  }}
+                />
+              </Box>
             </Box>
-            <Box sx={{ height: 10, borderRadius: 999, bgcolor: '#edf2f7', overflow: 'hidden' }}>
-              <Box
-                sx={{
-                  width: `${(item.coverage_percentage / maxCoverage) * 100}%`,
-                  height: '100%',
-                  borderRadius: 999,
-                  transition: 'width 0.5s ease',
-                  background:
-                    tone.color === 'success'
-                      ? 'linear-gradient(90deg, #34d399 0%, #22c55e 100%)'
-                      : tone.color === 'warning'
-                        ? 'linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%)'
-                        : 'linear-gradient(90deg, #fb7185 0%, #ef4444 100%)',
-                }}
-              />
-            </Box>
-          </Box>
+          </Tooltip>
         );
       })}
     </Box>
@@ -408,24 +442,30 @@ export default function CoveragePage() {
                   value={modules.length}
                   helper={`其中 ${metrics.healthyCount} 个模块覆盖健康`}
                   accent="rgba(26,115,232,0.08)"
+                  icon={<WidgetsIcon fontSize="inherit" />}
+                  trend={metrics.healthyCount > 0 ? { text: `${((metrics.healthyCount / modules.length) * 100).toFixed(0)}% 健康`, color: '#22c55e' } : null}
                 />
                 <MetricCard
                   label="功能总数"
                   value={metrics.totalFeatures}
                   helper="已纳入图谱统计的功能节点总量"
                   accent="rgba(16,185,129,0.08)"
+                  icon={<FeaturesIcon fontSize="inherit" />}
                 />
                 <MetricCard
                   label="用例总数"
                   value={metrics.totalCases}
-                  helper="按模块聚合的测试用例节点总量"
+                  helper={metrics.totalFeatures > 0 ? `平均每功能 ${(metrics.totalCases / metrics.totalFeatures).toFixed(1)} 条用例` : '按模块聚合的测试用例节点总量'}
                   accent="rgba(245,158,11,0.08)"
+                  icon={<CasesIcon fontSize="inherit" />}
                 />
                 <MetricCard
                   label="风险模块"
                   value={metrics.riskCount}
                   helper="覆盖率低于 50% 的模块数量"
                   accent="rgba(239,68,68,0.08)"
+                  icon={<WarningIcon fontSize="inherit" />}
+                  trend={metrics.riskCount > 0 ? { text: '需关注', color: '#ef4444' } : { text: '无风险', color: '#22c55e' }}
                 />
               </Box>
 
@@ -472,16 +512,16 @@ export default function CoveragePage() {
                   </Box>
                 </Box>
 
-                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-                  <Table size="small">
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 480 }}>
+                  <Table size="small" stickyHeader>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ width: 36 }} />
-                        <TableCell>模块名称</TableCell>
-                        <TableCell align="center">功能数</TableCell>
-                        <TableCell align="center">用例数</TableCell>
-                        <TableCell align="center">状态</TableCell>
-                        <TableCell sx={{ minWidth: 240 }}>覆盖率</TableCell>
+                        <TableCell sx={{ width: 36, bgcolor: '#f8fafc' }} />
+                        <TableCell sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>模块名称</TableCell>
+                        <TableCell align="center" sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>功能数</TableCell>
+                        <TableCell align="center" sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>用例数</TableCell>
+                        <TableCell align="center" sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>状态</TableCell>
+                        <TableCell sx={{ minWidth: 240, bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>覆盖率</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>

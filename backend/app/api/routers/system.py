@@ -29,8 +29,19 @@ async def reset_metrics(collector = Depends(get_metrics_collector)):
 
 @router.get("/sessions")
 async def list_sessions(session_manager = Depends(get_session_manager)):
-    sessions = session_manager.list_sessions()
+    sessions = session_manager.list_sessions_with_meta()
     return {"sessions": sessions}
+
+@router.patch("/sessions/{session_id}/rename")
+async def rename_session(session_id: str, req: Request, session_manager = Depends(get_session_manager)):
+    body = await req.json()
+    title = body.get("title", "")
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    ok = session_manager.rename_session(session_id, title)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "title": title}
 
 @router.get("/history/{session_id}")
 async def history(session_id: str, session_manager = Depends(get_session_manager)):

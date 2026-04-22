@@ -103,6 +103,12 @@ export const chatAPI = {
 
   deleteSession: (sessionId) =>
     fetchJSON(`${API_BASE}/history/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
+
+  renameSession: (sessionId, title) =>
+    fetchJSON(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/rename`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
 };
 
 export const uploadAPI = {
