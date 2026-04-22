@@ -23,7 +23,7 @@ def _cleanup_old_logs(log_dir: str, retention_days: int):
 
 
 def setup_logger(
-    name: str = "graph_rag",
+    name: str = "app",
     log_level: int = logging.INFO,
 ) -> logging.Logger:
     logger = logging.getLogger(name)
@@ -31,6 +31,7 @@ def setup_logger(
         return logger
 
     logger.setLevel(log_level)
+    logger.propagate = False  # 防止向上传递导致重复打印
 
     formatter = logging.Formatter(
         fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

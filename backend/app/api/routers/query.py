@@ -20,7 +20,7 @@ from app.api.deps import (
     get_metrics_collector,
 )
 
-logger = logging.getLogger("graph_rag")
+logger = logging.getLogger("app")
 router = APIRouter(tags=["query"])
 
 @router.post("/query", response_model=QueryResponse)
