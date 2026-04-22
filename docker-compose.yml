@@ -35,7 +35,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      NEO4J_URI: bolt://neo4j:7687   # 容器内使用服务名作为主机名
+      NEO4J_URI: neo4j://neo4j:7687   # 容器内使用服务名作为主机名
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: password
       NEO4J_DATABASE: neo4j
