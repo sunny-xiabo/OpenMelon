@@ -59,6 +59,21 @@ services:
     networks:
       - openmlon-network
 
+  web:
+    profiles: ["full"]  # 同样仅在 full profile 下启动
+    build:
+      context: ./frontend
+      dockerfile: docker/Dockerfile
+    container_name: openmlon-web
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/openmelon-frontend.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - openmlon-network
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: openmlon-qdrant

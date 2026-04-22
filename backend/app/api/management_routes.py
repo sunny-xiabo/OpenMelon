@@ -114,6 +114,7 @@ async def reindex_file(record_id: str, req: Request):
             module=record["module"],
             filename=record["filename"],
             file_path=file_path,
+            update_tracker=False,
         )
 
         tracker.update_record(record_id, status="indexed", chunk_count=chunks)

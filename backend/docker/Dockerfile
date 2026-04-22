@@ -24,6 +24,8 @@ COPY config/ ./config
 # Expose API port
 EXPOSE 8000
 
+# Start the application using uv run to ensure it uses the created virtual environment
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # Run as a non-root user for security
 RUN adduser --system --group appuser && chown -R appuser:appuser /app
 USER appuser
