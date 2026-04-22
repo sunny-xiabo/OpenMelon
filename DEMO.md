@@ -345,10 +345,10 @@ curl -X POST "http://localhost:8000/api/test-cases/generate-from-context" \
 
 ```bash
 # 查看运行日志（最近 100 行）
-curl "http://localhost:8000/api/logs?filename=graph_rag.log&lines=100"
+curl "http://localhost:8000/api/logs?filename=openmelon.log&lines=100"
 
 # 查看错误日志
-curl "http://localhost:8000/api/logs?filename=graph_rag_error.log&lines=100"
+curl "http://localhost:8000/api/logs?filename=openmelon_error.log&lines=100"
 
 # 列出所有日志文件
 curl http://localhost:8000/api/logs/list

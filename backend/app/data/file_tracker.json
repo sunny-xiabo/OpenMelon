@@ -7,7 +7,7 @@
     "chunk_count": 3,
     "indexed_at": "2026-04-14T06:23:58.580875Z",
     "status": "indexed",
-    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/doc-rag/app/data/uploads/f2429b0e-cf89-481a-bfeb-e00cedebca9e.pdf"
+    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/uploads/f2429b0e-cf89-481a-bfeb-e00cedebca9e.pdf"
   },
   "48bdeb7d-bc9e-4b7b-a549-0bc91baf3cb1": {
     "id": "48bdeb7d-bc9e-4b7b-a549-0bc91baf3cb1",
@@ -17,7 +17,7 @@
     "chunk_count": 8,
     "indexed_at": "2026-04-14T06:27:26.348266Z",
     "status": "indexed",
-    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/doc-rag/app/data/uploads/f22c41f8-49ab-4fd1-8ad8-56c93a355de6.pdf"
+    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/uploads/f22c41f8-49ab-4fd1-8ad8-56c93a355de6.pdf"
   },
   "ace887e1-a11a-4f3e-957b-8b429247f42f": {
     "id": "ace887e1-a11a-4f3e-957b-8b429247f42f",
@@ -27,6 +27,16 @@
     "chunk_count": 6,
     "indexed_at": "2026-04-14T06:28:04.791509Z",
     "status": "indexed",
-    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/doc-rag/app/data/uploads/af99ab4a-9e52-4820-ba06-d7096f1f23fb.pdf"
+    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/uploads/af99ab4a-9e52-4820-ba06-d7096f1f23fb.pdf"
+  },
+  "e78fc8d9-8e5b-42d8-864c-3b8937e9242c": {
+    "id": "e78fc8d9-8e5b-42d8-864c-3b8937e9242c",
+    "filename": "data_review.pdf",
+    "doc_type": "需求文档",
+    "module": "数据审核",
+    "chunk_count": 3,
+    "indexed_at": "2026-04-22T02:43:27.533775Z",
+    "status": "indexed",
+    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/uploads/f2429b0e-cf89-481a-bfeb-e00cedebca9e.pdf"
   }
 }

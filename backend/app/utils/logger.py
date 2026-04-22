@@ -46,7 +46,7 @@ def setup_logger(
     os.makedirs(LOG_DIR, exist_ok=True)
     _cleanup_old_logs(LOG_DIR, LOG_RETENTION_DAYS)
 
-    log_file = os.path.join(LOG_DIR, "graph_rag.log")
+    log_file = os.path.join(LOG_DIR, "openmelon.log")
     file_handler = TimedRotatingFileHandler(
         log_file,
         when="midnight",
@@ -59,7 +59,7 @@ def setup_logger(
     file_handler.suffix = "%Y-%m-%d"
     logger.addHandler(file_handler)
 
-    error_file = os.path.join(LOG_DIR, "graph_rag_error.log")
+    error_file = os.path.join(LOG_DIR, "openmelon_error.log")
     error_handler = TimedRotatingFileHandler(
         error_file,
         when="midnight",

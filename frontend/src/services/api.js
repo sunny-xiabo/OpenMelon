@@ -182,7 +182,7 @@ export const testCaseAPI = {
 
 export const logsAPI = {
   list: () => fetchJSON(`${API_BASE}/logs/list`),
-  get: (filename = 'graph_rag.log', lines = 100) =>
+  get: (filename = 'openmelon.log', lines = 100) =>
     fetchJSON(`${API_BASE}/logs?filename=${filename}&lines=${lines}`),
 };
 

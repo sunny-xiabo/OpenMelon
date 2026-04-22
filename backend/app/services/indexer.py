@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from app.config import settings
 from app.services.file_tracker import file_tracker
 
-_ilog = logging.getLogger("doc_rag.indexer")
+_ilog = logging.getLogger("app.services.indexer")
 
 
 class DocumentIndexer:

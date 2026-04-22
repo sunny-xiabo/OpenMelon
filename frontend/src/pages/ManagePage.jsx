@@ -206,12 +206,18 @@ export default function ManagePage() {
       message: `确认重新索引「${name}」？\n将重新解析文件并更新索引，可能需要较长时间。`,
       onConfirm: async () => {
         setConfirmDialog({ open: false, message: '', onConfirm: null });
+        setFiles(prev => prev.map(f => f.id === id ? { ...f, status: 'reindexing' } : f));
+        showSnackbar('开始重新索引，请稍候...', 'info');
         try {
-          await fileAPI.reindex(id);
-          showSnackbar('重新索引已开始', 'success');
+          const res = await fileAPI.reindex(id);
+          if (res.success === false) {
+             throw new Error(res.message || '重新索引失败');
+          }
+          showSnackbar('重新索引完成！', 'success');
+        } catch (err) {
+          showSnackbar(err.message || '重新索引失败', 'error');
+        } finally {
           loadFiles();
-        } catch {
-          showSnackbar('重新索引失败', 'error');
         }
       },
     });
