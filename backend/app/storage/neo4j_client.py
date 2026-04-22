@@ -20,7 +20,12 @@ class Neo4jClient:
                 auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD),
                 max_connection_pool_size=50,
             )
-            logger.info(f"Connected to Neo4j at {settings.NEO4J_URI}")
+            try:
+                await self._driver.verify_connectivity()
+                logger.info(f"Neo4j 连接成功: {settings.NEO4J_URI}")
+            except Exception as e:
+                logger.error(f"Neo4j 连接验证失败 (服务可能未启动): {e}")
+                raise
         return self._driver
 
     async def close(self):
