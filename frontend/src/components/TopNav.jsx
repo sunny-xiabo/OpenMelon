@@ -3,6 +3,7 @@ import { AppBar, Toolbar, Typography, Box, Tabs, Tab, IconButton, Tooltip } from
 import { AutoGraphRounded, AccountCircle } from '@mui/icons-material';
 
 export default function TopNav({ tabs, currentTab, onTabChange }) {
+  // 切换标签页时的统一处理函数，把事件和新选中的索引传回给父组件(App.jsx)
   const handleChange = (event, newValue) => {
     onTabChange(newValue);
   };
@@ -12,6 +13,7 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
       position="static"
       elevation={4}
       sx={{
+        // 极客风深色渐变背景，与 OpenMelon 的整体调性保持一致
         background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #312e81 100%)',
         borderBottom: '1px solid rgba(255,255,255,0.05)',
       }}
@@ -37,6 +39,9 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
         </Box>
 
         <Box sx={{ flex: 1, display: 'flex', overflow: 'hidden', height: '100%', alignItems: 'flex-end' }}>
+          {/* 使用 Tabs 替代普通的 Button 列表，最重要的是开启 variant="scrollable" 
+              这样以后如果增加了新的模块（比如自动化测试等），顶部空间不够时会自动出现横向滚动条，
+              保证页面布局不会被挤压换行，拥有非常好的扩展性 */}
           <Tabs
             value={currentTab}
             onChange={handleChange}
@@ -45,11 +50,13 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
             allowScrollButtonsMobile
             sx={{
               minHeight: 56,
+              // 定制底部指示条（高亮条）的样式，使其带有圆角和渐变色
               '& .MuiTabs-indicator': {
                 height: 3,
                 borderRadius: '3px 3px 0 0',
                 background: 'linear-gradient(90deg, #6366f1, #a855f7)',
               },
+              // 滚动箭头的样式
               '& .MuiTabs-scrollButtons': {
                 color: 'rgba(255,255,255,0.6)',
                 '&.Mui-disabled': {
