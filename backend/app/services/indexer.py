@@ -333,6 +333,7 @@ class DocumentIndexer:
         module: str,
         filename: str,
         file_path: Optional[str] = None,
+        update_tracker: bool = True,
     ) -> int:
         t0 = time.monotonic()
         _ilog.info("%s | step=chunk_document start", filename)
@@ -518,18 +519,28 @@ class DocumentIndexer:
             t5 - t4,
         )
 
-        file_tracker.add_record(
-            filename=filename,
-            doc_type=doc_type,
-            module=module,
-            chunk_count=indexed_chunks,
-        )
-        if file_path:
-            recs = file_tracker.get_all_records()
-            for rec in recs:
-                if rec.get("filename") == filename and rec.get("file_path") is None:
-                    file_tracker.update_record(rec["id"], file_path=file_path)
-                    break
+        if update_tracker:
+            existing = [r for r in file_tracker.get_all_records() if r.get("filename") == filename]
+            if existing:
+                record_id = existing[0]["id"]
+                file_tracker.update_record(
+                    record_id,
+                    doc_type=doc_type,
+                    module=module,
+                    chunk_count=indexed_chunks,
+                    status="indexed",
+                )
+                if file_path:
+                    file_tracker.update_record(record_id, file_path=file_path)
+            else:
+                record = file_tracker.add_record(
+                    filename=filename,
+                    doc_type=doc_type,
+                    module=module,
+                    chunk_count=indexed_chunks,
+                )
+                if file_path:
+                    file_tracker.update_record(record["id"], file_path=file_path)
 
         _ilog.info(
             "%s | TOTAL=%.1fs | chunk=%.1fs embed=%.1fs "
