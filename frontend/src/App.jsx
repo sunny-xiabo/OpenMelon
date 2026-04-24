@@ -14,7 +14,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LoadingOverlay from './components/LoadingOverlay';
 import TopNav from './components/TopNav';
 
-// Lazy loaded page components
+// 懒加载页面组件：只有用户点击到对应的 Tab 时才会去加载 JS 资源，极大地提升首屏加载速度
 const QAPage = lazy(() => import('./pages/QAPage'));
 const GraphPage = lazy(() => import('./pages/GraphPage'));
 const ManagePage = lazy(() => import('./pages/ManagePage'));
@@ -22,6 +22,7 @@ const CoveragePage = lazy(() => import('./pages/CoveragePage'));
 const TestCasePage = lazy(() => import('./pages/TestCasePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 
+// 顶部导航栏配置，定义每个模块对应的图标和组件
 const TABS = [
   { label: '问答', component: QAPage, icon: <QuestionAnswerRounded fontSize="small" /> },
   { label: '图谱总览', component: GraphPage, icon: <HubRounded fontSize="small" /> },
@@ -33,6 +34,10 @@ const TABS = [
 
 function App() {
   const [tab, setTab] = useState(0);
+  
+  // mountedTabs 用于实现“按需挂载” + “保持状态” (Keep-Alive)。
+  // 也就是说，首次点击 Tab 时会挂载对应的组件，切换走时不会卸载它（只用 display: none 隐藏），
+  // 这样当用户切回这个页面时，它的状态（比如输入的文字、滚动位置）都还在。
   const [mountedTabs, setMountedTabs] = useState([0]);
 
   const handleTabChange = (newIndex) => {

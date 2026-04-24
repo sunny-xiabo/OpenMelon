@@ -1,14 +1,4 @@
 {
-  "3c60be5f-a5b0-4594-a89f-041d36f1ea80": {
-    "id": "3c60be5f-a5b0-4594-a89f-041d36f1ea80",
-    "filename": "data_review.pdf",
-    "doc_type": "需求文档",
-    "module": "数据审核",
-    "chunk_count": 3,
-    "indexed_at": "2026-04-14T06:23:58.580875Z",
-    "status": "indexed",
-    "file_path": "/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/uploads/f2429b0e-cf89-481a-bfeb-e00cedebca9e.pdf"
-  },
   "48bdeb7d-bc9e-4b7b-a549-0bc91baf3cb1": {
     "id": "48bdeb7d-bc9e-4b7b-a549-0bc91baf3cb1",
     "filename": "量化设置.pdf",

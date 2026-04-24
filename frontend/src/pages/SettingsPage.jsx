@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Box, Button, Paper, Typography } from '@mui/material';
 import SettingsSuggestOutlined from '@mui/icons-material/SettingsSuggestOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
+import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import PageHeader from '../components/PageHeader';
 import NodeTypeConfigPage from './NodeTypeConfigPage';
+import PromptHubConfigPage from './PromptHubConfigPage';
 
 const SECTIONS = [
   {
@@ -11,6 +13,12 @@ const SECTIONS = [
     label: '节点类型配置',
     description: '管理服务端节点类型与前端展示样式',
     icon: <TuneOutlined fontSize="small" />,
+  },
+  {
+    key: 'prompt-hub',
+    label: 'Prompt Hub',
+    description: '管理测试用例模板、技能与默认策略',
+    icon: <AutoAwesomeOutlined fontSize="small" />,
   },
 ];
 
@@ -80,6 +88,7 @@ export default function SettingsPage() {
 
           <Box sx={{ flex: 1, minWidth: 0, bgcolor: 'background.paper' }}>
             {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
+            {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
           </Box>
         </Box>
       </Paper>

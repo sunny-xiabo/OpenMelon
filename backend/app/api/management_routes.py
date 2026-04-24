@@ -114,9 +114,10 @@ async def reindex_file(record_id: str, req: Request):
             module=record["module"],
             filename=record["filename"],
             file_path=file_path,
-            update_tracker=False,
+            update_tracker=False, # 关键点：告诉索引器“别自作主张去新增文件记录”，防止产生重复的幽灵数据
         )
 
+        # 重新索引跑完后，精确地把当前这条记录的状态改成"已索引"，并更新最新切出来的区块数
         tracker.update_record(record_id, status="indexed", chunk_count=chunks)
         return ReindexResponse(
             success=True,

@@ -5,6 +5,52 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.2] - 2026-04-24
+
+*(Prompt & Skill Hub 阶段二完成)*
+
+### 新增 (Added)
+- **Prompt Hub**: 新增 `backend/app/data/prompt_hub.json` 作为模板与技能的持久化配置载体。
+- **Prompt Hub**: 新增 `backend/app/services/prompt_hub_tracker.py`，统一负责配置读取、校验、默认回退、版本更新与 CRUD 写回。
+- **Prompt Hub API**: 新增 `/api/prompt-hub/options`、`/templates`、`/skills` 读写接口，支持模板与技能管理。
+- **设置中心**: Settings 页新增 Prompt Hub 管理入口，支持模板和技能的新增、编辑、删除与默认模板配置。
+- **自动化测试**: 新增 `backend/tests/test_prompt_hub_tracker.py`，覆盖模板/技能 CRUD、默认回退和非法配置校验。
+
+### 变更 (Changed)
+- **测试用例生成 UI**: 生成页改为动态读取 Prompt Hub 选项，不再依赖固定静态模板/技能常量。
+- **回退策略**: 当已选模板被删除或停用时，前端自动回退为默认模板；当已选技能失效时，前端自动移除失效技能并提示。
+- **测试用例生成运行时**: `prompt_assembler.py` 改为优先读取 Prompt Hub 持久化配置，同时保留默认兜底能力。
+- **Prompt Hub 管理页**: 新增字段级帮助文案，直接提示模板和技能的写法边界、字段含义与示例方向。
+- **Prompt Hub 技能分类**: 技能分类升级为独立持久化配置，支持中文默认分类、下拉选择、自定义输入、默认分类保护与删除校验。
+- **Prompt Hub 大列表布局**: 管理页改为模板/技能分栏切换，并新增搜索、分类筛选和独立滚动区域，适配配置量增长场景。
+- **文档体系**: `docs/PROMPT_HUB_GUIDE.md` 内容并入 `MANUAL.md`，并同步更新演进计划与当前落地状态。
+
+### 修复 (Fixed)
+- **Prompt Hub 交互**: 修复同一应用会话内修改模板/技能后测试用例生成页不会即时同步的问题，现已通过前端事件广播即时刷新。
+
+---
+
+## [0.2.1] - 2026-04-24
+
+*(测试用例生成阶段一落地)*
+
+### 新增 (Added)
+- **测试用例生成**: 新增阶段一 Prompt/Skill 运行时能力，后端支持通过 `style_id` 与 `skill_ids` 动态组装生成器 Prompt，并向评审器传递结构化风格/技能摘要。
+- **测试用例生成**: 新增 `backend/app/testcase_gen/services/prompt_assembler.py`，统一维护内置模板、专项技能、配置解析、评审摘要和缓存键生成逻辑。
+- **测试用例生成 UI**: 生成页新增模板选择、专项技能多选与当前生成策略展示，允许在不改默认协议的前提下切换生成风格与覆盖重点。
+
+### 变更 (Changed)
+- **测试用例生成**: `/api/test-cases/generate` 与 `/api/test-cases/generate-from-context` 改为支持透传 `style_id` 与 `skill_ids`，并在三阶段链路中完整向下游传递。
+- **缓存策略**: 测试用例生成缓存键纳入 `module`、`style_id`、排序后的 `skill_ids`、`use_vector` 与配置版本，避免切换模板或技能时误命中旧缓存。
+- **日志系统**: `app` 与 `testcase_generator` logger 初始化改为幂等补齐处理器，确保重复导入或重载时仍能稳定挂载 stdout 与文件 handler。
+- **版本范围**: 当前仅完成 Prompt & Skill Hub 阶段一运行时能力，阶段二管理端与持久化配置暂未启动。
+
+### 修复 (Fixed)
+- **测试用例解析**: 修复生成结果解析后的步骤序号显示错乱问题，前端按最终展示顺序重新编号，避免模型输出序号跳号或重复时界面顺序异常。
+- **测试用例日志**: 修复测试用例链路 logger 初始化不一致导致的请求期日志可见性问题，请求阶段日志现在会稳定写入 `openmelon.log` 并输出到终端 handler。
+
+---
+
 ## [0.2.0] - 2026-04-22
 
 *(会话体验优化 & 工程治理)*

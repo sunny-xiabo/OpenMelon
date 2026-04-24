@@ -171,3 +171,40 @@ class DeleteResponse(BaseModel):
 class ReindexResponse(BaseModel):
     success: bool
     message: str
+
+
+class PromptHubTemplatePayload(BaseModel):
+    id: Optional[str] = None
+    name: str
+    description: str = ""
+    content: str
+    review_summary: str = ""
+    enabled: bool = True
+    is_default: bool = False
+    sort_order: int = 100
+
+
+class PromptHubSkillPayload(BaseModel):
+    id: Optional[str] = None
+    name: str
+    description: str = ""
+    content: str
+    review_summary: str = ""
+    enabled: bool = True
+    category: str = "coverage"
+    sort_order: int = 100
+
+
+class PromptHubSkillCategoryPayload(BaseModel):
+    id: Optional[str] = None
+    name: str
+    is_default: bool = False
+    sort_order: int = 100
+
+
+class PromptHubMutationResponse(BaseModel):
+    success: bool
+    message: str
+    version: int
+    updated_at: str
+    record: Dict[str, Any]

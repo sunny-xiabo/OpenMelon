@@ -27,50 +27,65 @@ def setup_logger(
     log_level: int = logging.INFO,
 ) -> logging.Logger:
     logger = logging.getLogger(name)
-    if logger.handlers:
-        return logger
-
     logger.setLevel(log_level)
-    logger.propagate = False  # 防止向上传递导致重复打印
+    logger.propagate = False
 
     formatter = logging.Formatter(
         fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    has_console_handler = any(
+        isinstance(handler, logging.StreamHandler)
+        and getattr(handler, "stream", None) is sys.stdout
+        for handler in logger.handlers
+    )
+    if not has_console_handler:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(log_level)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     os.makedirs(LOG_DIR, exist_ok=True)
     _cleanup_old_logs(LOG_DIR, LOG_RETENTION_DAYS)
 
     log_file = os.path.join(LOG_DIR, "openmelon.log")
-    file_handler = TimedRotatingFileHandler(
-        log_file,
-        when="midnight",
-        interval=1,
-        backupCount=LOG_RETENTION_DAYS,
-        encoding="utf-8",
+    has_log_file_handler = any(
+        isinstance(handler, TimedRotatingFileHandler)
+        and getattr(handler, "baseFilename", None) == log_file
+        for handler in logger.handlers
     )
-    file_handler.setLevel(log_level)
-    file_handler.setFormatter(formatter)
-    file_handler.suffix = "%Y-%m-%d"
-    logger.addHandler(file_handler)
+    if not has_log_file_handler:
+        file_handler = TimedRotatingFileHandler(
+            log_file,
+            when="midnight",
+            interval=1,
+            backupCount=LOG_RETENTION_DAYS,
+            encoding="utf-8",
+        )
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        file_handler.suffix = "%Y-%m-%d"
+        logger.addHandler(file_handler)
 
     error_file = os.path.join(LOG_DIR, "openmelon_error.log")
-    error_handler = TimedRotatingFileHandler(
-        error_file,
-        when="midnight",
-        interval=1,
-        backupCount=LOG_RETENTION_DAYS,
-        encoding="utf-8",
+    has_error_file_handler = any(
+        isinstance(handler, TimedRotatingFileHandler)
+        and getattr(handler, "baseFilename", None) == error_file
+        for handler in logger.handlers
     )
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(formatter)
-    error_handler.suffix = "%Y-%m-%d"
-    logger.addHandler(error_handler)
+    if not has_error_file_handler:
+        error_handler = TimedRotatingFileHandler(
+            error_file,
+            when="midnight",
+            interval=1,
+            backupCount=LOG_RETENTION_DAYS,
+            encoding="utf-8",
+        )
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(formatter)
+        error_handler.suffix = "%Y-%m-%d"
+        logger.addHandler(error_handler)
 
     return logger
 

@@ -519,9 +519,13 @@ class DocumentIndexer:
             t5 - t4,
         )
 
+        # 是否需要更新文件状态追踪器
+        # (重新索引时 management_routes 会传 False，因为它自己会负责精准更新那一条记录，这里就不碰了，防止生成重复的假数据)
         if update_tracker:
+            # 找一下追踪器里有没有同名的文件记录
             existing = [r for r in file_tracker.get_all_records() if r.get("filename") == filename]
             if existing:
+                # 如果以前传过同名文件，就直接更新老记录的信息，不要再建新的一行了
                 record_id = existing[0]["id"]
                 file_tracker.update_record(
                     record_id,
@@ -533,6 +537,7 @@ class DocumentIndexer:
                 if file_path:
                     file_tracker.update_record(record_id, file_path=file_path)
             else:
+                # 如果是全新的文件，就在追踪器里加一条全新的记录（会在页面表格里多出一行）
                 record = file_tracker.add_record(
                     filename=filename,
                     doc_type=doc_type,

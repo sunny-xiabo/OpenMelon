@@ -24,11 +24,12 @@ import { useTheme } from '@mui/material/styles';
 import { AutoFixHigh, UploadFile, Schema, SaveAlt, AccountTree, DescriptionOutlined } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { testCaseAPI, vectorAPI, graphAPI } from '../services/api';
+import { testCaseAPI, vectorAPI, graphAPI, promptHubAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import StageOutput from '../components/StageOutput';
 import TestCaseListView from '../components/TestCaseListView';
 import TestCaseMindMap from '../components/TestCaseMindMap';
+import { PROMPT_HUB_UPDATED_EVENT } from '../constants/promptHub';
 import { parseTestCasesFromMarkdown } from '../utils/parseTestCases';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
@@ -41,6 +42,22 @@ const FILE_CATEGORIES = [
 
 const ALL_EXTS = FILE_CATEGORIES.flatMap(c => c.exts);
 const ACCEPT_STR = ALL_EXTS.join(',');
+
+const FALLBACK_TEMPLATE_OPTIONS = [
+  { id: 'default-detailed', name: '详细版', description: '强调完整性、覆盖度和可执行性。' },
+  { id: 'default-compact', name: '精简版', description: '强调去冗余和高信息密度。' },
+  { id: 'default-bdd-enhanced', name: 'BDD增强版', description: '用 Given/When/Then 思维强化场景表达。' },
+];
+
+const FALLBACK_SKILL_OPTIONS = [
+  { id: 'boundary-basic', name: '边界值测试', description: '补充边界值、临界值、空值和格式边界覆盖。' },
+  { id: 'security-auth', name: '认证与权限', description: '补充登录态、鉴权、越权和角色差异覆盖。' },
+  { id: 'exception-handling', name: '异常与错误处理', description: '补充失败分支、报错和恢复路径覆盖。' },
+  { id: 'compatibility-basic', name: '兼容性基础覆盖', description: '补充浏览器、设备和格式兼容覆盖。' },
+  { id: 'concurrency-idempotency', name: '并发与幂等', description: '补充重复提交、并发竞争和状态一致性覆盖。' },
+];
+
+const DEFAULT_TEMPLATE_ID = FALLBACK_TEMPLATE_OPTIONS[0].id;
 
 const fmtSize = (b) => b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
 
@@ -65,6 +82,11 @@ export default function TestCasePage({ isActive = true }) {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [useVector, setUseVector] = useState(true);
+  const [styleId, setStyleId] = useState(DEFAULT_TEMPLATE_ID);
+  const [selectedSkillIds, setSelectedSkillIds] = useState([]);
+  const [templateOptions, setTemplateOptions] = useState(FALLBACK_TEMPLATE_OPTIONS);
+  const [skillOptions, setSkillOptions] = useState(FALLBACK_SKILL_OPTIONS);
+  const [defaultTemplateId, setDefaultTemplateId] = useState(DEFAULT_TEMPLATE_ID);
 
   const [generating, setGenerating] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
@@ -79,19 +101,42 @@ export default function TestCasePage({ isActive = true }) {
   const [exportAnchorEl, setExportAnchorEl] = useState(null);
 
   const fileRef = useRef(null);
+  const styleIdRef = useRef(styleId);
+  const selectedSkillIdsRef = useRef(selectedSkillIds);
   const showSnackbar = useSnackbar();
+
+  useEffect(() => {
+    styleIdRef.current = styleId;
+  }, [styleId]);
+
+  useEffect(() => {
+    selectedSkillIdsRef.current = selectedSkillIds;
+  }, [selectedSkillIds]);
 
   useEffect(() => {
     if (isActive) {
       checkVectorStatus();
       loadFilters();
+      loadPromptHubOptions(false);
     }
   }, [isActive]);
+
+  useEffect(() => {
+    const handlePromptHubUpdated = () => {
+      loadPromptHubOptions(true);
+    };
+    window.addEventListener(PROMPT_HUB_UPDATED_EVENT, handlePromptHubUpdated);
+    return () => {
+      window.removeEventListener(PROMPT_HUB_UPDATED_EVENT, handlePromptHubUpdated);
+    };
+  }, []);
 
   const handleReset = () => {
     setContext('');
     setRequirements('');
     setModuleName('');
+    setStyleId(defaultTemplateId);
+    setSelectedSkillIds([]);
     clearFile();
     setStreamingContent('');
     setParsedTestCases([]);
@@ -103,6 +148,52 @@ export default function TestCasePage({ isActive = true }) {
       const filters = await graphAPI.getFilters();
       setAvailableModules(filters.modules || []);
     } catch { }
+  };
+
+  const reconcilePromptHubSelection = (nextTemplates, nextSkills, nextDefaultTemplateId, notify) => {
+    const previousStyleId = styleIdRef.current;
+    const previousSkillIds = selectedSkillIdsRef.current;
+    const resolvedStyleId = nextTemplates.some((item) => item.id === previousStyleId)
+      ? previousStyleId
+      : nextDefaultTemplateId;
+    const resolvedSkillIds = previousSkillIds.filter((skillId) =>
+      nextSkills.some((item) => item.id === skillId)
+    );
+
+    setTemplateOptions(nextTemplates);
+    setSkillOptions(nextSkills);
+    setDefaultTemplateId(nextDefaultTemplateId);
+    setStyleId(resolvedStyleId);
+    setSelectedSkillIds(resolvedSkillIds);
+
+    if (notify && previousStyleId && previousStyleId !== resolvedStyleId) {
+      showSnackbar('当前模板已失效，已自动回退为默认模板', 'info');
+    }
+    if (notify && previousSkillIds.length !== resolvedSkillIds.length) {
+      showSnackbar('部分已选技能已失效，系统已自动移除', 'info');
+    }
+  };
+
+  const loadPromptHubOptions = async (notifyOnFallback = false) => {
+    try {
+      const data = await promptHubAPI.getOptions();
+      const nextTemplates = data.templates?.length ? data.templates : FALLBACK_TEMPLATE_OPTIONS;
+      const nextSkills = data.skills?.length ? data.skills : FALLBACK_SKILL_OPTIONS;
+      const nextDefaultTemplateId = data.default_style_id || nextTemplates[0]?.id || DEFAULT_TEMPLATE_ID;
+      reconcilePromptHubSelection(
+        nextTemplates,
+        nextSkills,
+        nextDefaultTemplateId,
+        notifyOnFallback,
+      );
+    } catch {
+      reconcilePromptHubSelection(
+        FALLBACK_TEMPLATE_OPTIONS,
+        FALLBACK_SKILL_OPTIONS,
+        DEFAULT_TEMPLATE_ID,
+        notifyOnFallback,
+      );
+    }
   };
 
   const checkVectorStatus = async () => {
@@ -164,8 +255,8 @@ export default function TestCasePage({ isActive = true }) {
     try {
       let fullText = '';
       const resp = mode === 'file' && file
-        ? await testCaseAPI.generateFromFile(file, context, requirements, moduleName, useVector)
-        : await testCaseAPI.generateFromContext(context, requirements, moduleName, useVector);
+        ? await testCaseAPI.generateFromFile(file, context, requirements, moduleName, useVector, styleId, selectedSkillIds)
+        : await testCaseAPI.generateFromContext(context, requirements, moduleName, useVector, styleId, selectedSkillIds);
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       while (true) {
@@ -445,6 +536,64 @@ export default function TestCasePage({ isActive = true }) {
             )}
             size="small"
           />
+
+          <FormControl fullWidth size="small">
+            <InputLabel>生成模板</InputLabel>
+            <Select
+              value={styleId}
+              label="生成模板"
+              onChange={(e) => setStyleId(e.target.value)}
+              sx={{ borderRadius: 1.5, bgcolor: '#f8fafc' }}
+            >
+              {templateOptions.map((option) => (
+                <MenuItem key={option.id} value={option.id}>
+                  {option.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Autocomplete
+            multiple
+            options={skillOptions}
+            getOptionLabel={(option) => option.name}
+            value={skillOptions.filter((option) => selectedSkillIds.includes(option.id))}
+            onChange={(e, newValue) => setSelectedSkillIds(newValue.map((item) => item.id))}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="专项技能"
+                placeholder="选择需要强化的测试覆盖维度"
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: '#f8fafc' } }}
+              />
+            )}
+            renderTags={(value, getTagProps) => value.map((option, index) => (
+              <Chip {...getTagProps({ index })} key={option.id} label={option.name} size="small" />
+            ))}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+          />
+
+          <Paper elevation={0} sx={{ p: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: '#fbfcff' }}>
+            <Typography variant="body2" fontWeight={700} sx={{ mb: 0.75 }}>
+              当前生成策略
+            </Typography>
+            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+              <Chip
+                size="small"
+                color="primary"
+                label={`模板：${templateOptions.find((option) => option.id === styleId)?.name || '默认模板'}`}
+              />
+              <Chip
+                size="small"
+                variant="outlined"
+                label={selectedSkillIds.length ? `技能：${selectedSkillIds.length}项` : '技能：未选择'}
+              />
+              {selectedSkillIds.map((skillId) => {
+                const skill = skillOptions.find((option) => option.id === skillId);
+                return skill ? <Chip key={skillId} size="small" variant="outlined" label={skill.name} /> : null;
+              })}
+            </Stack>
+          </Paper>
 
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             <Button

@@ -24,6 +24,9 @@ COPY config/ ./config
 # Expose API port
 EXPOSE 8000
 
+# 禁用 Python 的标准输出缓冲，确保日志能实时打印到终端
+ENV PYTHONUNBUFFERED=1
+
 # Start the application using uv run to ensure it uses the created virtual environment
 CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # Run as a non-root user for security

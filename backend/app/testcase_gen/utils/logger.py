@@ -22,8 +22,7 @@ for otel_name in ("opentelemetry", "opentelemetry.context", "opentelemetry.trace
     otel_logger.addFilter(_OpenTelemetryFilter())
 
 
-logger = logging.getLogger("testcase_generator")
-
-if not logger.handlers:
-    _main_setup("testcase_generator")
-    logger.addFilter(_OpenTelemetryFilter())
+logger = _main_setup("testcase_generator")
+logger.addFilter(_OpenTelemetryFilter())
+for handler in logger.handlers:
+    handler.addFilter(_OpenTelemetryFilter())

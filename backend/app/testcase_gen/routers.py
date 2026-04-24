@@ -23,6 +23,10 @@ from app.testcase_gen.config import (
 )
 from app.testcase_gen.utils.performance_optimizer import prompt_cache, response_cache
 from app.testcase_gen.middleware.performance_monitor import performance_monitor
+from app.testcase_gen.services.prompt_assembler import (
+    build_prompt_config_context,
+    parse_skill_ids,
+)
 
 router = APIRouter(
     prefix="/api/test-cases",
@@ -80,6 +84,8 @@ async def generate_test_cases(
     requirements: str = Form(...),
     module: str = Form(default=None),
     use_vector: str = Form(default="false"),
+    style_id: str = Form(default=None),
+    skill_ids: str = Form(default=None),
 ):
     """
     从上传的文件、上下文和需求生成测试用例
@@ -94,6 +100,13 @@ async def generate_test_cases(
         包含生成的测试用例的流式响应
     """
     try:
+        try:
+            parsed_skill_ids = parse_skill_ids(skill_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"skill_ids 参数非法: {exc}") from exc
+
+        prompt_config = build_prompt_config_context(style_id, parsed_skill_ids)
+
         # 读取文件内容
         file_content = await file.read()
 
@@ -174,9 +187,20 @@ async def generate_test_cases(
             ".yaml",
             ".yml",
         ]:
+            logger.info(
+                "测试用例生成配置 - style_id=%s, skill_ids=%s",
+                prompt_config["style_id"],
+                ",".join(prompt_config["skill_ids"]) or "<none>",
+            )
             return StreamingResponse(
                 ai_service.generate_test_cases_stream(
-                    file_path, context, requirements, module=module, vector_context=vector_context
+                    file_path,
+                    context,
+                    requirements,
+                    module=module,
+                    vector_context=vector_context,
+                    use_vector=use_vector_bool,
+                    prompt_config=prompt_config,
                 ),
                 media_type="text/markdown",
             )
@@ -200,8 +224,16 @@ async def generate_from_context(
     requirements: str = Form(...),
     module: str = Form(default=None),
     use_vector: str = Form(default="false"),
+    style_id: str = Form(default=None),
+    skill_ids: str = Form(default=None),
 ):
     try:
+        try:
+            parsed_skill_ids = parse_skill_ids(skill_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"skill_ids 参数非法: {exc}") from exc
+
+        prompt_config = build_prompt_config_context(style_id, parsed_skill_ids)
         virtual_path = "virtual/context.txt"
 
         use_vector_bool = use_vector.lower() == "true"
@@ -231,9 +263,20 @@ async def generate_from_context(
                 except Exception as e:
                     logger.warning(f"Vector search failed during generation: {e}")
 
+        logger.info(
+            "文本生成配置 - style_id=%s, skill_ids=%s",
+            prompt_config["style_id"],
+            ",".join(prompt_config["skill_ids"]) or "<none>",
+        )
         return StreamingResponse(
             ai_service.generate_test_cases_stream(
-                virtual_path, context, requirements, module=module, vector_context=vector_context
+                virtual_path,
+                context,
+                requirements,
+                module=module,
+                vector_context=vector_context,
+                use_vector=use_vector_bool,
+                prompt_config=prompt_config,
             ),
             media_type="text/markdown",
         )
