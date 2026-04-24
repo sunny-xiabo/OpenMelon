@@ -41,6 +41,9 @@ async def _force_shutdown():
     sys.exit(1)
 
 
+# lifespan 是 FastAPI 的生命周期管理器，应用启动前和关闭后会分别执行 yield 前后的代码。
+# 在这里我们集中初始化了所有的核心服务（如数据库连接、大模型客户端、各类引擎实例等），
+# 并将它们挂载到 app.state 上，这样全局都可以通过 request.app.state 访问这些单例。
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("OpenMelon 服务启动中...")
@@ -75,11 +78,20 @@ async def lifespan(app: FastAPI):
         base_url=settings.API_BASE_URL,
     )
 
+    # ==========================
+    # 核心引擎与服务初始化
+    # ==========================
+    # 意图识别：分析用户提问意图（是要找功能、问缺陷还是看覆盖率？）
     intent_router = IntentRouter(llm_client, graph_ops)
+    # 多路召回器：综合图谱搜索与向量搜索，拼装最终检索结果
     retriever = MultiChannelRetriever(graph_ops, vector_ops, llm_client)
+    # 文本生成器：根据召回的上下文回答问题
     generator = RAGGenerator(llm_client)
+    # Agentic RAG（高级玩法）：带有思考、计划和自我纠错能力的 RAG
     agentic_rag = AgenticRAG(llm_client, retriever)
+    # 文档索引器：负责把文件拆 Chunk，写向量库，提炼实体并写入图数据库
     indexer = DocumentIndexer(neo4j_client, graph_ops, vector_ops, llm_client)
+    # 覆盖率服务：分析知识图谱里的 Module->Feature->TestCase 关系网计算覆盖率
     coverage_service = CoverageService(graph_ops)
 
     app.state.neo4j_client = neo4j_client
