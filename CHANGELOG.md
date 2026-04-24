@@ -5,6 +5,31 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.2] - 2026-04-24
+
+*(Prompt & Skill Hub 阶段二完成)*
+
+### 新增 (Added)
+- **Prompt Hub**: 新增 `backend/app/data/prompt_hub.json` 作为模板与技能的持久化配置载体。
+- **Prompt Hub**: 新增 `backend/app/services/prompt_hub_tracker.py`，统一负责配置读取、校验、默认回退、版本更新与 CRUD 写回。
+- **Prompt Hub API**: 新增 `/api/prompt-hub/options`、`/templates`、`/skills` 读写接口，支持模板与技能管理。
+- **设置中心**: Settings 页新增 Prompt Hub 管理入口，支持模板和技能的新增、编辑、删除与默认模板配置。
+- **自动化测试**: 新增 `backend/tests/test_prompt_hub_tracker.py`，覆盖模板/技能 CRUD、默认回退和非法配置校验。
+
+### 变更 (Changed)
+- **测试用例生成 UI**: 生成页改为动态读取 Prompt Hub 选项，不再依赖固定静态模板/技能常量。
+- **回退策略**: 当已选模板被删除或停用时，前端自动回退为默认模板；当已选技能失效时，前端自动移除失效技能并提示。
+- **测试用例生成运行时**: `prompt_assembler.py` 改为优先读取 Prompt Hub 持久化配置，同时保留默认兜底能力。
+- **Prompt Hub 管理页**: 新增字段级帮助文案，直接提示模板和技能的写法边界、字段含义与示例方向。
+- **Prompt Hub 技能分类**: 技能分类升级为独立持久化配置，支持中文默认分类、下拉选择、自定义输入、默认分类保护与删除校验。
+- **Prompt Hub 大列表布局**: 管理页改为模板/技能分栏切换，并新增搜索、分类筛选和独立滚动区域，适配配置量增长场景。
+- **文档体系**: `docs/PROMPT_HUB_GUIDE.md` 内容并入 `MANUAL.md`，并同步更新演进计划与当前落地状态。
+
+### 修复 (Fixed)
+- **Prompt Hub 交互**: 修复同一应用会话内修改模板/技能后测试用例生成页不会即时同步的问题，现已通过前端事件广播即时刷新。
+
+---
+
 ## [0.2.1] - 2026-04-24
 
 *(测试用例生成阶段一落地)*
