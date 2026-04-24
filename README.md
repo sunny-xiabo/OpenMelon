@@ -368,56 +368,103 @@ docker compose up -d
 
 ---
 
-## 数据流
-
-### 写入流（文档索引）
-
-```mermaid
-flowchart LR
-    A[上传文件] --> B[解析文本]
-    B --> C[分块]
-    C --> D[并发 Embedding]
-    C --> E[实体提取]
-    D --> F[(Qdrant 向量库)]
-    E --> G[(Neo4j 知识图谱)]
-```
-
-### 读取流（智能问答）
-
-```mermaid
-flowchart LR
-    A[用户提问] --> B[意图识别]
-    B --> C[多通道检索]
-    C --> D[LLM 生成回答]
-    C -.-> E[图谱/向量/混合]
-```
-
-### 读取流（Agentic RAG 多步推理）
-
-```mermaid
-flowchart LR
-    A[用户提问] --> B[查询改写]
-    B --> C[向量检索]
-    C --> D[充分性评估]
-    D -->|不足| B
-    D -->|充分| E[LLM 生成回答]
-```
-
-### 测试用例生成流（图谱+向量双核驱动）
+## 系统架构
 
 ```mermaid
 flowchart TD
-    A[用户请求] --> B[检索图谱知识<br>Neo4j]
-    A -.开关开启.-> V[检索语义片段<br>Qdrant]
-    B --> C[联合上下文<br>图谱 + 向量 + 内容]
-    V --> C
-    C --> D[阶段1: 需求分析]
-    D --> E[阶段2: 用例生成]
-    E --> F[阶段3: 用例评审]
-    F --> G[生成结果完成]
-    G --> H[存入库组合操作]
-    H --> N[(Neo4j 关系图谱)]
-    H --> Q[(Qdrant 向量空间)]
+    %% 定义颜色主题
+    classDef default fill:#f9f9f9,stroke:#d3d3d3,stroke-width:1px
+    classDef gateway fill:#2b323b,stroke:#1e88e5,stroke-width:0px,color:#fff
+    classDef offline fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px,color:#000
+    classDef onlineQA fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,color:#000
+    classDef onlineAgent fill:#fff8e1,stroke:#fbc02d,stroke-width:2px,color:#000
+    classDef storage fill:#ffffff,stroke:#f4511e,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    classDef core fill:#e8f5e9,stroke:#43a047,stroke-width:1px,color:#000
+    classDef db fill:#ffcc80,stroke:#e65100,stroke-width:2px,color:#000
+
+    User(["用户 / Web UI"]) --> API_GW["FastAPI 统一网关"]
+    class API_GW gateway
+
+    %% ==========================================
+    %% 1. 离线数据摄入流水线 (Offline Ingestion Pipeline)
+    %% ==========================================
+    subgraph Offline["离线数据摄入流 (Offline Ingestion Pipeline)"]
+        direction LR
+        Upload["文档上传"] --> Parse["Parser 解析<br>(PDF/Word/MD...)"]
+        Parse --> Chunk["文本切块<br>(Chunking)"]
+        
+        Chunk --> Extract["图谱抽取<br>(Entity & Relation)"]
+        Chunk --> Embed["向量化<br>(Text-Embedding)"]
+    end
+    class Offline offline
+
+    %% ==========================================
+    %% 2. 存储底座：双核引擎 (Dual Storage Engines)
+    %% ==========================================
+    subgraph Storage["双核存储引擎 (Dual Storage Engines)"]
+        direction LR
+        Neo4j[("Neo4j<br>知识图谱 (精准结构)")] 
+        Qdrant[("Qdrant<br>向量数据库 (模糊语义)")]
+    end
+    class Storage storage
+    class Neo4j,Qdrant db
+
+    Extract -->|"结构化拓扑注入"| Neo4j
+    Embed -->|"稠密语义片段注入"| Qdrant
+
+    %% ==========================================
+    %% 3. 在线编排层 A：智能问答 (RAG Orchestrator)
+    %% ==========================================
+    subgraph Online_QA["编排层 A：智能问答 (RAG Orchestrator)"]
+        direction TB
+        QU["Query 理解与分类<br>(Intent Router)"]
+        Route{"动态路由策略"}
+        Recall["多路并发召回<br>(Multi-channel Recall)"]
+        Rerank["融合排序过滤<br>(BGE Reranker)"]
+        Prompt["上下文拼接与 Prompt 构建"]
+        LLM_QA(("LLM 生成回答"))
+
+        QU --> Route
+        Route -->|"KG / Vector / Hybrid"| Recall
+        Recall --> Rerank
+        Rerank --> Prompt
+        Prompt --> LLM_QA
+    end
+    class Online_QA onlineQA
+    class QU,Route,Recall,Rerank,Prompt core
+
+    %% ==========================================
+    %% 4. 在线编排层 B：测试用例生成 (Agentic Generator)
+    %% ==========================================
+    subgraph Online_TestCase["编排层 B：多智能体用例生成 (Agentic TestCase Generator)"]
+        direction TB
+        TC_Input["用例文档/文本输入"]
+        TC_Context["双核联合上下文获取"]
+        
+        subgraph AutoGen["AutoGen 多智能体协同流水线"]
+            direction LR
+            Phase1["阶段 1<br>需求分析"] --> Phase2["阶段 2<br>用例生成"]
+            Phase2 --> Phase3["阶段 3<br>用例评审"]
+        end
+        
+        TC_Input --> TC_Context
+        TC_Context --> AutoGen
+    end
+    class Online_TestCase onlineAgent
+    class TC_Input,TC_Context core
+
+    %% ==========================================
+    %% 全局连接逻辑
+    %% ==========================================
+    API_GW -->|"文档管理调度"| Upload
+    API_GW -->|"QA 请求"| QU
+    API_GW -->|"用例生成请求"| TC_Input
+
+    Recall <==>|"1. Cypher 查询图谱<br>2. KNN 检索向量"| Storage
+    TC_Context <==>|"补全生成所依赖的背景知识"| Storage
+    
+    %% 用例双写落盘
+    Phase3 -.->|"沉淀结果，支持后续语义检索"| Storage
 ```
 
 ---
