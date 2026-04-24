@@ -86,3 +86,5 @@ qdrant_storage/
 .cache/
 .sisyphus/
 .claude/
+
+DEMO.md
