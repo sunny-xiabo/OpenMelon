@@ -5,6 +5,27 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.1] - 2026-04-24
+
+*(测试用例生成阶段一落地)*
+
+### 新增 (Added)
+- **测试用例生成**: 新增阶段一 Prompt/Skill 运行时能力，后端支持通过 `style_id` 与 `skill_ids` 动态组装生成器 Prompt，并向评审器传递结构化风格/技能摘要。
+- **测试用例生成**: 新增 `backend/app/testcase_gen/services/prompt_assembler.py`，统一维护内置模板、专项技能、配置解析、评审摘要和缓存键生成逻辑。
+- **测试用例生成 UI**: 生成页新增模板选择、专项技能多选与当前生成策略展示，允许在不改默认协议的前提下切换生成风格与覆盖重点。
+
+### 变更 (Changed)
+- **测试用例生成**: `/api/test-cases/generate` 与 `/api/test-cases/generate-from-context` 改为支持透传 `style_id` 与 `skill_ids`，并在三阶段链路中完整向下游传递。
+- **缓存策略**: 测试用例生成缓存键纳入 `module`、`style_id`、排序后的 `skill_ids`、`use_vector` 与配置版本，避免切换模板或技能时误命中旧缓存。
+- **日志系统**: `app` 与 `testcase_generator` logger 初始化改为幂等补齐处理器，确保重复导入或重载时仍能稳定挂载 stdout 与文件 handler。
+- **版本范围**: 当前仅完成 Prompt & Skill Hub 阶段一运行时能力，阶段二管理端与持久化配置暂未启动。
+
+### 修复 (Fixed)
+- **测试用例解析**: 修复生成结果解析后的步骤序号显示错乱问题，前端按最终展示顺序重新编号，避免模型输出序号跳号或重复时界面顺序异常。
+- **测试用例日志**: 修复测试用例链路 logger 初始化不一致导致的请求期日志可见性问题，请求阶段日志现在会稳定写入 `openmelon.log` 并输出到终端 handler。
+
+---
+
 ## [0.2.0] - 2026-04-22
 
 *(会话体验优化 & 工程治理)*

@@ -153,7 +153,10 @@ export function parseTestCasesFromMarkdown(markdownText) {
 
   function saveCurrent() {
     if (currentTestCase && currentTestCase.title && currentTestCase.title.trim()) {
-      currentTestCase.steps = currentSteps;
+      currentTestCase.steps = currentSteps.map((step, index) => ({
+        ...step,
+        step_number: index + 1,
+      }));
       testCases.push(currentTestCase);
     }
     currentTestCase = null;

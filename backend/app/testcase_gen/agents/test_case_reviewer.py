@@ -17,6 +17,7 @@ from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 
 from app.testcase_gen.utils.llms import deepseek_model_client, DEEPSEEK_MODEL_NAME
 from app.testcase_gen.utils.logger import logger
+from app.testcase_gen.services.prompt_assembler import build_reviewer_prompt
 
 
 class TestCaseReviewer:
@@ -31,6 +32,7 @@ class TestCaseReviewer:
         analysis_result: str,
         user_requirements: str,
         graph_context: str = "",
+        prompt_config: Dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         评审测试用例并输出改进后的版本
@@ -44,75 +46,20 @@ class TestCaseReviewer:
             评审报告和改进后的测试用例（Markdown格式）
         """
         logger.info("开始测试用例评审")
+        if prompt_config:
+            logger.info(
+                "评审器配置 - style_id=%s, skill_ids=%s",
+                prompt_config.get("style_id"),
+                ",".join(prompt_config.get("skill_ids", [])) or "<none>",
+            )
 
-        graph_prefix = (
-            f"## 知识图谱上下文\n\n{graph_context}\n\n" if graph_context else ""
+        prompt = build_reviewer_prompt(
+            test_cases_content=test_cases_content,
+            analysis_result=analysis_result,
+            user_requirements=user_requirements,
+            graph_context=graph_context,
+            prompt_config=prompt_config,
         )
-
-        prompt = f"""{graph_prefix}作为专业的测试用例评审专家，请对测试用例进行全面评审并输出改进后的版本。
-
-## 需求分析结果
-{analysis_result}
-
-## 用户原始需求
-{user_requirements}
-
-## 原始测试用例
-{test_cases_content}
-
-**输出要求**：
-
-请按照以下两部分输出：
-
-### 第一部分：评审报告
-输出完整的评审分析，包含：
-
-**优点**：
-- 列出测试用例的优点
-
-**问题识别**：
-- 完整性问题：是否覆盖所有功能点？
-- 一致性问题：格式是否统一？命名是否一致？
-- 可执行性：步骤是否清晰？预期结果是否明确？
-- 遗漏场景：是否缺少重要的测试场景？
-- 优先级合理性：优先级分配是否合理？
-
-**覆盖度分析**：
-- 功能覆盖度评分（0-100%）
-- 场景覆盖度评分（0-100%）
-- 边界值覆盖度评分（0-100%）
-
-**改进建议**：
-- 具体的改进建议
-
-### 第二部分：最终测试用例
-使用以下标记开始：
-**===最终测试用例===**
-
-然后直接输出改进后的完整测试用例：
-
-### TC-001: 测试标题
-
-**优先级:** 高/中/低
-
-**描述:** 测试用例的详细描述
-
-**前置条件:** 执行测试前的条件（如果有）
-
-#### 测试步骤
-
-| # | 步骤描述 | 预期结果 |
-| --- | --- | --- |
-| 1 | 具体的操作步骤 | 期望看到的结果 |
-
----
-
-**关键要求**：
-1. 评审报告要全面、具体
-2. 使用 **===最终测试用例===** 标记分隔两部分
-3. 最终测试用例部分**禁止**包含任何“功能概述”、“总体评价”或“总结”章节。
-4. 每一个 ### 标题都必须是一个改进后的具体测试用例。
-5. 确保覆盖所有功能点和场景，格式规范统一"""
 
         system_message = """你是一个经验丰富的测试用例评审专家，拥有10年以上的软件测试经验。
 

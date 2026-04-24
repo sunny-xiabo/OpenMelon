@@ -22,6 +22,7 @@ from app.testcase_gen.utils.llms import (
     DEEPSEEK_MODEL_NAME,
 )
 from app.testcase_gen.utils.logger import logger
+from app.testcase_gen.services.prompt_assembler import build_generator_prompt
 
 
 class TestCaseGenerator:
@@ -47,6 +48,7 @@ class TestCaseGenerator:
         user_requirements: str,
         analysis_result: str,
         graph_context: str = "",
+        prompt_config: Dict[str, Any] | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         基于需求分析结果生成测试用例
@@ -66,29 +68,27 @@ class TestCaseGenerator:
         logger.info(
             f"测试用例生成 - 文件类型: {file_extension}, 模型: {DEEPSEEK_MODEL_NAME if selected_model_client == deepseek_model_client else QWEN_MODEL_NAME}"
         )
+        if prompt_config:
+            logger.info(
+                "生成器配置 - style_id=%s, skill_ids=%s, prompt_length=%s",
+                prompt_config.get("style_id"),
+                ",".join(prompt_config.get("skill_ids", [])) or "<none>",
+                len(build_generator_prompt(
+                    context=context,
+                    user_requirements=user_requirements,
+                    analysis_result=analysis_result,
+                    graph_context=graph_context,
+                    prompt_config=prompt_config,
+                )),
+            )
 
-        graph_prefix = (
-            f"## 知识图谱上下文\n\n{graph_context}\n\n" if graph_context else ""
+        prompt = build_generator_prompt(
+            context=context,
+            user_requirements=user_requirements,
+            analysis_result=analysis_result,
+            graph_context=graph_context,
+            prompt_config=prompt_config,
         )
-
-        prompt = f"""{graph_prefix}基于需求分析结果，生成详细的测试用例。
-
-## 需求分析结果
-{analysis_result}
-
-## 用户原始需求
-{user_requirements}
-
-## 上下文信息
-{context}
-
-**要求**：
-1. 每个用例以 "### TC-XXX: 标题" 格式开始（**注意：必须是三个 # 号**）
-2. 必须包含：优先级(高/中/低)、描述、前置条件
-3. 测试步骤用表格：| # | 步骤描述 | 预期结果 |
-4. 覆盖正向、负向、边界场景
-5. 根据需求分析结果尽可能全面地生成测试用例，勿遗漏任何重要场景
-6. 直接开始输出测试用例列表，**不要**包含任何“功能概述”、“总结”、“前言”或“评价”部分。每一个 ### 标题都必须是一个独立的测试用例。"""
 
         system_message = "你是一位资深的测试工程师，擅长设计全面的测试用例。"
 

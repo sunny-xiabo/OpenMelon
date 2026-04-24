@@ -21,6 +21,7 @@ from app.testcase_gen.services.neo4j_writer import neo4j_writer
 from app.testcase_gen.services.graph_context_retriever import (
     get_graph_context_retriever,
 )
+from app.testcase_gen.services.prompt_assembler import build_prompt_cache_key, get_file_fingerprint
 
 FINAL_MARKER = "**===最终测试用例===**"
 
@@ -38,6 +39,8 @@ class AIService:
         requirements: str,
         module: Optional[str] = None,
         vector_context: str = "",
+        use_vector: bool = False,
+        prompt_config: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
         """
         三阶段流程：需求分析 → 测试用例生成 → 测试用例评审
@@ -56,10 +59,17 @@ class AIService:
 
                 cache_key = None
                 try:
-                    file_hash = FileProcessingOptimizer.calculate_file_hash(file_path)
-                    cache_key = f"{file_hash}_{hash(context)}_{hash(requirements)}"
+                    file_fingerprint = get_file_fingerprint(file_path)
+                    cache_key = build_prompt_cache_key(
+                        file_fingerprint=file_fingerprint,
+                        context=context,
+                        requirements=requirements,
+                        module=module,
+                        use_vector=use_vector,
+                        prompt_config=prompt_config,
+                    )
                 except Exception as e:
-                    logger.warning(f"计算文件哈希失败，跳过缓存: {str(e)}")
+                    logger.warning(f"计算缓存键失败，跳过缓存: {str(e)}")
 
                 # 检查缓存
                 if cache_key:
@@ -103,6 +113,14 @@ class AIService:
                     analysis_result += chunk
                     full_response += chunk
 
+                if prompt_config:
+                    logger.info(
+                        "阶段一配置 - style_id=%s, skill_ids=%s, use_vector=%s",
+                        prompt_config.get("style_id"),
+                        ",".join(prompt_config.get("skill_ids", [])) or "<none>",
+                        use_vector,
+                    )
+
                 # ==================== 阶段2：测试用例生成 ====================
                 logger.info("阶段2/3: 测试用例生成")
                 async for chunk in test_case_generator.generate_test_cases_stream(
@@ -111,6 +129,7 @@ class AIService:
                     requirements,
                     analysis_result,
                     graph_context=graph_context,
+                    prompt_config=prompt_config,
                 ):
                     yield chunk
                     test_cases_result += chunk
@@ -123,6 +142,7 @@ class AIService:
                     analysis_result,
                     requirements,
                     graph_context=graph_context,
+                    prompt_config=prompt_config,
                 ):
                     yield chunk
                     full_response += chunk
