@@ -79,10 +79,23 @@ export default function TestCaseMindMap({ testCases }) {
       spacingHorizontal: 100,
     });
     mmRef.current.setData(root);
-    mmRef.current.fit();
+    setTimeout(() => {
+      if (mmRef.current) {
+        mmRef.current.fit();
+      }
+    }, 100);
 
     return () => { if (mmRef.current) { mmRef.current.destroy(); mmRef.current = null; } };
   }, [testCases]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (mmRef.current) {
+        mmRef.current.fit();
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isFullscreen]);
 
   const zoomIn = () => mmRef.current?.rescale(1.2);
   const zoomOut = () => mmRef.current?.rescale(0.8);
