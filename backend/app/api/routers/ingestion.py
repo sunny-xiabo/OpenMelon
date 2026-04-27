@@ -429,6 +429,8 @@ async def upload_files_async(
 ):
     saved_files = []
     try:
+        os.makedirs(UPLOAD_TEMP_DIR, exist_ok=True)
+        os.makedirs(UPLOAD_STORE_DIR, exist_ok=True)
         for upload_file in files:
             if not upload_file.filename:
                 continue
