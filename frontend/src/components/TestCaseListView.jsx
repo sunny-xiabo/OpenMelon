@@ -23,7 +23,7 @@ function generateMarkdown(testCases) {
 
 export default function TestCaseListView({ testCases }) {
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>
         已生成 {testCases.length} 个测试用例
       </Typography>
@@ -32,10 +32,10 @@ export default function TestCaseListView({ testCases }) {
         className="chat-markdown"
         sx={{
           flex: 1,
+          minHeight: 0,
           overflow: 'auto',
           bgcolor: '#ffffff',
           p: 2,
-          maxHeight: 600,
           borderRadius: 2.5
         }}
       >
