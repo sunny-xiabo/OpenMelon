@@ -25,6 +25,8 @@ class Neo4jClient:
                 logger.info(f"Neo4j 连接成功: {settings.NEO4J_URI}")
             except Exception as e:
                 logger.error(f"Neo4j 连接验证失败 (服务可能未启动): {e}")
+                await self._driver.close()
+                self._driver = None
                 raise
         return self._driver
 

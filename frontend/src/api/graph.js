@@ -1,0 +1,47 @@
+import { API_BASE, fetchJSON, fetchJSONWithTimeout, fetchBlob, OPENAPI_PARSE_TIMEOUT_MS } from './client';
+
+export const graphAPI = {
+  searchEntity: (name, depth = 2) =>
+    fetchJSON(`${API_BASE}/graph/entity/${encodeURIComponent(name)}?depth=${depth}`),
+
+  getFullGraph: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return fetchJSON(`${API_BASE}/graph/full?${query}`);
+  },
+
+  getNodeDetail: (nodeId) =>
+    fetchJSON(`${API_BASE}/graph/node/${nodeId}`),
+
+  getFilters: () =>
+    fetchJSON(`${API_BASE}/graph/filters`),
+
+  getNodeTypes: () =>
+    fetchJSON(`${API_BASE}/graph/node-types`),
+
+  createNodeType: (payload) =>
+    fetchJSON(`${API_BASE}/graph/node-types`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateNodeType: (nodeType, payload) =>
+    fetchJSON(`${API_BASE}/graph/node-types/${encodeURIComponent(nodeType)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteNodeType: (nodeType) =>
+    fetchJSON(`${API_BASE}/graph/node-types/${encodeURIComponent(nodeType)}`, {
+      method: 'DELETE',
+    }),
+
+  getStatus: () =>
+    fetchJSON(`${API_BASE}/graph/status`),
+
+  getCoverage: () =>
+    fetchJSON(`${API_BASE}/graph/coverage`),
+
+  getCoverageDetail: (moduleName) =>
+    fetchJSON(`${API_BASE}/graph/coverage/${encodeURIComponent(moduleName)}`),
+};
+

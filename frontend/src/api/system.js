@@ -1,0 +1,16 @@
+import { API_BASE, fetchJSON, fetchJSONWithTimeout, fetchBlob, OPENAPI_PARSE_TIMEOUT_MS } from './client';
+
+export const logsAPI = {
+  list: () => fetchJSON(`${API_BASE}/logs/list`),
+  get: (filename = 'openmelon.log', lines = 100) =>
+    fetchJSON(`${API_BASE}/logs?filename=${filename}&lines=${lines}`),
+};
+
+export const webhookAPI = {
+  send: (platform, question, answer) =>
+    fetchJSON(`${API_BASE}/webhook/${platform}`, {
+      method: 'POST',
+      body: JSON.stringify({ question, answer }),
+    }),
+};
+

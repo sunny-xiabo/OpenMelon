@@ -62,16 +62,33 @@ async def lifespan(app: FastAPI):
     )
 
     neo4j_client = Neo4jClient()
-    await neo4j_client.connect()
-    await neo4j_client.initialize_indexes()
-    logger.info("Neo4j 连接成功: %s", settings.NEO4J_URI)
+    neo4j_available = False
+    driver = None
+    graph_ops = None
+    vector_ops = None
+    indexer = None
+    coverage_service = None
 
-    driver = neo4j_client.driver
-    graph_ops = GraphOperations(driver)
-    vector_ops = VectorOperations(driver)
-    
-    if settings.USE_EXTERNAL_VECTOR:
-        await vector_ops.init_external_collections()
+    try:
+        await neo4j_client.connect()
+        await neo4j_client.initialize_indexes()
+        logger.info("Neo4j 连接成功: %s", settings.NEO4J_URI)
+        neo4j_available = True
+    except Exception as exc:
+        logger.warning(
+            "Neo4j 当前不可用，OpenMelon 将以降级模式启动；图谱、覆盖率、导入索引和 RAG 检索暂不可用。"
+            "请启动 Neo4j 后重启后端。URI=%s, error=%s",
+            settings.NEO4J_URI,
+            exc,
+        )
+
+    if neo4j_available:
+        driver = neo4j_client.driver
+        graph_ops = GraphOperations(driver)
+        vector_ops = VectorOperations(driver)
+
+        if settings.USE_EXTERNAL_VECTOR:
+            await vector_ops.init_external_collections()
 
     llm_client = AsyncOpenAI(
         api_key=settings.API_KEY,
@@ -82,17 +99,18 @@ async def lifespan(app: FastAPI):
     # 核心引擎与服务初始化
     # ==========================
     # 意图识别：分析用户提问意图（是要找功能、问缺陷还是看覆盖率？）
-    intent_router = IntentRouter(llm_client, graph_ops)
+    intent_router = IntentRouter(llm_client, graph_ops) if graph_ops else None
     # 多路召回器：综合图谱搜索与向量搜索，拼装最终检索结果
-    retriever = MultiChannelRetriever(graph_ops, vector_ops, llm_client)
+    retriever = MultiChannelRetriever(graph_ops, vector_ops, llm_client) if graph_ops and vector_ops else None
     # 文本生成器：根据召回的上下文回答问题
     generator = RAGGenerator(llm_client)
     # Agentic RAG（高级玩法）：带有思考、计划和自我纠错能力的 RAG
-    agentic_rag = AgenticRAG(llm_client, retriever)
+    agentic_rag = AgenticRAG(llm_client, retriever) if retriever else None
     # 文档索引器：负责把文件拆 Chunk，写向量库，提炼实体并写入图数据库
-    indexer = DocumentIndexer(neo4j_client, graph_ops, vector_ops, llm_client)
+    if neo4j_available:
+        indexer = DocumentIndexer(neo4j_client, graph_ops, vector_ops, llm_client)
     # 覆盖率服务：分析知识图谱里的 Module->Feature->TestCase 关系网计算覆盖率
-    coverage_service = CoverageService(graph_ops)
+        coverage_service = CoverageService(graph_ops)
 
     app.state.neo4j_client = neo4j_client
     app.state.graph_ops = graph_ops
@@ -109,6 +127,7 @@ async def lifespan(app: FastAPI):
     app.state.session_manager = session_manager
     app.state.enterprise_integration = enterprise_integration
     app.state.neo4j_driver = driver
+    app.state.neo4j_available = neo4j_available
 
     async def generate_embedding(text: str):
         # 兼容 bge 模型 512 tokens 限制，安全截断至 400 字符。对于其他模型也截断以防越界。
@@ -124,8 +143,10 @@ async def lifespan(app: FastAPI):
         resp = await llm_client.embeddings.create(**kwargs)
         return resp.data[0].embedding
 
-    writer_instance = init_neo4j_writer(driver, generate_embedding, vector_ops)
-    init_graph_context_retriever(graph_ops)
+    writer_instance = None
+    if neo4j_available:
+        writer_instance = init_neo4j_writer(driver, generate_embedding, vector_ops)
+        init_graph_context_retriever(graph_ops)
 
     app.state._neo4j_writer = writer_instance
 
@@ -135,7 +156,8 @@ async def lifespan(app: FastAPI):
 
     logger.info("OpenMelon 服务关闭中...")
     try:
-        await asyncio.wait_for(neo4j_client.close(), timeout=5.0)
+        if neo4j_available:
+            await asyncio.wait_for(neo4j_client.close(), timeout=5.0)
     except asyncio.TimeoutError:
         logger.warning("Neo4j 关闭超时，强制退出")
     logger.info("OpenMelon 服务已关闭")

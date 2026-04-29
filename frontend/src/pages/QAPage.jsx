@@ -5,25 +5,16 @@ import {
   TextField,
   Typography,
   Paper,
-  Chip,
-  IconButton,
-  FormControl,
-  Select,
-  MenuItem,
   Checkbox,
   FormControlLabel,
-  Collapse,
   Divider,
   useMediaQuery,
   Stack,
 } from '@mui/material';
-import { Delete as DeleteIcon, Edit as EditIcon, Check as CheckIcon, Close as CloseIcon } from '@mui/icons-material';
-import { AutoAwesome, Add, AccountTree, Forum } from '@mui/icons-material';
+import { AutoAwesome, AccountTree, Forum } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { Network } from 'vis-network';
 import { DataSet } from 'vis-data';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { chatAPI, graphAPI, webhookAPI } from '../services/api';
 import { useSession } from '../hooks/useSession';
 import { useSnackbar } from '../components/SnackbarProvider';
@@ -33,32 +24,11 @@ import {
   mergeNodeTypeConfigs,
   NODE_TYPE_OVERRIDES_UPDATED_EVENT,
 } from '../theme/nodeTypes';
-import LoadingOverlay from '../components/LoadingOverlay';
 import EmptyState from '../components/EmptyState';
-import ConfirmDialog from '../components/ConfirmDialog';
-
-const METHOD_LABELS = {
-  graph: 'Graph',
-  vector: 'Vector',
-  hybrid: 'Hybrid',
-  visualization: 'Visualization',
-};
-const GRAPH_DATA_UPDATED_EVENT = 'graph-data-updated';
-
-const formatRelativeTime = (isoStr) => {
-  if (!isoStr) return '';
-  const date = new Date(isoStr);
-  const now = new Date();
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return '刚刚';
-  if (diffMin < 60) return `${diffMin}分钟前`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}小时前`;
-  const diffDay = Math.floor(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}天前`;
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-};
+import { GRAPH_DATA_UPDATED_EVENT } from '../features/QA/constants';
+import SessionHistoryPanel from '../features/QA/components/SessionHistoryPanel';
+import MessageBubble from '../features/QA/components/MessageBubble';
+import GraphInsightPanel from '../features/QA/components/GraphInsightPanel';
 
 export default function QAPage() {
   const { sessions, currentSession, createSession, switchSession, deleteSession, renameSession, updateSessionTitle, loadHistory, loadSessions } = useSession();
@@ -324,104 +294,23 @@ export default function QAPage() {
           </Box>
         </Box>
 
-        <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer' }} onClick={() => setSessionListExpanded(!sessionListExpanded)}>
-              <Typography variant="caption" fontWeight={700} color="text.secondary">
-                历史会话 {sessions.length > 0 && `(${sessions.length})`}
-              </Typography>
-              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
-                {sessionListExpanded ? '▾' : '▸'}
-              </Typography>
-            </Box>
-            <Button size="small" startIcon={<Add fontSize="small" />} onClick={handleNewSession}>新建会话</Button>
-          </Box>
-          <Collapse in={sessionListExpanded}>
-            <Box sx={{ mt: 0.75, maxHeight: 180, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {sessions.length === 0 ? (
-                <Typography variant="caption" color="text.disabled" sx={{ py: 1, textAlign: 'center' }}>
-                  暂无历史会话，发送消息将自动创建
-                </Typography>
-              ) : (
-                sessions.map(s => {
-                  const isActive = s.id === currentSession;
-                  const isEditing = editingSession === s.id;
-                  return (
-                    <Box
-                      key={s.id}
-                      onClick={() => !isEditing && handleSwitchSession(s.id)}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1,
-                        px: 1.5,
-                        py: 0.85,
-                        borderRadius: 2,
-                        cursor: isEditing ? 'default' : 'pointer',
-                        bgcolor: isActive ? 'rgba(99,102,241,0.08)' : 'transparent',
-                        border: '1px solid',
-                        borderColor: isActive ? 'rgba(99,102,241,0.25)' : 'transparent',
-                        transition: 'all 0.15s',
-                        '&:hover': {
-                          bgcolor: isActive ? 'rgba(99,102,241,0.1)' : 'rgba(0,0,0,0.03)',
-                          '& .session-actions': { opacity: 1 },
-                        },
-                      }}
-                    >
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        {isEditing ? (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }} onClick={e => e.stopPropagation()}>
-                            <TextField
-                              size="small"
-                              value={editTitle}
-                              onChange={e => setEditTitle(e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') handleSaveRename(); if (e.key === 'Escape') { setEditingSession(null); setEditTitle(''); } }}
-                              autoFocus
-                              sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: 12, py: 0.5 }, '& .MuiOutlinedInput-root': { borderRadius: 1 } }}
-                            />
-                            <IconButton size="small" onClick={handleSaveRename} sx={{ p: 0.25 }}>
-                              <CheckIcon sx={{ fontSize: 14, color: 'success.main' }} />
-                            </IconButton>
-                            <IconButton size="small" onClick={() => { setEditingSession(null); setEditTitle(''); }} sx={{ p: 0.25 }}>
-                              <CloseIcon sx={{ fontSize: 14 }} />
-                            </IconButton>
-                          </Box>
-                        ) : (
-                          <>
-                            <Typography variant="body2" sx={{ fontSize: 12.5, fontWeight: isActive ? 600 : 500, color: isActive ? '#4f46e5' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {s.title || s.id.slice(0, 8)}
-                            </Typography>
-                            <Typography variant="caption" sx={{ fontSize: 10.5, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                              {formatRelativeTime(s.updated_at)}
-                              {s.message_count > 0 && <span>· {s.message_count} 条消息</span>}
-                            </Typography>
-                          </>
-                        )}
-                      </Box>
-                      {!isEditing && (
-                        <Box className="session-actions" sx={{ display: 'flex', opacity: 0, transition: 'opacity 0.15s', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                          <IconButton size="small" onClick={() => handleStartRename(s.id, s.title)} sx={{ p: 0.25 }}>
-                            <EditIcon sx={{ fontSize: 13, color: '#94a3b8' }} />
-                          </IconButton>
-                          <IconButton size="small" onClick={() => handleDeleteSession(s.id, s.title)} sx={{ p: 0.25 }}>
-                            <DeleteIcon sx={{ fontSize: 13, color: '#f87171' }} />
-                          </IconButton>
-                        </Box>
-                      )}
-                    </Box>
-                  );
-                })
-              )}
-            </Box>
-          </Collapse>
-        </Box>
-
-        <ConfirmDialog
-          open={deleteConfirm.open}
-          message={`确认删除会话「${deleteConfirm.title}」？\n删除后不可恢复。`}
-          onConfirm={confirmDeleteSession}
-          onCancel={() => setDeleteConfirm({ open: false, sessionId: null, title: '' })}
-          danger
+        <SessionHistoryPanel
+          currentSession={currentSession}
+          deleteConfirm={deleteConfirm}
+          editTitle={editTitle}
+          editingSession={editingSession}
+          handleDeleteSession={handleDeleteSession}
+          handleNewSession={handleNewSession}
+          handleSaveRename={handleSaveRename}
+          handleStartRename={handleStartRename}
+          handleSwitchSession={handleSwitchSession}
+          sessions={sessions}
+          sessionListExpanded={sessionListExpanded}
+          setDeleteConfirm={setDeleteConfirm}
+          setEditTitle={setEditTitle}
+          setEditingSession={setEditingSession}
+          setSessionListExpanded={setSessionListExpanded}
+          confirmDeleteSession={confirmDeleteSession}
         />
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.25, md: 2 }, display: 'flex', flexDirection: 'column', gap: 1.5, bgcolor: '#f8fafc' }}>
@@ -433,7 +322,7 @@ export default function QAPage() {
             />
           ) : (
             messages.map((msg, i) => (
-              <MsgBubble key={i} msg={msg} onPush={handlePushToWecom} />
+              <MessageBubble key={i} msg={msg} onPush={handlePushToWecom} />
             ))
           )}
           {loading && (
@@ -521,191 +410,26 @@ export default function QAPage() {
       </Paper>
 
       {graphExpanded && (
-        <Paper
-          elevation={0}
-          sx={{
-            width: isNarrow ? '100%' : '42%',
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            border: '1px solid',
-            borderColor: 'divider',
-            borderRadius: 3,
-            overflow: 'hidden',
-            bgcolor: 'background.paper',
-          }}
-        >
-          <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(226,232,240,0.8)', background: 'linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%)' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box sx={{ width: 34, height: 34, borderRadius: 2, background: 'linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%)', color: '#0891b2', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.7), 0 4px 8px rgba(6,182,212,0.1)' }}>
-                <AccountTree fontSize="small" />
-              </Box>
-              <Box>
-                <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#1e293b' }}>图谱线索</Typography>
-                <Typography variant="caption" sx={{ color: '#64748b' }}>辅助定位模块、节点关系和检索命中文档</Typography>
-              </Box>
-            </Box>
-          </Box>
-
-          <Box sx={{ p: 1.25, borderBottom: '1px solid rgba(226,232,240,0.8)', background: '#ffffff', display: 'flex', flexDirection: 'column', gap: 1, zIndex: 2 }}>
-            <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
-              <TextField
-                size="small"
-                placeholder="搜索实体..."
-                value={searchText}
-                onChange={e => setSearchText(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && searchEntity()}
-                sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8fafc' }, '& .MuiInputBase-input': { fontSize: 13 } }}
-              />
-              <Button size="small" variant="contained" onClick={searchEntity} disabled={!graphReady || !searchText.trim()} sx={{ borderRadius: 2, boxShadow: 'none' }}>
-                搜索
-              </Button>
-              <Button size="small" variant="outlined" onClick={loadFullGraph} disabled={!graphReady} sx={{ borderRadius: 2 }}>全图</Button>
-              {!graphReady && (
-                <Button size="small" variant="outlined" onClick={checkGraphStatus} sx={{ borderRadius: 2 }}>刷新数据</Button>
-              )}
-            </Box>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-              <FormControl size="small" sx={{ minWidth: 110, flex: '0 0 auto' }}>
-                <Select value={docType} onChange={e => setDocType(e.target.value)} displayEmpty sx={{ borderRadius: 2, bgcolor: '#f8fafc', fontSize: 13 }}>
-                  <MenuItem value="">全部类型</MenuItem>
-                  {filters.doc_types?.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 110, flex: '0 0 auto' }}>
-                <Select value={moduleFilter} onChange={e => setModuleFilter(e.target.value)} displayEmpty sx={{ borderRadius: 2, bgcolor: '#f8fafc', fontSize: 13 }}>
-                  <MenuItem value="">全部模块</MenuItem>
-                  {filters.modules?.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-                </Select>
-              </FormControl>
-              <FormControlLabel
-                control={<Checkbox size="small" checked={showChunks} onChange={e => setShowChunks(e.target.checked)} color="info" />}
-                label={<Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>显示分块</Typography>}
-                sx={{ ml: 0.25 }}
-              />
-            </Box>
-          </Box>
-
-          <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }}>
-            {graphLoading && <LoadingOverlay message="图谱数据加载中..." />}
-            {graphReady === false ? (
-              <Box sx={{ m: 1, flex: 1, minHeight: 0, display: 'flex' }}>
-                <EmptyState
-                  title="暂无数据"
-                  description="Neo4j 为空，上传完成后会自动恢复，也可以手动刷新数据。"
-                  actionLabel="刷新数据"
-                  onAction={checkGraphStatus}
-                />
-              </Box>
-            ) : (
-              <Box ref={containerRef} sx={{ flex: 1, minHeight: 0, borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider', outline: 'none', bgcolor: '#f8fafc', backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
-            )}
-            <Box sx={{ position: 'absolute', bottom: 16, left: 16, display: 'flex', flexWrap: 'wrap', gap: 1.25, p: 1.25, bgcolor: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(12px)', border: '1px solid', borderColor: 'rgba(255,255,255,0.4)', borderRadius: 3, boxShadow: '0 4px 16px rgba(0,0,0,0.04)', zIndex: 10, maxWidth: 'calc(100% - 32px)' }}>
-              {legend.map(({ type, color }) => (
-                <Box key={type} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, bgcolor: 'rgba(255,255,255,0.6)', px: 1, py: 0.5, borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
-                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: color.bg, boxShadow: `0 0 0 1px ${color.border}` }} />
-                  <Typography variant="caption" sx={{ color: '#475569', fontWeight: 500 }}>{type}</Typography>
-                </Box>
-              ))}
-            </Box>
-          </Box>
-        </Paper>
+        <GraphInsightPanel
+          checkGraphStatus={checkGraphStatus}
+          containerRef={containerRef}
+          docType={docType}
+          filters={filters}
+          graphLoading={graphLoading}
+          graphReady={graphReady}
+          isNarrow={isNarrow}
+          legend={legend}
+          loadFullGraph={loadFullGraph}
+          moduleFilter={moduleFilter}
+          searchEntity={searchEntity}
+          searchText={searchText}
+          setDocType={setDocType}
+          setModuleFilter={setModuleFilter}
+          setSearchText={setSearchText}
+          setShowChunks={setShowChunks}
+          showChunks={showChunks}
+        />
       )}
-    </Box>
-  );
-}
-
-function MsgBubble({ msg, onPush }) {
-  const [expanded, setExpanded] = useState(false);
-  const [contextExpanded, setContextExpanded] = useState(false);
-
-  if (msg.role === 'user') {
-    return (
-      <Box sx={{ alignSelf: 'flex-end', maxWidth: '78%', background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)', color: 'primary.contrastText', borderRadius: '20px 20px 4px 20px', px: 2, py: 1.4, fontSize: 13.5, lineHeight: 1.6, boxShadow: '0 8px 24px rgba(99,102,241,0.25)' }}>
-        {msg.content}
-      </Box>
-    );
-  }
-  if (msg.role === 'error') {
-    return (
-      <Box sx={{ alignSelf: 'flex-start', maxWidth: '78%', bgcolor: '#fdecea', color: 'error.dark', borderRadius: 2.5, borderBottomLeftRadius: 0.75, px: 1.4, py: 1.15, fontSize: 13, lineHeight: 1.6 }}>
-        {msg.content}
-      </Box>
-    );
-  }
-  return (
-    <Box sx={{ alignSelf: 'flex-start', maxWidth: '80%', bgcolor: '#ffffff', borderRadius: '20px 20px 20px 4px', px: 2.25, py: 1.5, fontSize: 13.5, lineHeight: 1.6, boxShadow: '0 12px 32px rgba(15,23,42,0.06), 0 2px 4px rgba(15,23,42,0.02)', border: '1px solid rgba(226,232,240,0.6)' }}>
-      <Box className="chat-markdown" sx={{ '& p': { m: '0 0 0.5em' }, '& p:last-child': { mb: 0 }, '& img': { maxWidth: '100%', height: 'auto', borderRadius: 2 }, fontSize: 13, lineHeight: 1.65, wordBreak: 'break-word' }}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-      </Box>
-      <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-        {msg.retrieval_method && METHOD_LABELS[msg.retrieval_method] && (
-          <Chip size="small" label={METHOD_LABELS[msg.retrieval_method]} sx={{ fontSize: 10 }} />
-        )}
-        {msg.citations?.length > 0 && (
-          msg.citations.map((c, i) => (
-            <Chip key={i} size="small" label={c.source_type === 'vector' ? `Vector: ${c.filename || ''}` : 'Graph'} color={c.source_type === 'vector' ? 'primary' : 'success'} sx={{ fontSize: 10 }} />
-          ))
-        )}
-      </Box>
-      {msg.reasoning_steps?.length > 0 && (
-        <Box sx={{ mt: 0.75 }}>
-          <Button size="small" onClick={() => setExpanded(!expanded)} sx={{ fontSize: 11, p: 0, minWidth: 'auto' }}>
-            {expanded ? '收起推理步骤' : '展开推理步骤'}
-          </Button>
-          {expanded && (
-            <Box sx={{ pl: 1.25, borderLeft: '2px solid', borderColor: 'divider', mt: 0.5 }}>
-              {msg.reasoning_steps.map((s, i) => (
-                <Typography key={i} variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.25 }}>
-                  {i + 1}. {s}
-                </Typography>
-              ))}
-            </Box>
-          )}
-        </Box>
-      )}
-      {(msg.context_chunks?.length > 0 || msg.history_used?.length > 0) && (
-        <Box sx={{ mt: 0.75 }}>
-          <Button size="small" onClick={() => setContextExpanded(!contextExpanded)} sx={{ fontSize: 11, p: 0, minWidth: 'auto' }}>
-            {contextExpanded ? '收起上下文' : '查看上下文'}
-          </Button>
-          <Collapse in={contextExpanded}>
-            {msg.history_used?.length > 0 && (
-              <Box sx={{ mt: 0.75, p: 1, bgcolor: 'common.white', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                  会话上下文
-                </Typography>
-                {msg.history_used.map((item, i) => (
-                  <Typography key={i} variant="caption" sx={{ display: 'block', mb: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    <strong>{item.role === 'user' ? '用户' : '助手'}:</strong> {item.content}
-                  </Typography>
-                ))}
-              </Box>
-            )}
-            {msg.context_chunks?.length > 0 && (
-              <Box sx={{ mt: 0.75, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                {msg.context_chunks.map((chunk, i) => (
-                  <Box key={i} sx={{ p: 1, bgcolor: 'common.white', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                      {chunk.source_type === 'graph'
-                        ? '图谱上下文'
-                        : `${chunk.doc_type || 'unknown'} / ${chunk.filename || 'unknown'} / chunk ${chunk.chunk_index ?? '?'}`}
-                    </Typography>
-                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {chunk.content}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-            )}
-          </Collapse>
-        </Box>
-      )}
-      <Box sx={{ mt: 1, display: 'flex', gap: 1 }}>
-        <Button size="small" variant="outlined" onClick={() => onPush && onPush(msg.content)}>
-          推送到企微
-        </Button>
-      </Box>
     </Box>
   );
 }
