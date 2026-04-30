@@ -20,18 +20,38 @@ class CoverageService:
 
         Coverage caliber:
         - feature_count: Module -[:CONTAINS]-> Feature
-        - test_case_count: DISTINCT TestCase that COVERS those Features
+        - preferred test_case_count: DISTINCT TestCase that COVERS those Features
+        - fallback test_case_count: DISTINCT TestCase directly linked by Module -[:CONTAINS]-> TestCase
         """
         try:
             rows = await self._run_cypher(
                 """
-                MATCH (m:Module)
-                OPTIONAL MATCH (m)-[:CONTAINS]->(f:Feature)
-                WITH m, count(DISTINCT f) AS feature_count
-                OPTIONAL MATCH (m)-[:CONTAINS]->(:Feature)<-[:COVERS]-(t:TestCase)
-                WITH m.name AS module_name,
+                CALL {
+                    MATCH (m:Module)
+                    RETURN DISTINCT m.name AS module_name
+                    UNION
+                    MATCH (c:DocumentChunk)
+                    WHERE c.module IS NOT NULL AND trim(c.module) <> ''
+                    RETURN DISTINCT c.module AS module_name
+                }
+                WITH DISTINCT module_name
+                WHERE module_name IS NOT NULL AND trim(module_name) <> ''
+                OPTIONAL MATCH (m:Module {name: module_name})-[:CONTAINS]->(f:Feature)
+                WITH module_name, count(DISTINCT f) AS feature_count
+                OPTIONAL MATCH (:Module {name: module_name})-[:CONTAINS]->(:Feature)<-[covers_rel]-(covered_tc:TestCase)
+                WHERE type(covers_rel) = 'COVERS'
+                WITH module_name, feature_count, count(DISTINCT covered_tc) AS covered_test_case_count
+                OPTIONAL MATCH (:Module {name: module_name})-[:CONTAINS]->(direct_tc:TestCase)
+                WITH module_name,
                      feature_count,
-                     count(DISTINCT t) AS test_case_count
+                     covered_test_case_count,
+                     count(DISTINCT direct_tc) AS direct_test_case_count
+                WITH module_name,
+                     feature_count,
+                     CASE
+                         WHEN covered_test_case_count > 0 THEN covered_test_case_count
+                         ELSE direct_test_case_count
+                     END AS test_case_count
                 RETURN module_name, feature_count, test_case_count
                 ORDER BY module_name
                 """
@@ -78,7 +98,11 @@ class CoverageService:
         test_cases = []
         try:
             tc_res = await self.graph_ops.run_cypher(
-                "MATCH (m:Module {name: $name})-[:CONTAINS]->(f:Feature)<-[:COVERS]-(t:TestCase) RETURN DISTINCT t.name AS test_name",
+                """
+                MATCH (m:Module {name: $name})-[:CONTAINS]->(f:Feature)<-[r]-(t:TestCase)
+                WHERE type(r) = 'COVERS'
+                RETURN DISTINCT t.name AS test_name
+                """,
                 {"name": module_name},
             )
             if tc_res:
@@ -87,6 +111,17 @@ class CoverageService:
                     for r in tc_res
                     if isinstance(r, dict) and r.get("test_name")
                 ]
+            if not test_cases:
+                fallback_tc_res = await self.graph_ops.run_cypher(
+                    "MATCH (m:Module {name: $name})-[:CONTAINS]->(t:TestCase) RETURN DISTINCT t.name AS test_name",
+                    {"name": module_name},
+                )
+                if fallback_tc_res:
+                    test_cases = [
+                        r.get("test_name")
+                        for r in fallback_tc_res
+                        if isinstance(r, dict) and r.get("test_name")
+                    ]
         except Exception:
             test_cases = []
         feature_count = len(features)

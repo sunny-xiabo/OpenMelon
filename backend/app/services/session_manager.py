@@ -81,11 +81,29 @@ class SessionManager:
             return result
 
     def rename_session(self, session_id: str, title: str) -> bool:
-        with self._lock:
-            if session_id in self._meta:
-                self._meta[session_id]["title"] = title[:50].strip()
-                return True
+        if not session_id:
             return False
+        now = datetime.utcnow().isoformat() + "Z"
+        safe_title = title[:50].strip()
+        with self._lock:
+            if session_id not in self._sessions:
+                self._sessions[session_id] = []
+                self._meta[session_id] = {
+                    "title": safe_title,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                return True
+            if session_id not in self._meta:
+                self._meta[session_id] = {
+                    "title": safe_title,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            else:
+                self._meta[session_id]["title"] = safe_title
+                self._meta[session_id]["updated_at"] = now
+            return True
 
     def delete_session(self, session_id: str) -> bool:
         with self._lock:

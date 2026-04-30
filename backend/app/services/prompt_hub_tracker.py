@@ -3,9 +3,9 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import Lock
 from typing import Any
 
+from app.storage.sqlite_store import BaseSQLiteStore
 from app.testcase_gen.services.prompt_hub_defaults import (
     DEFAULT_PROMPT_HUB_DATA,
     DEFAULT_SKILL_CATEGORIES,
@@ -16,12 +16,63 @@ from app.testcase_gen.services.prompt_hub_defaults import (
 MAX_PROMPT_HUB_SKILLS = 20
 
 
-class PromptHubTracker:
-    def __init__(self, data_file: Path | None = None) -> None:
-        self._lock = Lock()
+class PromptHubTracker(BaseSQLiteStore):
+    def __init__(
+        self,
+        data_file: Path | None = None,
+        db_path: Path | None = None,
+    ) -> None:
         self._data_file = data_file or (
             Path(__file__).resolve().parent.parent / "data" / "prompt_hub.json"
         )
+        super().__init__(db_path)
+
+    def _init_schema(self) -> None:
+        self._conn.executescript("""
+            PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS prompt_hub_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS prompt_templates (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                review_summary TEXT DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 100,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_prompt_templates_enabled ON prompt_templates(enabled);
+
+            CREATE TABLE IF NOT EXISTS prompt_skill_categories (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 100,
+                data TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS prompt_skills (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                content TEXT NOT NULL,
+                review_summary TEXT DEFAULT '',
+                category TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 100,
+                data TEXT NOT NULL,
+                FOREIGN KEY(category) REFERENCES prompt_skill_categories(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_prompt_skills_enabled ON prompt_skills(enabled);
+            CREATE INDEX IF NOT EXISTS idx_prompt_skills_category ON prompt_skills(category);
+        """)
+        self._initialize_from_json_or_defaults()
 
     def load_data(self) -> dict[str, Any]:
         with self._lock:
@@ -135,18 +186,14 @@ class PromptHubTracker:
     def delete_skill_category(self, category_id: str) -> dict[str, Any]:
         return self._delete_record("skill_categories", category_id)
 
-    def _ensure_data_file(self) -> None:
-        if self._data_file.exists():
-            return
-        self._data_file.parent.mkdir(parents=True, exist_ok=True)
-        self._data_file.write_text(
-            json.dumps(DEFAULT_PROMPT_HUB_DATA, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
     def _read_data_no_lock(self) -> dict[str, Any]:
-        self._ensure_data_file()
-        data = json.loads(self._data_file.read_text(encoding="utf-8"))
+        data = {
+            "version": int(self._get_meta_no_lock("version") or 1),
+            "updated_at": self._get_meta_no_lock("updated_at"),
+            "templates": self._read_records_no_lock("prompt_templates"),
+            "skill_categories": self._read_records_no_lock("prompt_skill_categories"),
+            "skills": self._read_records_no_lock("prompt_skills"),
+        }
         return self._upgrade_legacy_data(data)
 
     def _sort_records(
@@ -170,10 +217,10 @@ class PromptHubTracker:
             or not isinstance(skills, list)
         ):
             raise ValueError(
-                "prompt_hub.json 必须包含 templates、skill_categories 和 skills 数组"
+                "Prompt Hub 配置必须包含 templates、skill_categories 和 skills 数组"
             )
         if len(skills) > MAX_PROMPT_HUB_SKILLS:
-            raise ValueError(f"prompt_hub.json 中技能数量不能超过 {MAX_PROMPT_HUB_SKILLS} 个")
+            raise ValueError(f"Prompt Hub 配置中技能数量不能超过 {MAX_PROMPT_HUB_SKILLS} 个")
 
         self._validate_unique_names(templates, "template")
         self._validate_unique_names(skill_categories, "skill category")
@@ -183,24 +230,24 @@ class PromptHubTracker:
             item for item in templates if item.get("enabled") and item.get("is_default")
         ]
         if len(enabled_defaults) != 1:
-            raise ValueError("prompt_hub.json 必须存在且仅存在一个启用中的默认模板")
+            raise ValueError("Prompt Hub 配置必须存在且仅存在一个启用中的默认模板")
 
         default_categories = [item for item in skill_categories if item.get("is_default")]
         if not default_categories:
-            raise ValueError("prompt_hub.json 至少需要一个默认技能分类")
+            raise ValueError("Prompt Hub 配置至少需要一个默认技能分类")
 
         category_ids = set()
         for item in skill_categories:
             if not item.get("id") or not item.get("name"):
-                raise ValueError("prompt_hub.json 中的技能分类必须包含 id 和 name")
+                raise ValueError("Prompt Hub 配置中的技能分类必须包含 id 和 name")
             category_ids.add(item["id"])
 
         for item in templates + skills:
             if not item.get("id") or not item.get("name"):
-                raise ValueError("prompt_hub.json 中的模板/技能必须包含 id 和 name")
+                raise ValueError("Prompt Hub 配置中的模板/技能必须包含 id 和 name")
             if not item.get("content"):
                 raise ValueError(
-                    f"prompt_hub.json 中的配置内容不能为空: {item.get('id', '<unknown>')}"
+                    f"Prompt Hub 配置内容不能为空: {item.get('id', '<unknown>')}"
                 )
             self._validate_placeholder_content(item["content"], item["id"])
 
@@ -306,11 +353,121 @@ class PromptHubTracker:
             datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         )
         self._validate_data(candidate)
-        self._data_file.write_text(
-            json.dumps(candidate, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self._replace_data_no_lock(candidate)
         return candidate
+
+    def _initialize_from_json_or_defaults(self) -> None:
+        with self._lock:
+            if self._has_prompt_hub_data_no_lock():
+                return
+            data = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA)
+            if self._data_file.exists():
+                try:
+                    loaded = json.loads(self._data_file.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        data = loaded
+                except Exception:
+                    data = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA)
+            data = self._upgrade_legacy_data(data)
+            self._validate_data(data)
+            self._replace_data_no_lock(data)
+
+    def _has_prompt_hub_data_no_lock(self) -> bool:
+        row = self._query_one(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM prompt_templates) AS template_count,
+              (SELECT COUNT(*) FROM prompt_skill_categories) AS category_count,
+              (SELECT COUNT(*) FROM prompt_skills) AS skill_count
+            """
+        )
+        return bool(
+            row
+            and (
+                row["template_count"] > 0
+                or row["category_count"] > 0
+                or row["skill_count"] > 0
+            )
+        )
+
+    def _get_meta_no_lock(self, key: str) -> str | None:
+        row = self._query_one(
+            "SELECT value FROM prompt_hub_meta WHERE key = ?",
+            (key,),
+        )
+        return row["value"] if row else None
+
+    def _read_records_no_lock(self, table: str) -> list[dict[str, Any]]:
+        rows = self._query(f"SELECT data FROM {table} ORDER BY sort_order ASC, id ASC")
+        return [json.loads(row["data"]) for row in rows]
+
+    def _replace_data_no_lock(self, data: dict[str, Any]) -> None:
+        self._conn.execute("DELETE FROM prompt_skills")
+        self._conn.execute("DELETE FROM prompt_templates")
+        self._conn.execute("DELETE FROM prompt_skill_categories")
+        self._conn.execute("DELETE FROM prompt_hub_meta")
+
+        self._conn.executemany(
+            "INSERT INTO prompt_hub_meta (key, value) VALUES (?, ?)",
+            [
+                ("version", str(data.get("version", 1))),
+                ("updated_at", str(data.get("updated_at") or "")),
+            ],
+        )
+        for item in data.get("templates", []):
+            self._conn.execute(
+                """
+                INSERT INTO prompt_templates
+                (id, name, description, content, review_summary, enabled, is_default, sort_order, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["id"],
+                    item["name"],
+                    item.get("description", ""),
+                    item["content"],
+                    item.get("review_summary", ""),
+                    1 if item.get("enabled", True) else 0,
+                    1 if item.get("is_default") else 0,
+                    int(item.get("sort_order", 100)),
+                    json.dumps(item, ensure_ascii=False),
+                ),
+            )
+        for item in data.get("skill_categories", []):
+            self._conn.execute(
+                """
+                INSERT INTO prompt_skill_categories
+                (id, name, is_default, sort_order, data)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    item["id"],
+                    item["name"],
+                    1 if item.get("is_default") else 0,
+                    int(item.get("sort_order", 100)),
+                    json.dumps(item, ensure_ascii=False),
+                ),
+            )
+        for item in data.get("skills", []):
+            self._conn.execute(
+                """
+                INSERT INTO prompt_skills
+                (id, name, description, content, review_summary, category, enabled, sort_order, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["id"],
+                    item["name"],
+                    item.get("description", ""),
+                    item["content"],
+                    item.get("review_summary", ""),
+                    item["category"],
+                    1 if item.get("enabled", True) else 0,
+                    int(item.get("sort_order", 100)),
+                    json.dumps(item, ensure_ascii=False),
+                ),
+            )
+        self._conn.commit()
 
     def _normalize_payload(
         self, kind: str, payload: dict[str, Any], record_id: str | None

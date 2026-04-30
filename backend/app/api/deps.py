@@ -1,19 +1,28 @@
-from fastapi import Request
+from fastapi import HTTPException, Request
+
+
+def _require_service(service, name: str):
+    if service is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{name} 当前不可用，请先启动 Neo4j 后重启后端服务。",
+        )
+    return service
 
 def get_graph_ops(request: Request):
-    return request.app.state.graph_ops
+    return _require_service(getattr(request.app.state, "graph_ops", None), "图谱服务")
 
 def get_vector_ops(request: Request):
-    return request.app.state.vector_ops
+    return _require_service(getattr(request.app.state, "vector_ops", None), "向量检索服务")
 
 def get_llm_client(request: Request):
     return request.app.state.llm_client
 
 def get_intent_router(request: Request):
-    return request.app.state.intent_router
+    return _require_service(getattr(request.app.state, "intent_router", None), "意图识别服务")
 
 def get_retriever(request: Request):
-    return request.app.state.retriever
+    return _require_service(getattr(request.app.state, "retriever", None), "检索服务")
 
 def get_generator(request: Request):
     return request.app.state.generator
@@ -22,10 +31,10 @@ def get_agentic_rag(request: Request):
     return getattr(request.app.state, "agentic_rag", None)
 
 def get_indexer(request: Request):
-    return request.app.state.indexer
+    return _require_service(getattr(request.app.state, "indexer", None), "文档索引服务")
 
 def get_coverage_service(request: Request):
-    return request.app.state.coverage_service
+    return _require_service(getattr(request.app.state, "coverage_service", None), "覆盖率服务")
 
 def get_file_tracker(request: Request):
     return request.app.state.file_tracker

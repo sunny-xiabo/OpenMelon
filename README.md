@@ -1,8 +1,10 @@
-# OpenMelon
+<p align="center">
+  <img src="docs/screenshots/OpenMelon_log.png" alt="OpenMelon" width="680" />
+</p>
 
-基于 **知识图谱 + 向量检索** 的智能文档问答系统，内置 AI 测试用例生成能力。
-
-后端基于 FastAPI + Neo4j，前端基于 React + Material UI，使用 vis.js 渲染图谱，支持多种 LLM Provider 一键切换。
+<p align="center">
+  后端基于 FastAPI + Neo4j，前端基于 React + Material UI，使用 vis.js 渲染图谱，支持多种 LLM Provider 一键切换。
+</p>
 
 ---
 
@@ -19,102 +21,9 @@
 
 ## 系统架构
 
-```mermaid
-flowchart TD
-    %% 定义颜色主题
-    classDef default fill:#f9f9f9,stroke:#d3d3d3,stroke-width:1px
-    classDef gateway fill:#2b323b,stroke:#1e88e5,stroke-width:0px,color:#fff
-    classDef offline fill:#e3f2fd,stroke:#1e88e5,stroke-width:2px,color:#000
-    classDef onlineQA fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,color:#000
-    classDef onlineAgent fill:#fff8e1,stroke:#fbc02d,stroke-width:2px,color:#000
-    classDef storage fill:#ffffff,stroke:#f4511e,stroke-width:2px,stroke-dasharray: 5 5,color:#000
-    classDef core fill:#e8f5e9,stroke:#43a047,stroke-width:1px,color:#000
-    classDef db fill:#ffcc80,stroke:#e65100,stroke-width:2px,color:#000
-
-    User(["用户 / Web UI"]) --> API_GW["FastAPI 统一网关"]
-    class API_GW gateway
-
-    %% ==========================================
-    %% 1. 离线数据摄入流水线 (Offline Ingestion Pipeline)
-    %% ==========================================
-    subgraph Offline["离线数据摄入流 (Offline Ingestion Pipeline)"]
-        direction LR
-        Upload["文档上传"] --> Parse["Parser 解析<br>(PDF/Word/MD...)"]
-        Parse --> Chunk["文本切块<br>(Chunking)"]
-        
-        Chunk --> Extract["图谱抽取<br>(Entity & Relation)"]
-        Chunk --> Embed["向量化<br>(Text-Embedding)"]
-    end
-    class Offline offline
-
-    %% ==========================================
-    %% 2. 存储底座：双核引擎 (Dual Storage Engines)
-    %% ==========================================
-    subgraph Storage["双核存储引擎 (Dual Storage Engines)"]
-        direction LR
-        Neo4j[("Neo4j<br>知识图谱 (精准结构)")] 
-        Qdrant[("Qdrant<br>向量数据库 (模糊语义)")]
-    end
-    class Storage storage
-    class Neo4j,Qdrant db
-
-    Extract -->|"结构化拓扑注入"| Neo4j
-    Embed -->|"稠密语义片段注入"| Qdrant
-
-    %% ==========================================
-    %% 3. 在线编排层 A：智能问答 (RAG Orchestrator)
-    %% ==========================================
-    subgraph Online_QA["编排层 A：智能问答 (RAG Orchestrator)"]
-        direction TB
-        QU["Query 理解与分类<br>(Intent Router)"]
-        Route{"动态路由策略"}
-        Recall["多路并发召回<br>(Multi-channel Recall)"]
-        Rerank["融合排序过滤<br>(BGE Reranker)"]
-        Prompt["上下文拼接与 Prompt 构建"]
-        LLM_QA(("LLM 生成回答"))
-
-        QU --> Route
-        Route -->|"KG / Vector / Hybrid"| Recall
-        Recall --> Rerank
-        Rerank --> Prompt
-        Prompt --> LLM_QA
-    end
-    class Online_QA onlineQA
-    class QU,Route,Recall,Rerank,Prompt core
-
-    %% ==========================================
-    %% 4. 在线编排层 B：测试用例生成 (Agentic Generator)
-    %% ==========================================
-    subgraph Online_TestCase["编排层 B：多智能体用例生成 (Agentic TestCase Generator)"]
-        direction TB
-        TC_Input["用例文档/文本输入"]
-        TC_Context["双核联合上下文获取"]
-        
-        subgraph AutoGen["AutoGen 多智能体协同流水线"]
-            direction LR
-            Phase1["阶段 1<br>需求分析"] --> Phase2["阶段 2<br>用例生成"]
-            Phase2 --> Phase3["阶段 3<br>用例评审"]
-        end
-        
-        TC_Input --> TC_Context
-        TC_Context --> AutoGen
-    end
-    class Online_TestCase onlineAgent
-    class TC_Input,TC_Context core
-
-    %% ==========================================
-    %% 全局连接逻辑
-    %% ==========================================
-    API_GW -->|"文档管理调度"| Upload
-    API_GW -->|"QA 请求"| QU
-    API_GW -->|"用例生成请求"| TC_Input
-
-    Recall <==>|"1. Cypher 查询图谱<br>2. KNN 检索向量"| Storage
-    TC_Context <==>|"补全生成所依赖的背景知识"| Storage
-    
-    %% 用例双写落盘
-    Phase3 -.->|"沉淀结果，支持后续语义检索"| Storage
-```
+<p align="center">
+  <img src="docs/screenshots/system-architecture.png" alt="系统架构" />
+</p>
 
 ---
 
@@ -179,6 +88,7 @@ cd frontend && npm install && npm run dev
 | **3** | **图谱总览** | 查看系统刚为你自动抽取生成的实体与关系图谱 |
 | **4** | **测试用例生成** | 体验一键将刚才的文档转换为测试用例，并导出 Excel |
 | **5** | **覆盖率视图** | 查看哪些模块缺少测试用例，直观发现风险点 |
+| **6** | **API 自动化** | 导入接口文档，生成 API DSL，执行接口用例并沉淀可信执行经验 |
 
 ### 界面概览
 
@@ -212,10 +122,10 @@ OpenMelon/
 ├── backend/app/
 │   ├── api/             # FastAPI 路由映射与依赖注入
 │   ├── engine/          # RAG 核心编排层（意图路由、多路召回、Rerank）
-│   ├── storage/         # 存储底座（Neo4j 知识图谱与 Qdrant 向量库）
+│   ├── storage/         # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
 │   ├── services/        # 业务逻辑（文档解析、覆盖率计算等）
 │   └── testcase_gen/    # 基于 AutoGen 的多智能体测试用例生成模块
-├── frontend/src/        # React 前端代码
+├── frontend/src/        # React 前端代码，已按 pages + features 结构拆分业务模块
 ├── docs/                # 项目补充文档及截图资源
 └── docker-compose.yml   # 容器编排文件
 ```

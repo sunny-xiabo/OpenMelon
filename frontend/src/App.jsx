@@ -1,5 +1,5 @@
 import { useState, lazy, Suspense } from 'react';
-import { Box, AppBar, Toolbar, Typography, Button } from '@mui/material';
+import { Box } from '@mui/material';
 import {
   QuestionAnswerRounded,
   HubRounded,
@@ -21,6 +21,7 @@ const ManagePage = lazy(() => import('./pages/ManagePage'));
 const CoveragePage = lazy(() => import('./pages/CoveragePage'));
 const TestCasePage = lazy(() => import('./pages/TestCasePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const APIExecutionPage = lazy(() => import('./pages/APIExecutionPage'));
 
 // 顶部导航栏配置，定义每个模块对应的图标和组件
 const TABS = [
@@ -28,20 +29,29 @@ const TABS = [
   { label: '图谱总览', component: GraphPage, icon: <HubRounded fontSize="small" /> },
   { label: '导入管理', component: ManagePage, icon: <CloudUploadRounded fontSize="small" /> },
   { label: '测试用例生成', component: TestCasePage, icon: <AssignmentTurnedInRounded fontSize="small" /> },
+  { label: 'API 自动化', component: APIExecutionPage, icon: <AutoGraphRounded fontSize="small" /> },
   { label: '覆盖率视图', component: CoveragePage, icon: <PieChartRounded fontSize="small" /> },
   { label: '设置', component: SettingsPage, icon: <SettingsRounded fontSize="small" /> },
 ];
 
 function App() {
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(() => {
+    const saved = sessionStorage.getItem('openmelon_active_tab');
+    return saved !== null ? parseInt(saved, 10) : 0;
+  });
   
   // mountedTabs 用于实现“按需挂载” + “保持状态” (Keep-Alive)。
   // 也就是说，首次点击 Tab 时会挂载对应的组件，切换走时不会卸载它（只用 display: none 隐藏），
   // 这样当用户切回这个页面时，它的状态（比如输入的文字、滚动位置）都还在。
-  const [mountedTabs, setMountedTabs] = useState([0]);
+  const [mountedTabs, setMountedTabs] = useState(() => {
+    const saved = sessionStorage.getItem('openmelon_active_tab');
+    const initialTab = saved !== null ? parseInt(saved, 10) : 0;
+    return [initialTab];
+  });
 
   const handleTabChange = (newIndex) => {
     setTab(newIndex);
+    sessionStorage.setItem('openmelon_active_tab', newIndex.toString());
     if (!mountedTabs.includes(newIndex)) {
       setMountedTabs((prev) => [...prev, newIndex]);
     }

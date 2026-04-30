@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi import Request
-from typing import Optional
 import os
 
 from app.api.schemas import (
@@ -126,7 +125,6 @@ async def reindex_file(record_id: str, req: Request):
         tracker.update_record(record_id, status="reindexing")
 
         from app.services.file_parser import parse_file
-        import io
 
         class _TempFile:
             def __init__(self, content, name):

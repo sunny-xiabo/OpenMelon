@@ -17,7 +17,8 @@
 
 ```
 src/
-├── components/           # 通用组件
+├── api/                  # 按领域拆分的 API Client 与统一导出
+├── components/           # 全局通用组件
 │   ├── ConfirmDialog.jsx # 确认弹窗
 │   ├── StatusBadge.jsx   # 状态标签
 │   ├── PageHeader.jsx    # 页面标题栏
@@ -27,19 +28,30 @@ src/
 │   ├── TestCaseMindMap.jsx  # 用例思维导图
 │   ├── ErrorBoundary.jsx # 错误边界
 │   └── SnackbarProvider.jsx # 消息提示
-├── pages/                # 页面组件
-│   ├── QAPage.jsx        # 问答页
-│   ├── GraphPage.jsx     # 图谱总览
-│   ├── SettingsPage.jsx  # 设置模块
-│   ├── NodeTypeConfigPage.jsx # 节点类型配置
-│   ├── ManagePage.jsx    # 导入管理
-│   ├── TestCasePage.jsx  # 测试用例生成
-│   ├── CoveragePage.jsx  # 覆盖率视图
-│   └── MarkMapPage.jsx   # 思维导图
+├── features/             # 按业务域拆分的页面子模块
+│   ├── APIExecution/     # API 自动化工作台
+│   ├── Coverage/         # 覆盖率图表、筛选、导出
+│   ├── Graph/            # 图谱工具栏、图例、详情面板
+│   ├── Manage/           # 导入工作台、索引表格、分页
+│   ├── NodeType/         # 节点类型筛选、列表、编辑弹窗
+│   ├── PromptHub/        # Prompt/技能配置表格与弹窗
+│   ├── QA/               # 会话历史、消息气泡、图谱线索
+│   └── TestCase/         # 用例生成配置、结果筛选与统计
+├── pages/                # 路由页面容器，负责数据编排与 Feature 拼装
+│   ├── APIExecutionPage.jsx
+│   ├── CoveragePage.jsx
+│   ├── GraphPage.jsx
+│   ├── ManagePage.jsx
+│   ├── NodeTypeConfigPage.jsx
+│   ├── PromptHubConfigPage.jsx
+│   ├── QAPage.jsx
+│   ├── SettingsPage.jsx
+│   ├── TestCasePage.jsx
+│   └── MarkMapPage.jsx
 ├── hooks/                # 自定义 Hooks
 │   └── useSession.js     # 会话管理
-├── services/             # API 服务
-│   └── api.js            # 接口封装
+├── services/             # 兼容旧调用的 API 服务入口
+│   └── api.js
 ├── utils/                # 工具函数
 │   └── parseTestCases.js # 用例解析
 ├── styles/               # 样式文件
@@ -70,12 +82,36 @@ npm run preview
 npm run lint
 ```
 
+## 前端重构状态
+
+当前前端已完成一轮 feature-based 拆分。页面组件不再承载大段视图渲染和局部 UI 细节，主要负责路由入口、数据加载、状态编排和事件分发；具体业务 UI、常量、工具函数和部分 Hook 已沉淀到 `features/*`。
+
+已完成拆分的模块：
+
+| 页面容器 | Feature 模块 | 当前职责边界 |
+|---------|--------------|--------------|
+| `APIExecutionPage.jsx` | `features/APIExecution` | API 自动化四段式工作流、导入、编排、执行结果、历史记录 |
+| `ManagePage.jsx` | `features/Manage` | 导入工作台、索引统计、筛选栏、索引表格、分页 |
+| `QAPage.jsx` | `features/QA` | 会话历史、消息气泡、图谱线索面板、问答工具函数 |
+| `PromptHubConfigPage.jsx` | `features/PromptHub` | 模板/技能编辑弹窗、分类管理、表格和概览卡片 |
+| `CoveragePage.jsx` | `features/Coverage` | 指标卡、筛选栏、环形图、排行条、模块详情行 |
+| `NodeTypeConfigPage.jsx` | `features/NodeType` | 节点类型筛选、卡片/表格列表、编辑弹窗、默认表单 |
+| `GraphPage.jsx` | `features/Graph` | 图谱工具栏、图例、节点详情面板和展示常量 |
+| `TestCasePage.jsx` | `features/TestCase` | 文件拖拽、生成配置面板、结果操作栏、筛选与统计 |
+
+维护约定：
+
+- 新增复杂页面时，优先在 `features/<Domain>/components`、`hooks`、`utils`、`constants` 下承载业务代码，`pages/*` 只做容器编排。
+- 跨页面复用的基础 UI 放到 `components/`，只被单一业务域使用的组件放到对应 `features/*`。
+- API 调用优先按领域放到 `src/api/`，`services/api.js` 保持兼容导出，避免一次性破坏旧页面调用。
+- 每次重构或行为修复后执行 `npm run build`，并同步更新根目录 `CHANGELOG.md`。
+
 ## 页面功能
 
 ### 问答页 (QAPage)
 - 会话管理（新建、切换、删除）
 - 消息列表（支持 Markdown 渲染）
-- 图谱可���化（右侧面板，可收起）
+- 图谱可视化（右侧面板，可收起）
 - 推理步骤展开
 - 企业微信推送
 

@@ -19,7 +19,7 @@ def tracker(tmp_path: Path) -> PromptHubTracker:
         json.dumps(DEFAULT_PROMPT_HUB_DATA, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    return PromptHubTracker(data_file=data_file)
+    return PromptHubTracker(data_file=data_file, db_path=tmp_path / "openmelon.db")
 
 
 def test_create_update_delete_template(tracker: PromptHubTracker):
