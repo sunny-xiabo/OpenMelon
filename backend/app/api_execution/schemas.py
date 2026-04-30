@@ -147,6 +147,25 @@ class APIExtraction(BaseModel):
     name: str
     source: str = "body"
     path: Optional[str] = None
+    default: Any | None = None
+
+
+class APIRetryConfig(BaseModel):
+    max_attempts: int = 1
+    delay_ms: int = 1000
+    backoff_factor: float = 1.0
+    retry_on: list[str] = ["status_code"]
+
+
+class VariableSetup(BaseModel):
+    name: str
+    source: str = "static"  # static | env | random | timestamp
+    value: Any = None
+    env_key: str = ""
+    random_type: str = ""  # uuid | string | int | float
+    random_min: int = 0
+    random_max: int = 100
+    random_length: int = 8
 
 
 class APITestStep(BaseModel):
@@ -161,6 +180,9 @@ class APITestStep(BaseModel):
     body: dict[str, Any] | list[Any] | str | None = None
     assertions: list[APIAssertion] = []
     extractions: list[APIExtraction] = []
+    retry: APIRetryConfig | None = None
+    depends_on: list[str] = []
+    parallel_group: str = ""
 
 
 class APITestCaseDsl(BaseModel):
@@ -171,6 +193,7 @@ class APITestCaseDsl(BaseModel):
     base_url: str = ""
     variables: dict[str, Any] = {}
     steps: list[APITestStep] = []
+    setup_variables: list[VariableSetup] = []
 
 
 class ValidateDslRequest(BaseModel):
@@ -380,6 +403,7 @@ class AssertionResult(BaseModel):
     passed: bool
     expected: Any | None = None
     actual: Any | None = None
+    path: Optional[str] = None
     message: str = ""
 
 
@@ -427,11 +451,17 @@ class APIRunReport(BaseModel):
     repair_suggestions: list[str] = []
     automation_summary: dict[str, Any] = {}
     repair_history: list[dict[str, Any]] = []
+    progress_total: int = 0
+    progress_completed: int = 0
+    current_step_id: Optional[str] = None
+    current_step_name: Optional[str] = None
     duration_ms: int
     total: int
     passed: int
     failed: int
     skipped: int = 0
+    attempt: int = 1
+    parent_run_id: Optional[str] = None
     results: list[APIStepRunResult] = []
 
 

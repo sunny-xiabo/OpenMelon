@@ -11,7 +11,14 @@ import StepResult from '../features/APIExecution/components/StepResult';
 import RunHistory from '../features/APIExecution/components/RunHistory';
 
 function APIExecutionContent() {
-  const { activeStep, setActiveStep, loading, loadingMessage, dslText } = useAPIExecution();
+  const { activeStep, setActiveStep, loading, loadingMessage, dslText, runReport, runResult } = useAPIExecution();
+  const hasExecutionResult = Boolean(runReport || runResult);
+  const nextDisabled = (activeStep === 1 && !dslText) || (activeStep === 2 && !hasExecutionResult);
+  const nextLabel = activeStep === 1 && !dslText
+    ? '请先生成脚本'
+    : activeStep === 2
+      ? hasExecutionResult ? '查看执行结果' : '暂无执行结果'
+      : '下一步';
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', bgcolor: '#f4f7fb', color: 'text.primary' }}>
@@ -42,11 +49,11 @@ function APIExecutionContent() {
               <Button disabled={activeStep === 0} onClick={() => setActiveStep(prev => prev - 1)}>上一步</Button>
               {activeStep < 3 && (
                 <Button 
-                  variant="contained" 
-                  disabled={activeStep === 1 && !dslText}
+                  variant={activeStep === 2 && !hasExecutionResult ? 'outlined' : 'contained'}
+                  disabled={nextDisabled}
                   onClick={() => setActiveStep(prev => prev + 1)}
                 >
-                  {activeStep === 1 && !dslText ? '请先生成脚本' : activeStep === 2 ? '查看执行结果' : '下一步'}
+                  {nextLabel}
                 </Button>
               )}
             </Box>

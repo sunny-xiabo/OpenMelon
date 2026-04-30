@@ -1,6 +1,11 @@
+import asyncio
+import logging
 import uuid
-from datetime import UTC, datetime
 from typing import Any
+
+from app.api_execution.utils import now_iso as _now_iso
+
+logger = logging.getLogger(__name__)
 
 
 def build_run_knowledge_items(run: dict[str, Any]) -> list[dict[str, Any]]:
@@ -138,6 +143,57 @@ async def write_run_to_graph(graph_ops: Any, run: dict[str, Any]) -> int:
     return written
 
 
+async def write_run_to_graph_with_retry(
+    graph_ops: Any,
+    run: dict[str, Any],
+    *,
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+) -> dict[str, Any]:
+    run_id = run.get("run_id", "<unknown>")
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            written = await write_run_to_graph(graph_ops, run)
+            return {"success": True, "written": written, "attempt": attempt}
+        except Exception as exc:
+            last_error = exc
+            logger.warning("图谱写入失败 (run_id=%s, attempt=%d/%d): %s", run_id, attempt, max_retries, exc)
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay * attempt)
+    return {
+        "success": False,
+        "error": str(last_error),
+        "attempt": max_retries,
+    }
+
+
+def build_graph_write_failure_task(run: dict[str, Any], error: str, attempt: int) -> dict[str, Any]:
+    now = _now_iso()
+    return {
+        "task_id": f"graph-write-failure:{run.get('run_id', uuid.uuid4())}",
+        "created_at": now,
+        "updated_at": now,
+        "task_type": "knowledge_write_failure",
+        "status": "pending",
+        "run_id": run.get("run_id"),
+        "project_id": (run.get("execution_options") or {}).get("project_id", ""),
+        "environment_id": (run.get("execution_options") or {}).get("environment_id", ""),
+        "risk_level": "low",
+        "reason": f"图谱写入失败 {attempt} 次: {error}",
+        "summary": {
+            "run_id": run.get("run_id"),
+            "case_name": run.get("case_name", ""),
+            "error": error,
+            "attempt": attempt,
+        },
+        "decision": {},
+        "result_run_id": None,
+        "resolved_at": None,
+        "resolution_note": "",
+    }
+
+
 def _run_summary_text(run: dict[str, Any]) -> str:
     return (
         f"{run.get('case_name') or run.get('case_id') or 'API 用例'}执行{run.get('status', '')}，"
@@ -169,7 +225,3 @@ def _project_name(run: dict[str, Any]) -> str:
         or ((run.get("script") or {}).get("target_project"))
         or "API 自动化"
     )
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")

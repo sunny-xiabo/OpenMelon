@@ -1,6 +1,4 @@
 import json
-import re
-from typing import Any
 
 from app.api_execution.schemas import APITestCaseDsl
 
@@ -52,7 +50,19 @@ def read_path(data, path):
     current = data
     normalized_path = path[2:] if path.startswith("$.") else path.lstrip(".")
     for part in normalized_path.split("."):
-        if isinstance(current, dict):
+        bracket_match = re.match(r"^(.*?)\\[(\\d+)\\]$", part)
+        if bracket_match:
+            key, index_str = bracket_match.group(1), bracket_match.group(2)
+            if key:
+                current = current.get(key) if isinstance(current, dict) else None
+                if current is None:
+                    return None
+            index = int(index_str)
+            if isinstance(current, list):
+                current = current[index] if 0 <= index < len(current) else None
+            else:
+                return None
+        elif isinstance(current, dict):
             current = current.get(part)
         elif isinstance(current, list) and part.isdigit():
             index = int(part)
@@ -85,48 +95,62 @@ def run_assertions(step, response, duration_ms):
         expected = assertion.get("expected", assertion.get("value"))
         if assertion_type == "status_code":
             assert response.status_code == expected
+        elif assertion_type == "status_code_not":
+            assert response.status_code != expected
         elif assertion_type == "status_code_in":
             assert response.status_code in expected
+        elif assertion_type == "status_code_not_in":
+            assert response.status_code not in expected
         elif assertion_type == "body_contains":
             assert str(expected) in response.text
+        elif assertion_type == "body_not_contains":
+            assert str(expected) not in response.text
         elif assertion_type == "response_time_lt":
             assert duration_ms < int(expected)
         elif assertion_type == "json_path_exists":
             assert extract_value(response, "body", assertion.get("path")) is not None
+        elif assertion_type == "json_path_not_exists":
+            assert extract_value(response, "body", assertion.get("path")) is None
         elif assertion_type == "json_path_equals":
             assert extract_value(response, "body", assertion.get("path")) == expected
+        elif assertion_type == "header_exists":
+            assert response.headers.get(assertion.get("path") or "") is not None
         elif assertion_type == "header_equals":
             assert response.headers.get(assertion.get("path") or "") == expected
+        elif assertion_type == "header_contains":
+            assert str(expected) in str(response.headers.get(assertion.get("path") or "") or "")
 
 
 def test_api_script():
     variables = dict(TEST_SCRIPT.get("variables") or {{}})
     base_url = TEST_SCRIPT.get("base_url") or "http://localhost:8000"
+    failures = []
     with httpx.Client(timeout=30) as client:
         for step in TEST_SCRIPT.get("steps", []):
-            headers = substitute(step.get("headers", {{}}), variables)
-            query = substitute(step.get("query", {{}}), variables)
-            body = substitute(step.get("body"), variables)
-            url = build_url(base_url, step, variables)
-            response = client.request(
-                step.get("method", "GET"),
-                url,
-                headers={{str(key): str(value) for key, value in headers.items()}},
-                params=query,
-                json=body if isinstance(body, (dict, list)) else None,
-                content=body if isinstance(body, str) else None,
-            )
-            duration_ms = int(response.elapsed.total_seconds() * 1000)
-            run_assertions(step, response, duration_ms)
-            for extraction in step.get("extractions", []):
-                name = (extraction.get("name") or "").strip()
-                if name:
-                    value = extract_value(response, extraction.get("source", "body"), extraction.get("path"))
-                    if value is not None:
-                        variables[name] = value
+            step_name = step.get("name") or step.get("id") or "unknown"
+            try:
+                headers = substitute(step.get("headers", {{}}), variables)
+                query = substitute(step.get("query", {{}}), variables)
+                body = substitute(step.get("body"), variables)
+                url = build_url(base_url, step, variables)
+                response = client.request(
+                    step.get("method", "GET"),
+                    url,
+                    headers={{str(key): str(value) for key, value in headers.items()}},
+                    params=query,
+                    json=body if isinstance(body, (dict, list)) else None,
+                    content=body if isinstance(body, str) else None,
+                )
+                duration_ms = int(response.elapsed.total_seconds() * 1000)
+                run_assertions(step, response, duration_ms)
+                for extraction in step.get("extractions", []):
+                    name = (extraction.get("name") or "").strip()
+                    if name:
+                        value = extract_value(response, extraction.get("source", "body"), extraction.get("path"))
+                        if value is not None:
+                            variables[name] = value
+            except Exception as exc:
+                failures.append(f"{{step_name}}: {{exc}}")
+    if failures:
+        raise AssertionError("\\n".join(failures))
 '''
-
-
-def _safe_filename(name: str) -> str:
-    slug = re.sub(r"[^\w\u4e00-\u9fa5-]+", "_", name or "test_api_script").strip("_")
-    return slug or "test_api_script"

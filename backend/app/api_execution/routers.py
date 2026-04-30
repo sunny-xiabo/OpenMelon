@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
@@ -53,13 +54,15 @@ from app.api_execution.ai_assistant import (
 from app.api_execution.storage import api_execution_store
 from app.api_execution.diagnostics import enrich_run_report
 from app.api_execution.dsl_generator import generate_api_dsl
-from app.api_execution.knowledge import build_run_knowledge_items, write_run_to_graph
+from app.api_execution.knowledge import build_run_knowledge_items, write_run_to_graph_with_retry, build_graph_write_failure_task
 from app.api_execution.exporters.postman_exporter import generate_postman_collection
 from app.api_execution.exporters.pytest_exporter import generate_pytest_script
 from app.api_execution.policy import assert_execution_allowed
-from app.api_execution.run_queue import cancel_run, enqueue_run
+from app.api_execution.run_queue import cancel_run, enqueue_run, subscribe_sse, unsubscribe_sse
 from app.api_execution.runner import run_all_steps, run_single_step
 from app.api_execution.spec_parser import SUPPORTED_EXTENSIONS, parse_api_description_file, parse_api_description_url
+from app.api_execution.utils import execution_options as _execution_options
+from app.api_execution.utils import now_iso as _now_iso
 
 router = APIRouter(prefix="/api-execution", tags=["api-execution"])
 
@@ -104,7 +107,7 @@ async def trigger_scheduled_runs():
     triggered_at = _now_iso()
     items = []
     for project in api_execution_store.list_projects():
-        item = _enqueue_scheduled_project(project, triggered_at)
+        item = await _enqueue_scheduled_project(project, triggered_at)
         items.append(item)
     return {"triggered_at": triggered_at, "items": items}
 
@@ -243,6 +246,9 @@ async def delete_environment(environment_id: str):
     return {"deleted": True}
 
 
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
+
+
 @router.post("/openapi/parse-file", response_model=OpenAPIParseResponse)
 async def parse_openapi_file(file: UploadFile = File(...)):
     filename = file.filename or ""
@@ -253,6 +259,8 @@ async def parse_openapi_file(file: UploadFile = File(...)):
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="API 文档文件不能为空")
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="文件大小不能超过 10MB")
 
     content_hash = _content_hash(content)
     cached_spec = api_execution_store.get_spec_by_content_hash(content_hash)
@@ -328,12 +336,43 @@ async def generate_dsl(request: GenerateDslRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+_VALID_ASSERTION_TYPES = {
+    "status_code", "status_code_not", "status_code_in", "status_code_not_in",
+    "body_contains", "body_not_contains",
+    "json_path_exists", "json_path_not_exists", "json_path_equals",
+    "header_exists", "header_equals", "header_contains",
+    "response_time_lt",
+}
+
+
 @router.post("/dsl/validate")
 async def validate_dsl(request: ValidateDslRequest):
+    errors: list[str] = []
+    script = request.script
+    steps = script.steps or []
+    if not steps:
+        errors.append("脚本至少需要一个步骤")
+
+    known_vars = set(script.variables or {})
+    for i, step in enumerate(steps, 1):
+        prefix = f"步骤 {i} ({step.id or step.name or 'unknown'})"
+        if not step.method:
+            errors.append(f"{prefix}: 缺少 HTTP 方法")
+        if not step.path:
+            errors.append(f"{prefix}: 缺少请求路径")
+        for assertion in step.assertions or []:
+            if assertion.type not in _VALID_ASSERTION_TYPES:
+                errors.append(f"{prefix}: 未知断言类型 '{assertion.type}'")
+        for extraction in step.extractions or []:
+            if extraction.name:
+                known_vars.add(extraction.name)
+
+    valid = len(errors) == 0
     return {
-        "valid": True,
-        "case_id": request.script.case_id,
-        "step_count": len(request.script.steps or []),
+        "valid": valid,
+        "case_id": script.case_id,
+        "step_count": len(steps),
+        "errors": errors,
     }
 
 
@@ -483,7 +522,7 @@ async def run_all_steps_endpoint(request: RunScriptRequest):
 async def create_background_run(request: RunScriptRequest):
     try:
         policy_decision = _assert_policy_allowed(request)
-        queued_run = enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
+        queued_run = await enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
         return {"run_id": queued_run["run_id"], "status": queued_run["status"]}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -515,9 +554,45 @@ async def get_run_report(run_id: str):
     return run
 
 
+@router.get("/runs/{run_id}/stream")
+async def stream_run_progress(run_id: str):
+    run = api_execution_store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="执行历史不存在")
+
+    if run.get("status") in {"passed", "failed", "cancelled"}:
+        async def _final():
+            yield _sse_format("finished", {"status": run["status"], "run_id": run_id})
+        return StreamingResponse(_final(), media_type="text/event-stream")
+
+    queue = subscribe_sse(run_id)
+
+    async def _stream():
+        try:
+            yield _sse_format("progress", {
+                "progress_total": run.get("progress_total", 0),
+                "progress_completed": run.get("progress_completed", 0),
+                "current_step_id": run.get("current_step_id"),
+                "current_step_name": run.get("current_step_name"),
+            })
+            while True:
+                message = await queue.get()
+                if message is None:
+                    break
+                yield _sse_format(message["event"], message["data"])
+        finally:
+            unsubscribe_sse(run_id, queue)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+def _sse_format(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 @router.post("/runs/{run_id}/cancel", response_model=APIRunReport)
 async def cancel_background_run(run_id: str):
-    run = cancel_run(run_id)
+    run = await cancel_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="执行历史不存在")
     return run
@@ -527,7 +602,7 @@ async def cancel_background_run(run_id: str):
 async def delete_run_history(run_id: str):
     run = api_execution_store.get_run(run_id)
     if run and run.get("status") in {"queued", "running"}:
-        cancel_run(run_id)
+        await cancel_run(run_id)
     if not api_execution_store.delete_run(run_id):
         raise HTTPException(status_code=404, detail="执行历史不存在")
     return {"deleted": True}
@@ -913,7 +988,14 @@ async def _ingest_single_run_to_knowledge(request: Request, run: dict[str, Any])
             if vector_ops is not None and llm_client is not None:
                 response["vector_written"] += await _index_knowledge_item(vector_ops, llm_client, item)
         if graph_ops is not None:
-            response["graph_written"] += await write_run_to_graph(graph_ops, run)
+            graph_result = await write_run_to_graph_with_retry(graph_ops, run)
+            if graph_result["success"]:
+                response["graph_written"] += graph_result["written"]
+            else:
+                response["errors"].append(f"图谱写入失败: {graph_result['error']}")
+                api_execution_store.save_automation_task(
+                    build_graph_write_failure_task(run, graph_result["error"], graph_result["attempt"])
+                )
         response["run_count"] += 1
     except Exception as exc:
         response["errors"].append(f"{run.get('run_id', '<unknown>')}: {exc}")
@@ -972,20 +1054,63 @@ async def _search_historical_repair_context(
     return _search_local_repair_knowledge(query, project_id=project_id, top_k=top_k)
 
 
-def _search_local_repair_knowledge(query: str, *, project_id: str = "", top_k: int = 3) -> list[dict[str, Any]]:
-    tokens = [token for token in query.lower().replace("/", " ").replace("_", " ").split() if token]
-    candidates = [
+_KNOWLEDGE_INDEX: dict[str, Any] = {"items": None, "index": None, "ts": 0.0}
+_KNOWLEDGE_INDEX_TTL = 60.0  # seconds
+
+
+def _tokenize(text: str) -> list[str]:
+    """Normalize text into searchable tokens, stripping punctuation."""
+    import re
+    cleaned = re.sub(r"[^\w\s]", " ", text)
+    return [t for t in cleaned.lower().split() if t]
+
+
+def _build_knowledge_index() -> tuple[list[dict[str, Any]], dict[str, list[int]]]:
+    items = [
         item
         for item in api_execution_store.list_knowledge_items(limit=200)
         if item.get("item_type") in {"api_repair", "api_failure"}
-        and (not project_id or item.get("project_id") in {"", project_id})
     ]
-    scored = []
-    for item in candidates:
+    index: dict[str, list[int]] = {}
+    for i, item in enumerate(items):
         text = _knowledge_item_text(item).lower()
-        score = sum(1 for token in tokens if token in text)
-        if score or not tokens:
-            scored.append((score, item))
+        for token in set(_tokenize(text)):
+            index.setdefault(token, []).append(i)
+    return items, index
+
+
+def _get_knowledge_index() -> tuple[list[dict[str, Any]], dict[str, list[int]]]:
+    import time as _time
+
+    now = _time.monotonic()
+    if _KNOWLEDGE_INDEX["items"] is None or now - _KNOWLEDGE_INDEX["ts"] > _KNOWLEDGE_INDEX_TTL:
+        items, index = _build_knowledge_index()
+        _KNOWLEDGE_INDEX["items"] = items
+        _KNOWLEDGE_INDEX["index"] = index
+        _KNOWLEDGE_INDEX["ts"] = now
+    return _KNOWLEDGE_INDEX["items"], _KNOWLEDGE_INDEX["index"]
+
+
+def _search_local_repair_knowledge(query: str, *, project_id: str = "", top_k: int = 3) -> list[dict[str, Any]]:
+    tokens = _tokenize(query)
+    items, index = _get_knowledge_index()
+
+    if not tokens:
+        filtered = [item for item in items if not project_id or item.get("project_id") in {"", project_id}]
+        return filtered[:top_k]
+
+    # score using inverted index: count how many query tokens appear in item text
+    # apply project_id filter during scoring to keep indices aligned with the cached list
+    candidate_scores: dict[int, int] = {}
+    for token in tokens:
+        for idx in index.get(token, []):
+            if idx < len(items) and (not project_id or items[idx].get("project_id") in {"", project_id}):
+                candidate_scores[idx] = candidate_scores.get(idx, 0) + 1
+
+    scored = [
+        (score, items[idx])
+        for idx, score in candidate_scores.items()
+    ]
     scored.sort(key=lambda pair: (pair[0], pair[1].get("created_at", "")), reverse=True)
     return [item for _score, item in scored[:top_k]]
 
@@ -1077,7 +1202,7 @@ def _repair_context_query(script: APITestCaseDsl, report: dict[str, Any]) -> str
     )
 
 
-def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str) -> dict[str, Any]:
+async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str) -> dict[str, Any]:
     project_id = project.get("project_id", "")
     project_name = project.get("name", "")
     if not project.get("enabled", True):
@@ -1111,7 +1236,7 @@ def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str) -> di
     )
     try:
         policy_decision = _assert_policy_allowed(request)
-        run = enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
+        run = await enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
         api_execution_store.save_project({**project, "last_scheduled_run_at": triggered_at, "updated_at": triggered_at})
         _save_policy_audit("scheduled_run", policy_decision, run_id=run.get("run_id"))
         return _automation_item(project_id, project_name, "queued", run_id=run.get("run_id"))
@@ -1194,11 +1319,7 @@ def _project_operation_ids(project: dict[str, Any], spec: dict[str, Any]) -> lis
             for operation in operations
             if operation.get("id") in allowlist
         ]
-    return [
-        operation.get("id")
-        for operation in operations
-        if str(operation.get("method", "")).upper() in {"GET", "HEAD"}
-    ]
+    return [operation.get("id") for operation in operations if operation.get("id")]
 
 
 def _latest_project_spec(project: dict[str, Any]) -> dict[str, Any] | None:
@@ -1300,9 +1421,24 @@ def _assert_patch_auto_applicable(run: dict[str, Any], patch: dict[str, Any]) ->
     if unsafe_ops:
         raise ValueError("AI 修复补丁包含需要人工确认的修改，已进入待处理队列")
 
-    decision = ((run.get("execution_options") or {}).get("policy_decision") or {})
-    if decision.get("risk_level") and decision.get("risk_level") != "low":
-        raise ValueError(f"原执行风险等级为 {decision.get('risk_level')}，不能无人值守自动修复")
+    # Re-evaluate policy on the patched script instead of reusing the original run's decision
+    options = run.get("execution_options") or {}
+    patched_script = patch.get("patched_script")
+    if patched_script:
+        try:
+            patched_decision = assert_execution_allowed(
+                patched_script,
+                project_id=options.get("project_id"),
+                environment_id=options.get("environment_id"),
+                project_policy_snapshot=options.get("project_policy_snapshot"),
+                environment_snapshot=options.get("environment_snapshot"),
+            )
+            if patched_decision.get("risk_level") and patched_decision.get("risk_level") != "low":
+                raise ValueError(f"修复后脚本风险等级为 {patched_decision.get('risk_level')}，不能无人值守自动修复")
+        except ValueError:
+            raise
+        except Exception:
+            pass
 
 
 def _append_repair_summary(
@@ -1393,27 +1529,6 @@ def _decision_from_run(run: dict[str, Any], *, risk_level: str, reason: str) -> 
         "environment_id": decision.get("environment_id") or options.get("environment_id", ""),
         "trigger_source": "auto_repair",
     }
-
-
-def _execution_options(request: RunScriptRequest, policy_decision: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {
-        "project_id": request.project_id,
-        "environment_id": request.environment_id,
-        "environment_snapshot": request.environment_snapshot,
-        "project_policy_snapshot": request.project_policy_snapshot,
-        "base_url": request.base_url,
-        "timeout_ms": request.timeout_ms,
-        "run_timeout_ms": request.run_timeout_ms,
-        "max_steps": request.max_steps,
-        "step_ids": request.step_ids,
-        "continue_on_failure": request.continue_on_failure,
-        "has_global_headers": bool(request.global_headers),
-        "policy_decision": policy_decision or {},
-    }
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _safe_export_filename(prefix: str, suffix: str) -> str:

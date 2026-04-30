@@ -1,8 +1,49 @@
 import React from 'react';
-import { Stack, Typography, Paper, Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, Checkbox } from '@mui/material';
-import { CloudUploadOutlined } from '@mui/icons-material';
+import { Stack, Typography, Paper, Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, Checkbox, Alert } from '@mui/material';
+import { CloudUploadOutlined, ContentPasteOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import { NEW_PROJECT_VALUE, NEW_ENVIRONMENT_VALUE, ENVIRONMENT_TYPE_OPTIONS } from '../constants';
+import StageHeader from './StageHeader';
+
+const ENVIRONMENT_VARIABLES_EXAMPLE = JSON.stringify({
+  user_id: '10001',
+  tenant_id: 'demo-tenant',
+  access_token: 'paste-token-here',
+}, null, 2);
+
+const RISK_OVERRIDES_EXAMPLE = JSON.stringify({
+  'DELETE /users/{id}': 'high',
+  'POST /payments': 'high',
+  'GET /admin/audit': 'medium',
+}, null, 2);
+
+const AI_BOUNDARY_OPTIONS = [
+  {
+    checkedKey: 'allowAiGenerateDsl',
+    label: '允许 AI 生成 DSL',
+    description: '允许根据 OpenAPI 自动生成测试脚本草稿。',
+  },
+  {
+    checkedKey: 'allowAiExecution',
+    label: '允许 AI 自动执行',
+    description: '开启后，AI/自动化任务可以直接提交执行。生产环境建议关闭。',
+  },
+  {
+    checkedKey: 'allowAiRepair',
+    label: '允许 AI 自动修复',
+    description: '允许根据失败结果生成修复补丁或受控重跑。',
+  },
+  {
+    checkedKey: 'allowScheduledExecution',
+    label: '允许定时执行',
+    description: '允许该项目被定时任务触发执行。',
+  },
+  {
+    checkedKey: 'allowOverwriteHistory',
+    label: '允许覆盖原记录',
+    description: '重跑失败步骤时可合并更新原执行记录。',
+  },
+];
 
 export default function StepImport() {
   const {
@@ -24,7 +65,7 @@ export default function StepImport() {
   return (
     <>
     <Stack spacing={3}>
-                <Typography variant="h5" fontWeight={800}>步骤 1: 导入 API 规范</Typography>
+                <StageHeader title="步骤 1: 导入 API 规范" />
                 
                 <Paper sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
                   <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>拖拽上传 OpenAPI/Swagger 文件</Typography>
@@ -133,51 +174,95 @@ export default function StepImport() {
                        </FormControl>
                        <TextField size="small" label="超时(ms)" type="number" value={environmentTimeoutMs} onChange={e => setEnvironmentTimeoutMs(e.target.value)} />
                      </Box>
-                     <TextField size="small" label="Base URL" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} />
-                     <TextField size="small" label="环境变量 JSON" multiline minRows={3} value={environmentVariablesText} onChange={e => setEnvironmentVariablesText(e.target.value)} sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }} />
+                     <TextField size="small" label="Base URL" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="http://localhost:8000" helperText="执行时会和步骤 path 拼成完整请求地址。" />
+                     <TextField
+                       size="small"
+                       label="环境变量 JSON"
+                       multiline
+                       minRows={5}
+                       value={environmentVariablesText}
+                       onChange={e => setEnvironmentVariablesText(e.target.value)}
+                       placeholder={ENVIRONMENT_VARIABLES_EXAMPLE}
+                       helperText="可在脚本中用 {{user_id}}、{{access_token}} 这类变量引用。敏感字段在报告中会自动掩码。"
+                       sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+                     />
+                     <Button
+                       size="small"
+                       variant="text"
+                       startIcon={<ContentPasteOutlined fontSize="small" />}
+                       onClick={() => setEnvironmentVariablesText(ENVIRONMENT_VARIABLES_EXAMPLE)}
+                       sx={{ alignSelf: 'flex-start' }}
+                     >
+                       填入环境变量示例
+                     </Button>
                      <Paper elevation={0} sx={{ p: 2, bgcolor: 'grey.50', border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                       <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>项目 AI 自动化边界</Typography>
-                       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 1 }}>
-                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                           <Checkbox size="small" checked={allowAiGenerateDsl} onChange={e => setAllowAiGenerateDsl(e.target.checked)} />
-                           <Typography variant="body2">允许 AI 生成 DSL</Typography>
+                       <Stack direction="row" spacing={1.5} alignItems="flex-start" justifyContent="space-between" flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+                         <Box>
+                           <Typography variant="subtitle2" fontWeight={700}>项目 AI 自动化边界</Typography>
+                           <Typography variant="caption" color="text.secondary">
+                             这里控制 AI 能做到哪一步：只生成、可执行、可修复、可定时。生产或高风险接口建议收紧。
+                           </Typography>
                          </Box>
-                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                           <Checkbox size="small" checked={allowAiExecution} onChange={e => setAllowAiExecution(e.target.checked)} />
-                           <Typography variant="body2">允许 AI 自动执行</Typography>
-                         </Box>
-                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                           <Checkbox size="small" checked={allowAiRepair} onChange={e => setAllowAiRepair(e.target.checked)} />
-                           <Typography variant="body2">允许 AI 自动修复</Typography>
-                         </Box>
-                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                           <Checkbox size="small" checked={allowScheduledExecution} onChange={e => setAllowScheduledExecution(e.target.checked)} />
-                           <Typography variant="body2">允许定时执行</Typography>
-                         </Box>
-                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                           <Checkbox size="small" checked={allowOverwriteHistory} onChange={e => setAllowOverwriteHistory(e.target.checked)} />
-                           <Typography variant="body2">允许覆盖原记录</Typography>
-                         </Box>
+                       </Stack>
+                       <Alert severity="info" sx={{ mb: 2 }}>
+                         推荐默认：允许生成 DSL、允许修复；自动执行和定时执行按项目风险再开启。
+                       </Alert>
+                       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 1.25 }}>
+                         {AI_BOUNDARY_OPTIONS.map((item) => {
+                           const valueMap = {
+                             allowAiGenerateDsl,
+                             allowAiExecution,
+                             allowAiRepair,
+                             allowScheduledExecution,
+                             allowOverwriteHistory,
+                           };
+                           const setterMap = {
+                             allowAiGenerateDsl: setAllowAiGenerateDsl,
+                             allowAiExecution: setAllowAiExecution,
+                             allowAiRepair: setAllowAiRepair,
+                             allowScheduledExecution: setAllowScheduledExecution,
+                             allowOverwriteHistory: setAllowOverwriteHistory,
+                           };
+                           return (
+                             <Box key={item.checkedKey} sx={{ display: 'flex', alignItems: 'flex-start', p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, bgcolor: '#fff' }}>
+                               <Checkbox size="small" checked={Boolean(valueMap[item.checkedKey])} onChange={e => setterMap[item.checkedKey](e.target.checked)} sx={{ mt: -0.5 }} />
+                               <Box>
+                                 <Typography variant="body2" fontWeight={700}>{item.label}</Typography>
+                                 <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.5 }}>{item.description}</Typography>
+                               </Box>
+                             </Box>
+                           );
+                         })}
                        </Box>
                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2, mt: 1 }}>
-                         <TextField size="small" label="最大自动修复次数" type="number" value={maxAutoRepairs} onChange={e => setMaxAutoRepairs(e.target.value)} helperText="0 表示不限" />
-                         <TextField size="small" label="最大重跑次数" type="number" value={maxReruns} onChange={e => setMaxReruns(e.target.value)} helperText="0 表示不限" />
-                         <TextField size="small" label="单次最大请求数" type="number" value={maxRequestsPerRun} onChange={e => setMaxRequestsPerRun(e.target.value)} helperText="0 表示不限" />
+                         <TextField size="small" label="最大自动修复次数" type="number" value={maxAutoRepairs} onChange={e => setMaxAutoRepairs(e.target.value)} helperText="建议 1-3；0 表示不限。" />
+                         <TextField size="small" label="最大重跑次数" type="number" value={maxReruns} onChange={e => setMaxReruns(e.target.value)} helperText="建议 1-2；0 表示不限。" />
+                         <TextField size="small" label="单次最大请求数" type="number" value={maxRequestsPerRun} onChange={e => setMaxRequestsPerRun(e.target.value)} helperText="限制批量执行规模，0 表示不限。" />
                        </Box>
                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mt: 1 }}>
-                         <TextField size="small" label="接口白名单" multiline minRows={2} value={operationAllowlistText} onChange={e => setOperationAllowlistText(e.target.value)} placeholder={'GET /health\nGET /users'} />
-                         <TextField size="small" label="接口黑名单" multiline minRows={2} value={operationBlocklistText} onChange={e => setOperationBlocklistText(e.target.value)} placeholder={'DELETE /users/{id}\nPOST /payments'} />
+                         <TextField size="small" label="接口白名单" multiline minRows={2} value={operationAllowlistText} onChange={e => setOperationAllowlistText(e.target.value)} placeholder={'GET /health\nGET /users'} helperText="填写后只允许这些接口被 AI 自动化覆盖，每行一个 METHOD path。" />
+                         <TextField size="small" label="接口黑名单" multiline minRows={2} value={operationBlocklistText} onChange={e => setOperationBlocklistText(e.target.value)} placeholder={'DELETE /users/{id}\nPOST /payments'} helperText="这些接口会被策略拦截，每行一个 METHOD path。" />
                        </Box>
                        <TextField
                          size="small"
                          label="接口风险覆盖 JSON"
                          multiline
-                         minRows={2}
+                         minRows={4}
                          value={riskOverridesText}
                          onChange={e => setRiskOverridesText(e.target.value)}
-                         placeholder={'{\n  "DELETE /demo/{id}": "high",\n  "GET /admin/audit": "medium"\n}'}
+                         placeholder={RISK_OVERRIDES_EXAMPLE}
+                         helperText="用于人工指定接口风险等级：low / medium / high / blocked。"
                          sx={{ mt: 2, width: '100%', '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
                        />
+                       <Button
+                         size="small"
+                         variant="text"
+                         startIcon={<ContentPasteOutlined fontSize="small" />}
+                         onClick={() => setRiskOverridesText(RISK_OVERRIDES_EXAMPLE)}
+                         sx={{ mt: 1 }}
+                       >
+                         填入风险覆盖示例
+                       </Button>
                      </Paper>
                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                        <Button variant="outlined" onClick={saveCurrentEnvironment}>保存环境配置</Button>

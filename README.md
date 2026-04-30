@@ -122,7 +122,7 @@ OpenMelon/
 ├── backend/app/
 │   ├── api/             # FastAPI 路由映射与依赖注入
 │   ├── engine/          # RAG 核心编排层（意图路由、多路召回、Rerank）
-│   ├── storage/         # 存储底座（Neo4j 知识图谱与 Qdrant 向量库）
+│   ├── storage/         # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
 │   ├── services/        # 业务逻辑（文档解析、覆盖率计算等）
 │   └── testcase_gen/    # 基于 AutoGen 的多智能体测试用例生成模块
 ├── frontend/src/        # React 前端代码，已按 pages + features 结构拆分业务模块

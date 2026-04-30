@@ -95,7 +95,7 @@ def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
         }
     )
 
-    def fake_enqueue_run(request, execution_options, policy_decision):
+    async def fake_enqueue_run(request, execution_options, policy_decision):
         assert request.script.steps[0].path == "/health"
         assert execution_options["project_id"] == "project-1"
         assert policy_decision["allowed"] is True

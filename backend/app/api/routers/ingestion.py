@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import aiofiles
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from concurrent.futures import ThreadPoolExecutor
 
 from app.api.schemas import (

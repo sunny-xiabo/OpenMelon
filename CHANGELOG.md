@@ -5,6 +5,53 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.5] - 2026-04-30
+
+*(API 自动化功能增强 & 存储架构升级)*
+
+### 新增 (Added)
+- **API 自动化存储**: 新增 `app/storage/sqlite_store.py` 通用 SQLite 基础设施，`BaseSQLiteStore` 提供连接管理、WAL 模式、通用查询方法，各模块子类共享同一 db 连接。
+- **API 自动化存储**: 新增 `app/api_execution/sqlite_store.py` SQLite 存储后端，实现与 JSONStore 相同的公共 API，支持索引查询、无记录数限制和分页。
+- **API 自动化存储**: 新增 JSON -> SQLite 自动迁移，启动时检测 `OPENMELON_STORAGE_BACKEND` 环境变量（默认 sqlite），自动将 `api_runs.json` 等文件导入 SQLite 并填充索引列。
+- **通用存储**: `file_tracker.json` 迁入共享 SQLite 库，新增 `file_records` 表，导入管理仍保留原有新增、更新、删除和重建索引调用方式。
+- **Prompt Hub 存储**: `prompt_hub.json` 迁入共享 SQLite 库，新增 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表，保留模板、技能和分类 CRUD 语义。
+- **API 自动化重试**: 新增步骤级失败重试（`APIRetryConfig`），支持 `max_attempts`、`delay_ms`、`backoff_factor`、`retry_on` 断言类型匹配。
+- **API 自动化重试**: 新增项目级 `max_reruns` 自动重跑，失败执行自动入队新 run，`attempt` 递增，`parent_run_id` 追踪重试链。
+- **API 自动化变量**: 新增 `VariableSetup` 支持 `env`（环境变量注入）、`random`（uuid/string/int/float）、`timestamp`（ISO 时间戳）、`static` 四种变量来源。
+- **API 自动化变量**: `APIExtraction` 新增 `default` 字段，extraction 失败时使用默认值。
+- **API 自动化执行**: 新增 DAG 步骤并行执行，`APITestStep.depends_on` 声明依赖关系，Kahn 算法拓扑排序，同层级 `asyncio.gather` 并行，循环依赖检测。
+- **API 自动化进度**: 新增 SSE 进度推送 `GET /runs/{run_id}/stream`，实时推送 `progress` 和 `finished` 事件。
+- **API 自动化知识图谱**: 新增 `write_run_to_graph_with_retry` 带指数退避重试，失败时自动创建 `knowledge_write_failure` 待处理任务。
+- **API 自动化文档**: 新增 `docs/api-automation/API_AUTOMATION_DESIGN.md`，沉淀全部设计方案与实施状态。
+
+### 变更 (Changed)
+- **API 自动化存储**: `run_queue.py` 全链路 async 化，`enqueue_run`、`cancel_run`、`_execute_run`、`_update_progress`、`_mark_finished` 改为 async，使用 `async_update_run_atomic` 原子读-改-写修复竞态条件。
+- **API 自动化存储**: 启动时 `recover_stale_runs()` 将 `queued`/`running` 状态的 run 标记为 `failed`，避免服务重启后任务卡死。
+- **API 自动化断言**: 未知断言类型从 `passed=True` 改为 `passed=False`，`validate_dsl` 新增断言类型白名单校验。
+- **API 自动化导入**: `parse_openapi_file` 新增 10MB 文件大小限制。
+- **API 自动化策略**: `_assert_patch_auto_applicable` 改为对修复后脚本重新评估策略，而非复用原执行决策。
+- **API 自动化知识**: 知识搜索 `_build_knowledge_index` 改用 `_tokenize` 去除标点，搜索和索引统一归一化。
+- **API 自动化代码**: 移除 `routers.py`、`runner.py`、`knowledge.py` 中的重复函数定义，统一到 `utils.py`。
+- **API 自动化代码**: 清理 API 模块无用 import、未引用辅助函数和重复 store 工厂，SQLite 子类只保留 `_init_schema()`、业务方法与迁移逻辑。
+- **API 自动化日志**: JSONStore 的 `_read_*_no_lock` 方法从静默吞异常改为 `logger.warning` 记录。
+- **运行期产物**: `.gitignore` 新增 `backend/app/data/*.db*`，避免 SQLite 主库和 WAL/SHM 文件进入提交。
+- **通用存储迁移**: `file_tracker.json` 和 `prompt_hub.json` 改为只读迁移源；空库启动时自动导入旧 JSON 或默认 Prompt Hub 配置，正常写入不再回写 JSON。
+
+### 修复 (Fixed)
+- **API 自动化知识搜索**: 修复 `_search_local_repair_knowledge` 在 `project_id` 过滤后 inverted index 索引指向旧列表，导致返回错误结果或 IndexError 的 bug，改为评分时同步过滤。
+- **API 自动化迁移**: 修复 `migrate_from_json` 只插入 `id + data` 未填充 `status`、`project_id` 等索引列，导致迁移后按条件查询返回空的问题。
+- **API 自动化存储**: 修复 SQLite 默认落点分散为 `api_execution/store.db` 的问题，统一使用共享连接默认库 `backend/app/data/openmelon.db`，避免重复 DB 文件。
+- **API 自动化重试**: 修复 `_run_step_with_retry` 在 `max_attempts < 1` 时返回 `None` 的类型安全问题。
+- **API 自动化导出**: 修复 pytest 导出器 `read_path` 不支持括号语法（如 `items[0].name`）的问题。
+- **API 自动化导出**: 修复 pytest 导出器生成脚本时的正则转义 warning。
+- **API 自动化导入**: 修复未使用的 `asyncio`、`write_run_to_graph`、`APIRetryConfig` 导入。
+
+### 验证 (Verified)
+- **通用存储迁移**: `python -m pytest backend/tests/test_file_tracker_sqlite.py backend/tests/test_prompt_hub_tracker.py` 通过，覆盖导入管理记录 SQLite CRUD、旧 JSON 迁移、Prompt Hub 模板/技能/分类 CRUD 与校验语义。
+- **通用存储迁移**: `python -m compileall -q backend/app/services/file_tracker.py backend/app/services/prompt_hub_tracker.py` 通过。
+
+---
+
 ## [0.2.4] - 2026-04-28
 
 *(API 自动化多来源导入扩展 & 覆盖率视图兼容修复)*

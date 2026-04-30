@@ -201,7 +201,7 @@ flowchart TD
     Entity["LLM 实体提取\nextract_entities"] -->|"图谱写入"| Neo4j
     Qdrant[(Qdrant 向量库)] -->|"向量检索\ndoc_chunks"| QD
     Neo4j[(Neo4j 图数据库)] -->|"图谱检索\n节点与关系"| KG
-    Neo4j --> Tracker["文件追踪记录\nfile_tracker.json"]
+    Neo4j --> Tracker["文件追踪记录\nSQLite file_records"]
     Neo4j --> Save["原始文件保存\nbackend/app/data/uploads/"]
 
     style Neo4j fill:#f9d0c4
@@ -220,7 +220,7 @@ flowchart TD
 | 向量写入 | 批量写入专用向量库 Qdrant 的 `doc_chunks` 集合集合中 |
 | 实体提取 | LLM 从文本中识别实体（模块、功能、接口、人员等） |
 | 图谱构建 | 在 Neo4j 中创建实体节点和 `RELATED_TO` 关系 |
-| 文件追踪 | 记录到 `file_tracker.json`，包含文件名、类型、分块数、时间 |
+| 文件追踪 | 记录到共享 SQLite 的 `file_records` 表，包含文件名、类型、分块数、时间 |
 
 ### 1.3 读取流：智能问答
 
@@ -699,7 +699,7 @@ curl "http://localhost:8000/api/upload/formats"
 
 - 单条删除：点击文件行的「删除」按钮
 - 批量删除：勾选多个文件后点击「批量删除」
-- 删除操作清理 file_tracker 记录，但不删除 Neo4j 数据和原始文件
+- 删除操作清理 `file_records` 文件追踪记录，但不删除 Neo4j 数据和原始文件
 
 ---
 
@@ -895,9 +895,10 @@ curl -X POST "http://localhost:8000/api/test-cases/generate-mindmap" \
 - 如果当前已选技能被删除或停用，页面会自动移除失效技能
 - 技能分类会在管理页和生成侧以中文名称展示，便于大量技能场景下快速识别
 
-相关配置文件与接口：
+相关存储与接口：
 
-- 持久化配置：[backend/app/data/prompt_hub.json](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/prompt_hub.json)
+- 持久化配置：共享 SQLite `backend/app/data/openmelon.db` 中的 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表
+- 迁移兼容源：[backend/app/data/prompt_hub.json](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/prompt_hub.json) 仅在空库初始化时读取，不再作为正常写入目标
 - 后端读取与校验：[backend/app/services/prompt_hub_tracker.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/services/prompt_hub_tracker.py)
 - 管理接口：[backend/app/api/routers/prompt_hub.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/api/routers/prompt_hub.py)
 
@@ -1227,7 +1228,7 @@ flowchart TD
     Candidate --> Review{"结果是否可信？"}
     Review -->|"可信"| Ingest["确认沉淀"]
     Review -->|"不可信"| Skip["标记完成，不写入知识库"]
-    Ingest --> Local["knowledge_items.json"]
+    Ingest --> Local["SQLite knowledge_items"]
     Ingest --> Vector["api_execution_knowledge 向量"]
     Ingest --> Graph["Neo4j 覆盖关系"]
     Local --> Reuse["AI 修复复用"]
@@ -1427,6 +1428,26 @@ POST /api/upload/async 200 8ms
 GET /api/query 200 3200ms
 ```
 
+### 13.6 本地运行期存储
+
+OpenMelon 的本地运行期数据统一使用共享 SQLite 数据库：
+
+| 文件 | 说明 |
+|------|------|
+| `backend/app/data/openmelon.db` | 本地运行期主库 |
+| `backend/app/data/openmelon.db-wal` | SQLite WAL 日志文件 |
+| `backend/app/data/openmelon.db-shm` | SQLite 共享内存辅助文件 |
+
+当前写入共享 SQLite 的数据包括：
+
+- API 自动化项目、环境、接口资产、执行记录、策略审计、自动化任务、知识候选和报告制品元数据
+- 导入管理的文件追踪记录（`file_records` 表）
+- Prompt Hub 模板、技能、技能分类和版本元信息
+
+旧 JSON 文件如 `backend/app/data/file_tracker.json`、`backend/app/data/prompt_hub.json` 以及 `backend/app/data/api_execution/*.json` 只作为空库初始化和迁移兼容源保留，正常写入不再回写 JSON。
+
+> SQLite 主库和 WAL/SHM 文件属于运行期产物，已通过 `.gitignore` 排除，不应提交到代码仓库。
+
 ---
 
 ## 14. 故障排查
@@ -1569,4 +1590,3 @@ pip install FlagEmbedding>=1.3 sentence-transformers>=3.0
 
 > [!CAUTION]
 > 删除操作不可逆。在执行全量删除前，请确保已备份重要数据或确认数据可再生（如可以通过重新导入文档或重新生成用例来恢复）。
-

@@ -1,9 +1,15 @@
 import json
+import logging
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
 from typing import Any
+
+from starlette.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
 
 MAX_SAVED_SPECS = 20
 MAX_SAVED_RUNS = 50
@@ -330,7 +336,8 @@ class APIExecutionStore:
         try:
             data = json.loads(self._specs_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", self._specs_file.name, exc)
             return {}
 
     def _read_runs_no_lock(self) -> dict[str, Any]:
@@ -340,7 +347,8 @@ class APIExecutionStore:
         try:
             data = json.loads(self._runs_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", self._runs_file.name, exc)
             return {}
 
     def _read_projects_no_lock(self) -> dict[str, Any]:
@@ -350,7 +358,8 @@ class APIExecutionStore:
         try:
             data = json.loads(self._projects_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", self._projects_file.name, exc)
             return {}
 
     def _read_environments_no_lock(self) -> dict[str, Any]:
@@ -360,7 +369,8 @@ class APIExecutionStore:
         try:
             data = json.loads(self._environments_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", self._environments_file.name, exc)
             return {}
 
     def _read_audits_no_lock(self) -> dict[str, Any]:
@@ -370,7 +380,8 @@ class APIExecutionStore:
         try:
             data = json.loads(self._audits_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", self._audits_file.name, exc)
             return {}
 
     def _read_automation_tasks_no_lock(self) -> dict[str, Any]:
@@ -380,7 +391,8 @@ class APIExecutionStore:
         try:
             data = json.loads(self._automation_tasks_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", self._automation_tasks_file.name, exc)
             return {}
 
     def _read_generic_no_lock(self, path: Path) -> dict[str, Any]:
@@ -390,7 +402,8 @@ class APIExecutionStore:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read %s: %s", path.name, exc)
             return {}
 
     def _trim_specs(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -461,5 +474,97 @@ class APIExecutionStore:
             if os.path.exists(tmp_name):
                 os.unlink(tmp_name)
 
+    # -- async wrappers (run sync I/O in threadpool to avoid blocking the event loop) --
 
-api_execution_store = APIExecutionStore()
+    async def async_get_run(self, run_id: str) -> dict[str, Any] | None:
+        return await run_in_threadpool(self.get_run, run_id)
+
+    async def async_save_run(self, run: dict[str, Any]) -> dict[str, Any]:
+        return await run_in_threadpool(self.save_run, run)
+
+    async def async_update_run(self, run_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+        return await run_in_threadpool(self.update_run, run_id, patch)
+
+    async def async_update_run_atomic(
+        self,
+        run_id: str,
+        updater: Callable[[dict[str, Any]], dict[str, Any] | None],
+    ) -> dict[str, Any] | None:
+        """Read-modify-write in one lock acquisition, executed in threadpool."""
+
+        def _atomic() -> dict[str, Any] | None:
+            with self._lock:
+                data = self._read_runs_no_lock()
+                if run_id not in data:
+                    return None
+                updated = updater(data[run_id])
+                if updated is None:
+                    return None
+                data[run_id] = updated
+                data = self._trim_runs(data)
+                self._write_json_atomic(self._runs_file, data)
+                return data.get(run_id)
+
+        return await run_in_threadpool(_atomic)
+
+    async def async_list_runs(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return await run_in_threadpool(lambda: self.list_runs(**kwargs))
+
+    async def async_delete_run(self, run_id: str) -> bool:
+        return await run_in_threadpool(self.delete_run, run_id)
+
+    async def async_save_policy_audit(self, audit: dict[str, Any]) -> dict[str, Any]:
+        return await run_in_threadpool(self.save_policy_audit, audit)
+
+    async def async_save_automation_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        return await run_in_threadpool(self.save_automation_task, task)
+
+    async def async_save_knowledge_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        return await run_in_threadpool(self.save_knowledge_item, item)
+
+    async def async_list_knowledge_items(self, **kwargs: Any) -> list[dict[str, Any]]:
+        return await run_in_threadpool(lambda: self.list_knowledge_items(**kwargs))
+
+    def recover_stale_runs(self) -> list[str]:
+        """Mark runs stuck in queued/running as failed (call at startup)."""
+        with self._lock:
+            data = self._read_runs_no_lock()
+            recovered = []
+            for run_id, run in data.items():
+                if run.get("status") in {"queued", "running"}:
+                    run["status"] = "failed"
+                    run["failure_reason"] = "服务重启，执行中断"
+                    run["finished_at"] = run.get("finished_at") or run.get("run_at", "")
+                    recovered.append(run_id)
+            if recovered:
+                self._write_json_atomic(self._runs_file, data)
+            return recovered
+
+
+def _create_default_store() -> Any:
+    """Create store based on OPENMELON_STORAGE_BACKEND env var (default: sqlite)."""
+    import os
+
+    backend = os.environ.get("OPENMELON_STORAGE_BACKEND", "sqlite").lower()
+    if backend == "json":
+        return APIExecutionStore()
+
+    try:
+        from app.api_execution.sqlite_store import SQLiteStore
+        store = SQLiteStore()  # uses shared connection -> app/data/openmelon.db
+        # Auto-migrate from JSON if shared DB has no runs table data
+        json_dir = Path(__file__).resolve().parent.parent / "data" / "api_execution"
+        json_runs = json_dir / "api_runs.json"
+        if json_runs.exists():
+            existing = store.get_run("__migration_check__")
+            if existing is None:
+                count = store.migrate_from_json(json_dir)
+                if count > 0:
+                    logger.info("Auto-migrated %d records from JSON to SQLite", count)
+        return store
+    except Exception as exc:
+        logger.warning("Failed to create SQLiteStore, falling back to JSONStore: %s", exc)
+        return APIExecutionStore()
+
+
+api_execution_store = _create_default_store()

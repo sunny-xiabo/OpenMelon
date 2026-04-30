@@ -2,17 +2,21 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { useSnackbar } from '../../components/SnackbarProvider';
 import { apiExecutionAPI } from '../../api/execution';
 import {
-  BATCH_RUN_MAX_STEPS,
   BATCH_STEP_TIMEOUT_MS,
-  BATCH_REQUEST_TIMEOUT_MS,
+  BATCH_REQUEST_TIMEOUT_CEILING_MS,
+  BATCH_REQUEST_TIMEOUT_FLOOR_MS,
+  BATCH_REQUEST_TIMEOUT_OVERHEAD_MS,
   BACKGROUND_STEP_TIMEOUT_MS,
   BACKGROUND_RUN_TIMEOUT_MS,
+  ASSERTION_TYPES_WITH_PATH,
+  ASSERTION_TYPES_WITHOUT_EXPECTED,
   NEW_PROJECT_VALUE,
   NEW_ENVIRONMENT_VALUE
 } from './constants';
 import {
   getTagNames,
   buildReportFilename,
+  buildRunReportHtml,
   buildDownloadTimestamp,
   validateBaseUrl,
   downloadBlob,
@@ -27,6 +31,46 @@ import {
 } from './utils';
 
 const APIExecutionContext = createContext();
+
+const estimateBatchRequestTimeoutMs = (stepCount, stepTimeoutMs) => Math.min(
+  BATCH_REQUEST_TIMEOUT_CEILING_MS,
+  Math.max(
+    BATCH_REQUEST_TIMEOUT_FLOOR_MS,
+    normalizeTimeoutMs(stepTimeoutMs, BATCH_STEP_TIMEOUT_MS) * Math.max(1, stepCount || 1) + BATCH_REQUEST_TIMEOUT_OVERHEAD_MS,
+  ),
+);
+
+const RUN_POLL_INTERVAL_MS = 1800;
+const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
+
+const buildSingleStepRunReport = (script, result, runOptions) => {
+  const passed = result.status === 'passed' ? 1 : 0;
+  return {
+    run_at: new Date().toISOString(),
+    case_id: script.case_id || '',
+    target_project: script.target_project || '',
+    case_name: script.name || '单步执行报告',
+    mode: 'single',
+    script,
+    execution_options: toRunRequestOptions(runOptions),
+    status: result.status || 'failed',
+    failure_reason: result.error || null,
+    failure_diagnostics: [],
+    repair_suggestions: [],
+    automation_summary: {},
+    repair_history: [],
+    duration_ms: result.duration_ms || 0,
+    total: 1,
+    passed,
+    failed: passed ? 0 : 1,
+    skipped: 0,
+    progress_total: 1,
+    progress_completed: 1,
+    current_step_id: null,
+    current_step_name: null,
+    results: [result],
+  };
+};
 
 export const useAPIExecution = () => {
   const context = useContext(APIExecutionContext);
@@ -77,6 +121,7 @@ export const APIExecutionProvider = ({ children }) => {
   const [assertionStepId, setAssertionStepId] = useState('');
   const [runStepId, setRunStepId] = useState('');
   const [assertionType, setAssertionType] = useState('status_code_in');
+  const [assertionPath, setAssertionPath] = useState('');
   const [assertionExpected, setAssertionExpected] = useState('200');
   const [runHistory, setRunHistory] = useState([]);
   const [automationTasks, setAutomationTasks] = useState([]);
@@ -86,6 +131,7 @@ export const APIExecutionProvider = ({ children }) => {
   const [backgroundRunId, setBackgroundRunId] = useState('');
   const [backgroundRunStatus, setBackgroundRunStatus] = useState('');
   const [aiPatch, setAiPatch] = useState(null);
+  const [aiEnhancing, setAiEnhancing] = useState(false);
 
   const applyProjectValues = (project) => {
     setSelectedProjectId(project.project_id || '');
@@ -216,6 +262,32 @@ export const APIExecutionProvider = ({ children }) => {
     fetchHistory();
   }, [runHistoryProjectId, runHistoryStatus]);
 
+  useEffect(() => {
+    if (!backgroundRunId || !ACTIVE_RUN_STATUSES.has(backgroundRunStatus)) return undefined;
+    let cancelled = false;
+    const pollRun = async () => {
+      try {
+        const data = await apiExecutionAPI.getRun(backgroundRunId);
+        if (cancelled) return;
+        setBackgroundRunStatus(data.status);
+        setRunReport(data);
+        if (!ACTIVE_RUN_STATUSES.has(data.status)) {
+          fetchHistory();
+        }
+      } catch (error) {
+        if (!cancelled) {
+          showSnackbar(error.message || '后台执行状态查询失败', 'error');
+        }
+      }
+    };
+    const timer = setInterval(pollRun, RUN_POLL_INTERVAL_MS);
+    pollRun();
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [backgroundRunId, backgroundRunStatus]);
+
   const handleDeleteRun = async (runId) => {
     try {
       await apiExecutionAPI.deleteRun(runId);
@@ -244,7 +316,10 @@ export const APIExecutionProvider = ({ children }) => {
         max_steps: options.max_steps || run.script.steps?.length,
         continue_on_failure: options.continue_on_failure ?? true,
         replace_run_id: run.run_id,
-        requestTimeoutMs: BATCH_REQUEST_TIMEOUT_MS,
+        requestTimeoutMs: estimateBatchRequestTimeoutMs(
+          options.max_steps || run.script.steps?.length,
+          options.timeout_ms || 30000,
+        ),
       });
       setRunReport(data);
       setRunResult(null);
@@ -689,10 +764,25 @@ export const APIExecutionProvider = ({ children }) => {
     }
     const stepId = assertionStepId || parsedScript.steps?.[0]?.id;
     if (!stepId) return;
-    const expected = assertionType === 'status_code_in'
+    const needsPath = ASSERTION_TYPES_WITH_PATH.has(assertionType);
+    const needsExpected = !ASSERTION_TYPES_WITHOUT_EXPECTED.has(assertionType);
+    const path = assertionPath.trim();
+    if (needsPath && !path) {
+      showSnackbar('请先填写断言路径', 'warning');
+      return;
+    }
+    const expected = ['status_code_in', 'status_code_not_in'].includes(assertionType)
       ? assertionExpected.split(',').map((item) => Number(item.trim())).filter((item) => Number.isFinite(item))
       : Number.isFinite(Number(assertionExpected)) ? Number(assertionExpected) : assertionExpected;
-    const assertion = { type: assertionType, expected };
+    if (needsExpected && (['status_code_in', 'status_code_not_in'].includes(assertionType) ? !expected.length : assertionExpected.trim() === '')) {
+      showSnackbar('请先填写期望值', 'warning');
+      return;
+    }
+    const assertion = {
+      type: assertionType,
+      ...(needsPath ? { path } : {}),
+      ...(needsExpected ? { expected } : {}),
+    };
     const nextScript = {
       ...parsedScript,
       steps: (parsedScript.steps || []).map((step) => (
@@ -715,8 +805,10 @@ export const APIExecutionProvider = ({ children }) => {
       if (!runOptions) return;
       const executableScript = mergeScriptVariables(parsedScript, runOptions.environment_variables);
       const data = await apiExecutionAPI.runSingleStep(executableScript, toRunRequestOptions(runOptions));
-      setRunResult(data);
-      setRunReport(null);
+      setBackgroundRunId('');
+      setBackgroundRunStatus('');
+      setRunResult(null);
+      setRunReport(buildSingleStepRunReport(executableScript, data, runOptions));
       setActiveStep(3);
       showSnackbar(data.status === 'passed' ? '接口执行通过' : '接口执行失败', data.status === 'passed' ? 'success' : 'error');
       fetchHistory();
@@ -736,32 +828,6 @@ export const APIExecutionProvider = ({ children }) => {
     setLoading(true);
     try {
       const runOptions = buildRunOptions(parsedScript, {
-        timeout_ms: BATCH_STEP_TIMEOUT_MS,
-        max_steps: BATCH_RUN_MAX_STEPS,
-        requestTimeoutMs: BATCH_REQUEST_TIMEOUT_MS,
-      });
-      if (!runOptions) return;
-      const executableScript = mergeScriptVariables(parsedScript, runOptions.environment_variables);
-      const data = await apiExecutionAPI.runAllSteps(executableScript, toRunRequestOptions(runOptions));
-      setRunReport(data);
-      setRunResult(null);
-      setActiveStep(3);
-      showSnackbar(`执行完成：${data.passed} 通过 / ${data.failed} 失败`, data.status === 'passed' ? 'success' : 'error');
-      fetchHistory();
-    } catch (error) {
-      showSnackbar(error.message || '批量执行失败', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const runAllStepsInBackground = async () => {
-    if (!parsedScript) {
-      showSnackbar('请先生成或修复测试脚本 JSON', 'warning');
-      return;
-    }
-    try {
-      const runOptions = buildRunOptions(parsedScript, {
         timeout_ms: BACKGROUND_STEP_TIMEOUT_MS,
         run_timeout_ms: BACKGROUND_RUN_TIMEOUT_MS,
         max_steps: parsedScript.steps?.length || undefined,
@@ -771,11 +837,16 @@ export const APIExecutionProvider = ({ children }) => {
       const data = await apiExecutionAPI.createBackgroundRun(executableScript, toRunRequestOptions(runOptions));
       setBackgroundRunId(data.run_id);
       setBackgroundRunStatus(data.status);
+      const queuedRun = await apiExecutionAPI.getRun(data.run_id);
+      setRunReport(queuedRun);
+      setRunResult(null);
       setActiveStep(3);
-      showSnackbar('后台执行已提交，可稍后刷新历史查看结果', 'success');
+      showSnackbar('执行已提交，正在后台运行', 'success');
       fetchHistory();
     } catch (error) {
-      showSnackbar(error.message || '后台执行提交失败', 'error');
+      showSnackbar(error.message || '执行提交失败', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -821,7 +892,7 @@ export const APIExecutionProvider = ({ children }) => {
         timeout_ms: BATCH_STEP_TIMEOUT_MS,
         step_ids: failedStepIds,
         replace_run_id: activeReport.run_id,
-        requestTimeoutMs: BATCH_REQUEST_TIMEOUT_MS,
+        requestTimeoutMs: estimateBatchRequestTimeoutMs(failedStepIds.length, BATCH_STEP_TIMEOUT_MS),
       });
       if (!runOptions) return;
       const executableScript = mergeScriptVariables(parsedScript, runOptions.environment_variables);
@@ -843,6 +914,7 @@ export const APIExecutionProvider = ({ children }) => {
       showSnackbar('请先生成或修复测试脚本 JSON', 'warning');
       return;
     }
+    setAiEnhancing(true);
     setLoading(true);
     try {
       const data = await apiExecutionAPI.enhanceDsl(parsedScript, buildProjectPolicySnapshot());
@@ -855,6 +927,7 @@ export const APIExecutionProvider = ({ children }) => {
     } catch (error) {
       showSnackbar(error.message || 'AI DSL 补全失败', 'error');
     } finally {
+      setAiEnhancing(false);
       setLoading(false);
     }
   };
@@ -887,7 +960,8 @@ export const APIExecutionProvider = ({ children }) => {
 
   const exportRunReport = (report) => {
     if (!report) return;
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json;charset=utf-8' });
+    const html = buildRunReportHtml(report);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     downloadBlob(blob, buildReportFilename());
   };
 
@@ -985,6 +1059,8 @@ export const APIExecutionProvider = ({ children }) => {
     setRunStepId,
     assertionType,
     setAssertionType,
+    assertionPath,
+    setAssertionPath,
     assertionExpected,
     setAssertionExpected,
     runHistory,
@@ -1003,6 +1079,7 @@ export const APIExecutionProvider = ({ children }) => {
     setBackgroundRunStatus,
     aiPatch,
     setAiPatch,
+    aiEnhancing,
     fileInputRef,
     applyProjectValues,
     applyEnvironmentValues,
@@ -1035,7 +1112,6 @@ export const APIExecutionProvider = ({ children }) => {
     insertAssertion,
     runSelectedStep,
     runAllSteps,
-    runAllStepsInBackground,
     refreshBackgroundRun,
     cancelBackgroundRun,
     rerunFailedSteps,

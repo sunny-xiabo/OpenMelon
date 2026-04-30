@@ -1,6 +1,6 @@
 import json
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
-from app.api.deps import get_enterprise_integration, get_intent_router, get_retriever, get_generator
+from app.api.deps import get_enterprise_integration, get_intent_router, get_generator
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Stack, Box, Typography, Button, Chip, Paper, Alert } from '@mui/material';
+import { Stack, Box, Typography, Button, Chip, Paper, Alert, LinearProgress } from '@mui/material';
 import { RefreshOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import EmptyState from '../../../components/EmptyState';
@@ -8,6 +8,46 @@ import {
   getPolicyRiskLabel,
   getRunStatusMeta,
 } from '../utils';
+import { getAssertionTypeLabel } from '../constants';
+import StageHeader from './StageHeader';
+
+const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
+
+const getRunTone = (status) => {
+  if (status === 'passed') return 'success.main';
+  if (status === 'queued' || status === 'running') return 'info.main';
+  if (status === 'cancelled') return 'warning.main';
+  return 'error.main';
+};
+
+const getProgressInfo = (report) => {
+  const resultCount = report?.results?.length || 0;
+  const progressTotal = report?.progress_total || report?.script?.steps?.length || resultCount || 0;
+  const progressCompleted = report?.progress_total ? report?.progress_completed || 0 : resultCount;
+  const percent = progressTotal > 0 ? Math.min(100, Math.round((progressCompleted / progressTotal) * 100)) : 0;
+  return { progressTotal, progressCompleted, percent };
+};
+
+const getProgressMessage = (report) => {
+  if (!report) return '';
+  if (report.status === 'queued') return '任务排队中，等待可用执行槽位';
+  if (report.status === 'running') {
+    return report.current_step_name ? `正在执行：${report.current_step_name}` : '正在执行接口步骤';
+  }
+  if (report.status === 'passed') return '执行已完成，全部步骤通过';
+  if (report.status === 'cancelled') return '执行已取消';
+  return report.failure_reason || '执行失败';
+};
+
+const formatAssertionValue = (value) => {
+  if (value === undefined || value === null || value === '') return '未记录';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
 
 export default function StepResult() {
   const {
@@ -32,12 +72,14 @@ export default function StepResult() {
   return (
     <>
     <Stack spacing={3}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="h5" fontWeight={800}>步骤 4: 执行结果与诊断</Typography>
-                  <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={() => setActiveStep(2)}>
-                    返回编排
-                  </Button>
-                </Box>
+                <StageHeader
+                  title="步骤 4: 执行结果与诊断"
+                  action={(
+                    <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={() => setActiveStep(2)}>
+                      返回编排
+                    </Button>
+                  )}
+                />
 
                 {backgroundRunId && (
                   <Alert
@@ -54,11 +96,33 @@ export default function StepResult() {
                 )}
 
                 {runReport && (
-                  <Paper sx={{ p: 3, bgcolor: '#ffffff', borderRadius: 3, border: '1px solid', borderColor: runReport.status === 'passed' ? 'success.main' : 'error.main' }}>
-                     <Typography variant="h6" sx={{ color: runReport.status === 'passed' ? 'success.main' : 'error.main', fontWeight: 800, mb: 1 }}>
-                        执行{runReport.status === 'passed' ? '通过' : '失败'}
+                  <Paper sx={{ p: 3, bgcolor: '#ffffff', borderRadius: 3, border: '1px solid', borderColor: getRunTone(runReport.status) }}>
+                     <Typography variant="h6" sx={{ color: getRunTone(runReport.status), fontWeight: 800, mb: 1 }}>
+                        {getRunStatusMeta(runReport.status).label}
                      </Typography>
-                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>通过 {runReport.passed} / 失败 {runReport.failed}。耗时：{runReport.duration_ms}ms</Typography>
+                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                       通过 {runReport.passed} / 失败 {runReport.failed}。耗时：{runReport.duration_ms}ms
+                     </Typography>
+
+                     {(() => {
+                       const { progressTotal, progressCompleted, percent } = getProgressInfo(runReport);
+                       return (
+                         <Box sx={{ mb: 2 }}>
+                           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                             <Typography variant="body2" fontWeight={700}>{getProgressMessage(runReport)}</Typography>
+                             <Typography variant="caption" color="text.secondary">
+                               {progressCompleted} / {progressTotal}
+                             </Typography>
+                           </Stack>
+                           <LinearProgress
+                             variant={progressTotal ? 'determinate' : 'indeterminate'}
+                             value={percent}
+                             sx={{ height: 8, borderRadius: 1 }}
+                           />
+                         </Box>
+                       );
+                     })()}
+
                      {runReport.execution_options?.policy_decision && Object.keys(runReport.execution_options.policy_decision).length > 0 && (
                        <Alert severity={runReport.execution_options.policy_decision.allowed === false ? 'error' : 'info'} sx={{ mb: 2 }}>
                          <Stack spacing={1}>
@@ -97,9 +161,10 @@ export default function StepResult() {
                      <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
                        <Button size="small" variant="outlined" onClick={() => exportRunReport(runReport)}>导出报告</Button>
                        {runReport.script && <Button size="small" variant="outlined" onClick={() => loadRunIntoEditor(runReport)}>载入编辑</Button>}
-                       {!!runReport.failed && <Button size="small" variant="outlined" color="secondary" disabled={!parsedScript || loading} onClick={generateAiRepairPatch}>AI 修复补丁</Button>}
-                       {!!runReport.failed && <Button size="small" variant="contained" color="secondary" disabled={!runReport.run_id || loading} onClick={() => handleAutoRepairRun(runReport.run_id)}>受控自动修复重跑</Button>}
-                       {!!runReport.failed && <Button size="small" variant="contained" color="warning" disabled={!parsedScript || loading} onClick={rerunFailedSteps}>重跑失败步骤</Button>}
+                       {ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="contained" color="warning" disabled={loading} onClick={cancelBackgroundRun}>取消执行</Button>}
+                       {!!runReport.failed && !ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="outlined" color="secondary" disabled={!parsedScript || loading} onClick={generateAiRepairPatch}>AI 修复补丁</Button>}
+                       {!!runReport.failed && !ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="contained" color="secondary" disabled={!runReport.run_id || loading} onClick={() => handleAutoRepairRun(runReport.run_id)}>受控自动修复重跑</Button>}
+                       {!!runReport.failed && !ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="contained" color="warning" disabled={!parsedScript || loading} onClick={rerunFailedSteps}>重跑失败步骤</Button>}
                      </Stack>
 
                      {runReport.automation_summary?.type === 'auto_repair_rerun' && (
@@ -142,9 +207,53 @@ export default function StepResult() {
                              <Typography variant="body2" fontWeight={700}>{res.method} {res.url}</Typography>
                              <Typography variant="body2" color={res.status === 'passed' ? 'success.main' : 'error.main'}>{res.status_code} - {res.status === 'passed' ? '通过' : '失败'}</Typography>
                            </Stack>
+                           {!!res.assertions?.length && (
+                             <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+                               {res.assertions.map((assertion, assertionIndex) => (
+                                 <Box
+                                   key={`${assertion.type}-${assertionIndex}`}
+                                   sx={{
+                                     display: 'grid',
+                                     gridTemplateColumns: { xs: '1fr', md: 'auto 1fr' },
+                                     gap: 1,
+                                     alignItems: 'start',
+                                     p: 1,
+                                     borderRadius: 1,
+                                     bgcolor: assertion.passed ? 'rgba(46, 125, 50, 0.06)' : 'rgba(211, 47, 47, 0.06)',
+                                     border: '1px solid',
+                                     borderColor: assertion.passed ? 'success.light' : 'error.light',
+                                   }}
+                                 >
+                                   <Chip
+                                     size="small"
+                                     label={assertion.passed ? '断言通过' : '断言失败'}
+                                     color={assertion.passed ? 'success' : 'error'}
+                                     variant="outlined"
+                                     sx={{ width: 'fit-content', fontWeight: 700 }}
+                                   />
+                                   <Box sx={{ minWidth: 0 }}>
+                                     <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.primary' }}>
+                                       {getAssertionTypeLabel(assertion.type)}{assertion.path ? ` · ${assertion.path}` : ''}
+                                     </Typography>
+                                     <Typography variant="caption" display="block" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                       期望：{formatAssertionValue(assertion.expected)}；实际：{formatAssertionValue(assertion.actual)}
+                                     </Typography>
+                                     {assertion.message && (
+                                       <Typography variant="caption" display="block" color={assertion.passed ? 'text.secondary' : 'error.main'}>
+                                         {assertion.message}
+                                       </Typography>
+                                     )}
+                                   </Box>
+                                 </Box>
+                               ))}
+                             </Stack>
+                           )}
                            {res.error && <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>{res.error}</Typography>}
                          </Box>
                        ))}
+                       {ACTIVE_RUN_STATUSES.has(runReport.status) && !(runReport.results || []).length && (
+                         <Typography variant="body2" color="text.secondary">等待第一个步骤完成...</Typography>
+                       )}
                      </Stack>
                   </Paper>
                 )}

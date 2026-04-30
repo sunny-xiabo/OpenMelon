@@ -90,10 +90,22 @@ def _assertion_lines(assertion: APIAssertion) -> list[str]:
             f"  pm.response.to.have.status({int(expected)});",
             "});",
         ]
+    if assertion.type == "status_code_not":
+        return [
+            f'pm.test("status code is not {expected}", function () {{',
+            f"  pm.expect(pm.response.code).to.not.eql({int(expected)});",
+            "});",
+        ]
     if assertion.type == "status_code_in":
         return [
             'pm.test("status code is expected", function () {',
             f"  pm.expect({expected or []}).to.include(pm.response.code);",
+            "});",
+        ]
+    if assertion.type == "status_code_not_in":
+        return [
+            'pm.test("status code is not blocked", function () {',
+            f"  pm.expect({expected or []}).to.not.include(pm.response.code);",
             "});",
         ]
     if assertion.type == "body_contains":
@@ -102,11 +114,25 @@ def _assertion_lines(assertion: APIAssertion) -> list[str]:
             f"  pm.expect(pm.response.text()).to.include({expected!r});",
             "});",
         ]
+    if assertion.type == "body_not_contains":
+        return [
+            'pm.test("body does not contain blocked text", function () {',
+            f"  pm.expect(pm.response.text()).to.not.include({expected!r});",
+            "});",
+        ]
     if assertion.type == "json_path_exists":
         return [
             'pm.test("json path exists", function () {',
             "  const json = pm.response.json();",
             f"  pm.expect(readPath(json, {assertion.path!r})).to.not.equal(undefined);",
+            "});",
+            *_read_path_helper(),
+        ]
+    if assertion.type == "json_path_not_exists":
+        return [
+            'pm.test("json path does not exist", function () {',
+            "  const json = pm.response.json();",
+            f"  pm.expect(readPath(json, {assertion.path!r})).to.equal(undefined);",
             "});",
             *_read_path_helper(),
         ]
@@ -122,6 +148,18 @@ def _assertion_lines(assertion: APIAssertion) -> list[str]:
         return [
             'pm.test("header equals expected", function () {',
             f"  pm.expect(pm.response.headers.get({assertion.path!r})).to.eql({expected!r});",
+            "});",
+        ]
+    if assertion.type == "header_exists":
+        return [
+            'pm.test("header exists", function () {',
+            f"  pm.expect(pm.response.headers.get({assertion.path!r})).to.not.equal(undefined);",
+            "});",
+        ]
+    if assertion.type == "header_contains":
+        return [
+            'pm.test("header contains expected text", function () {',
+            f"  pm.expect(pm.response.headers.get({assertion.path!r}) || '').to.include({expected!r});",
             "});",
         ]
     if assertion.type == "response_time_lt":
@@ -165,7 +203,8 @@ def _read_path_helper() -> list[str]:
 
 
 def _postman_vars(value: Any) -> str:
-    return str(value).replace("{{", "{{").replace("}}", "}}")
+    # Preserve Postman {{variable}} syntax as-is (same as DSL {{var}} syntax)
+    return str(value)
 
 
 def _json_dumps_with_postman_vars(value: Any) -> str:

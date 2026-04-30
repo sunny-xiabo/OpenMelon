@@ -145,8 +145,15 @@ def test_run_all_steps_supports_json_and_header_assertions(monkeypatch):
                 "operation_id": "profile",
                 "assertions": [
                     {"type": "json_path_exists", "path": "$.data.name"},
+                    {"type": "json_path_not_exists", "path": "$.data.deleted_at"},
                     {"type": "json_path_equals", "path": "$.data.name", "expected": "OpenMelon"},
+                    {"type": "body_contains", "expected": "OpenMelon"},
+                    {"type": "body_not_contains", "expected": "server error"},
+                    {"type": "status_code_not", "expected": 500},
+                    {"type": "status_code_not_in", "expected": [400, 401, 500]},
+                    {"type": "header_exists", "path": "x-trace-id"},
                     {"type": "header_equals", "path": "x-trace-id", "expected": "trace-1"},
+                    {"type": "header_contains", "path": "content-type", "expected": "application/json"},
                 ],
             },
         ],
@@ -156,6 +163,8 @@ def test_run_all_steps_supports_json_and_header_assertions(monkeypatch):
 
     assert report["status"] == "passed"
     assert all(assertion["passed"] for assertion in report["results"][0]["assertions"])
+    assert report["results"][0]["assertions"][0]["path"] == "$.data.name"
+    assert report["results"][0]["assertions"][8]["path"] == "x-trace-id"
 
 
 def test_run_all_steps_can_stop_after_failure(monkeypatch):
