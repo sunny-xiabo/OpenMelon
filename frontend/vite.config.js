@@ -23,6 +23,7 @@ export default defineConfig({
           vis: ['vis-network', 'vis-data'],
           markmap: ['markmap-lib', 'markmap-view'],
           markdown: ['react-markdown', 'remark-gfm'],
+          codemirror: ['@uiw/react-codemirror', '@codemirror/lang-json', '@codemirror/autocomplete', '@codemirror/theme-one-dark'],
         },
       },
     },

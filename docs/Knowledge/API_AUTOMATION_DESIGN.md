@@ -1,6 +1,6 @@
 # API 自动化功能设计方案
 
-> 最后更新: 2026-04-30 (P0+P1 已完成, 存储层提升到 app/storage)
+> 最后更新: 2026-05-08 (API 自动化存储已收敛为 SQLite-only)
 
 ## 概述
 
@@ -16,12 +16,11 @@
 
 ### 方案
 
-抽象存储接口，SQLite 起步，后期可迁移到 PostgreSQL。
+抽象存储接口，SQLite 起步，后期可迁移到 PostgreSQL。当前运行时入口已收敛为 SQLite-only，JSON 文件只作为迁移种子。
 
 **接口定义** (`storage.py`):
-- `BaseStore` 抽象基类，定义 `save_run`, `get_run`, `update_run`, `list_runs`, `delete_run` 等标准方法
-- `APIExecutionStore` (JSONStore) — 现有 JSON 文件实现
-- `SQLiteStore` — SQLite 实现
+- `APIExecutionStore` — SQLite 兼容构造器，保留旧名称以减少调用面变更
+- `SQLiteStore` — API 自动化实际存储实现
 
 **SQLite 设计** (`app/storage/sqlite_store.py` + `app/api_execution/sqlite_store.py`):
 - 表: `runs`, `projects`, `environments`, `specs`, `policy_audits`, `automation_tasks`, `automation_definitions`, `automation_runs`, `run_stage_events`, `artifact_meta`, `knowledge_items`
@@ -31,9 +30,9 @@
 - 共享连接架构: `BaseSQLiteStore` (app/storage) 提供连接管理和通用工具方法，各模块子类继承并定义自己的表和方法，共享同一个 db 文件
 
 **自动迁移**:
-- 启动时检测 `OPENMELON_STORAGE_BACKEND` 环境变量 (默认 `sqlite`)
-- 如果 JSON 文件存在但 `.db` 不存在，逐条读取写入 SQLite
-- 迁移后保留 JSON 文件作为备份
+- 启动时创建共享 SQLite store
+- 如果共享 DB 为空且旧 JSON 文件存在，逐条读取写入 SQLite
+- 迁移后保留 JSON 文件作为备份/初始化兼容源，不再作为运行时写入目标
 
 **分页**: `list_runs` 等方法支持 `offset` 参数
 
@@ -46,9 +45,9 @@
 | 文件 | 说明 |
 |------|------|
 | `backend/app/storage/sqlite_store.py` | BaseSQLiteStore 基类 + 共享连接管理 |
-| `backend/app/api_execution/storage.py` | BaseStore 接口 + JSONStore 实现 + async 包装 |
+| `backend/app/api_execution/storage.py` | API 自动化 SQLite-only 入口 + 默认 store |
 | `backend/app/api_execution/sqlite_store.py` | API 执行模块 SQLite 实现 (继承 BaseSQLiteStore) |
-| `backend/app/api_execution/__init__.py` | 根据环境变量创建 store 实例 |
+| `backend/app/api_execution/__init__.py` | API 自动化模块初始化 |
 
 ---
 

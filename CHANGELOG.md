@@ -5,6 +5,94 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.8] - 2026-05-09
+
+*(API 自动化执行稳定性修复 & 前端模块加载容错增强)*
+
+### 新增 (Added)
+- **前端懒加载容错**: 新增 `utils/lazyWithRetry.js` 工具，替代原生 `React.lazy()`，模块加载失败时自动重试最多 3 次（间隔递增），全部失败后自动刷新页面，解决刷新页面后切换模块卡在 loading 的问题。
+- **后台执行超时保护**: `run_queue.py` 新增 `QUEUE_WAIT_TIMEOUT_S = 60` 常量，将信号量获取与任务执行包装为 `_acquire_and_run` 函数，外层 `asyncio.wait_for` 统一超时控制，避免任务因并发槽位满而无限期排队。
+- **残留任务自动清理**: `routers.py` 模块加载时调用 `recover_stale_runs()`，服务启动后自动将上次残留的 `queued`/`running` 状态任务标记为 `failed`，防止幽灵任务阻塞新提交。
+- **前端排队超时提醒**: `ExecutionContext.jsx` 轮询新增 90 秒排队超时检测，超时后 Snackbar 提示用户可能的原因和建议操作。
+
+### 变更 (Changed)
+- **前端错误边界粒度**: `App.jsx` 的 `ErrorBoundary` 从包裹所有 Tab 改为每个 Tab 独立包裹，一个模块崩溃不再影响其他模块的正常使用。
+- **阶段标题去除吸顶**: `StageHeader.jsx` 移除 `position: sticky`、`top: 0`、`zIndex: 8` 和 `backdropFilter`，阶段标题改为跟随正常文档流滚动。
+- **后台执行信号量管理**: `run_queue.py` 将 `_execute_run` 拆分为外层超时控制 + 内层 `_acquire_and_run`（保留原始 `async with _semaphore` 模式），避免手动 acquire/release 导致的信号量泄漏风险。
+
+### 修复 (Fixed)
+- **执行成功仍显示排队中**: 修复 `ExecutionContext.jsx` 中 `runAllSteps` 调用 `getRun` 后未同步更新 `backgroundRunStatus` 的 bug——当任务执行极快（如 6ms）时，`runReport.status` 已为 `passed` 但 Alert 仍显示 `排队中`。
+- **模块加载卡死**: 修复刷新页面后切换到其他模块时，`React.lazy()` 加载失败导致 `Suspense` 永久显示 loading 的问题，通过 `lazyWithRetry` 自动重试和 per-tab `ErrorBoundary` 双重保障。
+
+---
+
+## [0.2.7] - 2026-05-09
+
+*(前端架构优化 & 项目/环境配置迁移至设置页 & 主题色板统一 & Context 拆分 & 跨组件通信标准化 & CI/CD 流水线 & 前端性能优化)*
+
+### 新增 (Added)
+- **设置页 - 项目与环境配置**: 新增 `ProjectEnvConfigPage` 组件，将 API 自动化的项目和环境管理从向导第一步迁移至「设置 > 项目与环境」，支持项目增删改查、环境增删改查、AI 策略配置，环境编辑通过 Dialog 弹窗操作。
+- **前端配置文件**: 将 `node_types.json` 复制到 `frontend/src/config/`，解除前端对 `backend/` 目录的跨目录依赖。
+- **语义色板系统**: `theme/index.js` 新增 `slate`（10 阶灰度）、`accent`（12 色强调色）、`gradients`（6 预设渐变）三组语义色板，作为全项目颜色 token 基础设施。
+- **APIExecution 子 Context**: 将 1154 行单体 `context.jsx` 拆分为 6 个独立子 Context（UIContext、SpecContext、ProjectEnvContext、DSLContext、ExecutionContext、RunHistoryContext），配套 `CombinedProvider` + 兼容层 `useAPIExecution()` hook，现有消费者零改动。
+- **事件总线工具**: 新增 `utils/eventBus.js`，提供 `emit()` / `on()` 轻量 pub/sub 封装，替代各处裸 `window.dispatchEvent` / `window.addEventListener`；`on()` 返回取消订阅函数，简化 useEffect cleanup。
+- **CI/CD 流水线**: 新增 `.github/workflows/ci.yml`（GitHub Actions）和 `.gitlab-ci.yml`（GitLab CI），四阶段流水线：Lint（ESLint + ruff）-> Test（pytest + vite build）-> Build（Docker 镜像构建推送）-> Deploy（待配置）。master/devxia 分支及 `v*` tag 自动触发镜像构建，MR 触发 Lint + Test。
+
+### 变更 (Changed)
+- **API 自动化向导**: StepImport 简化为项目/环境选择器 + AI 策略临时覆盖，"新建项目/环境" 选项引导用户前往设置页操作。
+- **设置页**: SettingsPage 新增「项目与环境」section，侧边栏目录从 2 项扩展为 3 项（节点类型配置、Prompt Hub、项目与环境）。
+- **常量收敛**: 提取 `GRAPH_DATA_UPDATED_EVENT` 到 `constants/events.js` 共享模块，Graph/QA/Manage 三处 feature constants 文件不再各自定义。
+- **API 模块清理**: 6 个 API 模块（chat/graph/file/testCase/system/promptHub）移除未使用的 `fetchJSONWithTimeout`、`fetchBlob`、`OPENAPI_PARSE_TIMEOUT_MS` 导入。
+- **确认弹窗统一**: context.jsx 和 StepScope.jsx 中 3 处 `window.confirm()` 替换为项目统一的 `ConfirmDialog` 组件。
+- **流式请求错误处理**: testCaseAPI 的 `generateFromFile` 和 `generateFromContext` 从 raw `fetch()` 改为 `fetchStream` 统一客户端，新增 HTTP 错误检查。
+- **环境 Dialog 增强**: ProjectEnvConfigPage 环境编辑 Dialog 新增 `enabled` 启用开关；创建首个环境时自动更新项目的 `default_environment_id`。
+- **后端版本号**: `pyproject.toml` 版本从 `0.1.0` 同步为 `0.2.7`。
+- **Neo4j 密码外部化**: docker-compose 中 Neo4j 密码改为 `${NEO4J_PASSWORD:-password}` 环境变量引用。
+- **ESLint 配置**: 新增 `.eslintrc.json`，基于 eslint:recommended + react-hooks/recommended 规则集。
+- **硬编码颜色迁移至主题色板**: 全项目约 492 处硬编码 hex/rgba/gradient 颜色迁移至 `theme.palette` 语义 token（`slate.*`、`accent.*`、`gradients.*`），涉及 52 个文件；非 MUI 组件（CodeMirror、vis-network）和 HTML 模板中的颜色保留原值。
+- **Context 拆分重构**: APIExecution 单体 Context（1154 行、44 个 useState）拆分为 6 个职责单一的子 Context，通过 `CombinedProvider` 嵌套和 `useAPIExecution()` 兼容 hook 保持向后兼容；跨域协调采用 ref callback 模式（`registerResetCallback`、`registerFetchHistory`）。
+- **跨组件事件通信标准化**: 3 个自定义事件常量（`GRAPH_DATA_UPDATED_EVENT`、`NODE_TYPE_OVERRIDES_UPDATED_EVENT`、`PROMPT_HUB_UPDATED_EVENT`）统一收拢至 `constants/events.js`，事件名统一加 `openmelon:` 前缀；`constants/promptHub.js` 改为 re-export；`theme/nodeTypes.js` 中的 dispatch 改为 `emit()`；7 个文件的监听改为 `on()` 返回取消函数。
+- **前端包体积优化**: `TestCaseMindMap` 改为 `React.lazy` 懒加载（markmap 库 651 KB 仅在切换思维导图视图时加载）；CodeMirror 从 APIExecutionPage 拆为独立 chunk（420 KB），APIExecutionPage 体积从 507 KB 降至 87 KB（-83%）；vite `manualChunks` 新增 codemirror 分组。
+
+### 修复 (Fixed)
+- **vis-network 内存泄漏**: QAPage 和 GraphPage 的 vis-network 实例在组件卸载时未调用 `destroy()`，导致 DOM 和内存资源泄漏；添加 useEffect cleanup 函数。
+- **跨目录导入**: `theme/nodeTypes.js` 直接 import `../../../backend/config/node_types.json`，前端独立部署会断裂；改为导入 `../config/node_types.json`。
+- **Dockerfile 指令顺序**: 后端 Dockerfile 存在重复 CMD 且第一行 CMD 在 USER 指令之前（以 root 运行），移除重复 CMD 并确保 USER 在 CMD 之前。
+- **Git 跟踪运行时数据**: 10 个 JSON 数据文件（`backend/app/data/api_execution/*.json`）为 SQLite 迁移后的遗留种子文件，已加入 `.gitignore` 并从 git 跟踪中移除。
+- **静默错误吞没**: ManagePage、TestCasePage、QAPage、GraphPage、context.jsx 中 6 处空 catch 块补充 `console.error` 日志。
+- **JSON 解析静默失败**: ProjectEnvConfigPage 的 3 处 JSON.parse catch 从静默替换为空对象改为 showSnackbar 提示并中止保存。
+- **死代码清理**: 删除从未被引用的 `MarkMapPage.jsx`；StepImport 移除解构后未使用的 3 个 setter。
+
+---
+
+## [0.2.6] - 2026-05-08
+
+*(后端结构化持久化 SQLite 收敛)*
+
+### 变更 (Changed)
+- **API 自动化存储**: `backend/app/api_execution/storage.py` 收敛为 SQLite-only 入口，移除 `OPENMELON_STORAGE_BACKEND=json` 和 SQLite 初始化失败时回退 JSONStore 的运行路径；旧 `backend/app/data/api_execution/*.json` 仅作为空库迁移源读取。
+- **图谱节点类型配置**: 「设置 > 节点类型配置」从写入 `backend/config/node_types.json` 改为写入共享 SQLite `graph_node_types` 表；`node_types.json` 仅作为空库初始化种子。
+- **测试存储**: `APIExecutionStore` 保留为 SQLite 兼容构造器，测试临时目录会落到临时 `api_execution.db`，不再生成 JSON 数据文件。
+
+### 新增 (Added)
+- **图谱节点类型存储**: 新增 `NodeTypeStore(BaseSQLiteStore)`，节点类型列表、创建、更新、删除均复用共享 SQLite 连接。
+- **迁移执行文档**: 新增 `docs/Knowledge/backend-sqlite-persistence-completion-plan.md`，沉淀本轮全量 SQLite 收敛范围、步骤和验收口径。
+- **培训汇报材料**: 新增 `docs/presentations/openmelon-training-leadership-briefing.pptx`，用于当前项目培训和领导汇报，覆盖业务闭环、架构、核心功能、安全边界、演示路径和后续规划。
+
+### 修复 (Fixed)
+- **API 自动化重试**: 修复 `_maybe_auto_rerun` 中 `current_attempt > max_reruns` 重试次数多跑一次的 off-by-one bug，改为 `>=`。
+- **API 自动化知识图谱**: 修复 `write_run_to_graph_with_retry` 退避算法为线性增长（`delay * attempt`）而非指数退避的问题，改为 `delay * 2^(attempt-1)`。
+- **SQLite 存储并发**: 修复 `BaseSQLiteStore._lock` 为实例级锁但连接全局共享导致多实例并发写冲突的问题，改为按 DB 路径的全局共享锁 `get_shared_lock()`。
+- **SQLite 存储语义**: `_upsert` 从 `INSERT OR REPLACE`（先删后插）改为 `INSERT ... ON CONFLICT ... DO UPDATE SET`，避免有外键或触发器时的非预期行为。
+- **SQLite 存储索引**: 补充 `specs.content_hash`、`specs.source_url`、`automation_runs.run_at`、`run_stage_events.created_at`、`artifact_meta.created_at` 索引，提升按条件查询和排序性能。
+
+### 验证 (Verified)
+- **SQLite-only 回归**: 新增 `backend/tests/test_api_execution_sqlite_only.py` 和 `backend/tests/test_graph_node_type_sqlite.py`，覆盖 API 自动化不再写 JSON、节点类型从 JSON 种子初始化并写入 SQLite。
+- **SQLite-only 回归**: `python -m pytest tests/test_api_execution_*.py tests/test_graph_node_type_sqlite.py tests/test_file_tracker_sqlite.py tests/test_prompt_hub_tracker.py` 通过，覆盖 98 个相关用例。
+- **编译检查**: `python -m compileall -q backend/app/api_execution backend/app/models backend/app/storage backend/app/services` 通过。
+
+---
+
 ## [0.2.5] - 2026-04-30
 
 *(API 自动化功能增强 & 存储架构升级)*

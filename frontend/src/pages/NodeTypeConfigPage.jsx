@@ -11,6 +11,7 @@ import {
   mergeNodeTypeConfigs,
   NODE_TYPE_OVERRIDES_UPDATED_EVENT,
 } from '../theme/nodeTypes';
+import { on } from '../utils/eventBus';
 import { DEFAULT_NODE_TYPE_FORM } from '../features/NodeType/constants';
 import { filterNodeTypes } from '../features/NodeType/utils';
 import NodeTypeCardGrid from '../features/NodeType/components/NodeTypeCardGrid';
@@ -57,11 +58,11 @@ export default function NodeTypeConfigPage({ embedded = false }) {
     const handleStorage = (event) => {
       if (event.key === 'graph-node-type-overrides') syncOverrides();
     };
+    const offOverrides = on(NODE_TYPE_OVERRIDES_UPDATED_EVENT, syncOverrides);
     window.addEventListener('storage', handleStorage);
-    window.addEventListener(NODE_TYPE_OVERRIDES_UPDATED_EVENT, syncOverrides);
     return () => {
+      offOverrides();
       window.removeEventListener('storage', handleStorage);
-      window.removeEventListener(NODE_TYPE_OVERRIDES_UPDATED_EVENT, syncOverrides);
     };
   }, []);
 

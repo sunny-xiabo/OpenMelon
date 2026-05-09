@@ -1,4 +1,4 @@
-import { API_BASE, fetchJSON, fetchJSONWithTimeout, fetchBlob, OPENAPI_PARSE_TIMEOUT_MS } from './client';
+import { API_BASE, fetchJSON, fetchBlob, fetchStream } from './client';
 
 export const testCaseAPI = {
   generateFromFile: (file, context, requirements, module = '', use_vector = false, style_id = '', skill_ids = []) => {
@@ -10,7 +10,7 @@ export const testCaseAPI = {
     if (module) formData.append('module', module);
     if (style_id) formData.append('style_id', style_id);
     formData.append('skill_ids', JSON.stringify(skill_ids));
-    return fetch(`${API_BASE}/test-cases/generate`, {
+    return fetchStream(`${API_BASE}/test-cases/generate`, {
       method: 'POST',
       body: formData,
     });
@@ -24,7 +24,7 @@ export const testCaseAPI = {
     if (module) formData.append('module', module);
     if (style_id) formData.append('style_id', style_id);
     formData.append('skill_ids', JSON.stringify(skill_ids));
-    return fetch(`${API_BASE}/test-cases/generate-from-context`, {
+    return fetchStream(`${API_BASE}/test-cases/generate-from-context`, {
       method: 'POST',
       body: formData,
     });

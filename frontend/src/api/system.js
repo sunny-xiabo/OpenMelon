@@ -1,4 +1,4 @@
-import { API_BASE, fetchJSON, fetchJSONWithTimeout, fetchBlob, OPENAPI_PARSE_TIMEOUT_MS } from './client';
+import { API_BASE, fetchJSON } from './client';
 
 export const logsAPI = {
   list: () => fetchJSON(`${API_BASE}/logs/list`),

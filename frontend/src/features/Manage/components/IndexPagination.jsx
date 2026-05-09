@@ -1,4 +1,5 @@
 import { Box, Button, Chip, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { Delete as DeleteIcon } from '@mui/icons-material';
 import { PAGE_SIZE } from '../constants';
 
@@ -19,9 +20,9 @@ export default function IndexPagination({
       gap: 1,
       px: 2,
       py: 1,
-      bgcolor: 'rgba(248,250,252,0.95)',
+      bgcolor: (theme) => alpha(theme.palette.slate[50], 0.95),
       borderTop: '1px solid',
-      borderColor: 'rgba(226,232,240,0.6)',
+      borderColor: (theme) => alpha(theme.palette.slate[200], 0.6),
       backdropFilter: 'blur(6px)',
     }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -70,9 +71,9 @@ export default function IndexPagination({
                   fontSize: 12,
                   fontWeight: nextPage === page ? 700 : 400,
                   borderRadius: 1.5,
-                  color: nextPage === page ? '#fff' : 'text.secondary',
+                  color: nextPage === page ? 'common.white' : 'text.secondary',
                   bgcolor: nextPage === page ? 'primary.main' : 'transparent',
-                  '&:hover': { bgcolor: nextPage === page ? 'primary.dark' : 'rgba(0,0,0,0.04)' },
+                  '&:hover': { bgcolor: nextPage === page ? 'primary.dark' : 'action.hover' },
                 }}
               >
                 {nextPage}

@@ -25,7 +25,8 @@ import {
   NODE_TYPE_OVERRIDES_UPDATED_EVENT,
 } from '../theme/nodeTypes';
 import EmptyState from '../components/EmptyState';
-import { GRAPH_DATA_UPDATED_EVENT } from '../features/QA/constants';
+import { GRAPH_DATA_UPDATED_EVENT } from '../constants/events';
+import { on } from '../utils/eventBus';
 import SessionHistoryPanel from '../features/QA/components/SessionHistoryPanel';
 import MessageBubble from '../features/QA/components/MessageBubble';
 import GraphInsightPanel from '../features/QA/components/GraphInsightPanel';
@@ -76,6 +77,12 @@ export default function QAPage() {
         networkRef.current.fit({ animation: false });
       });
     }
+    return () => {
+      if (networkRef.current) {
+        networkRef.current.destroy();
+        networkRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => { checkGraphStatus(); }, []);
@@ -83,7 +90,7 @@ export default function QAPage() {
     setNodeTypeOverrides(loadNodeTypeOverrides());
     graphAPI.getNodeTypes()
       .then((data) => setNodeTypeConfigs(data.node_types || []))
-      .catch(() => setNodeTypeConfigs([]));
+      .catch((err) => { console.error('Failed to load node types:', err); setNodeTypeConfigs([]); });
   }, []);
   useEffect(() => {
     const handleGraphDataUpdated = () => {
@@ -100,13 +107,13 @@ export default function QAPage() {
     const handleNodeTypeOverridesUpdated = () => {
       setNodeTypeOverrides(loadNodeTypeOverrides());
     };
-    window.addEventListener(GRAPH_DATA_UPDATED_EVENT, handleGraphDataUpdated);
+    const offGraph = on(GRAPH_DATA_UPDATED_EVENT, handleGraphDataUpdated);
+    const offOverrides = on(NODE_TYPE_OVERRIDES_UPDATED_EVENT, handleNodeTypeOverridesUpdated);
     window.addEventListener('storage', handleStorage);
-    window.addEventListener(NODE_TYPE_OVERRIDES_UPDATED_EVENT, handleNodeTypeOverridesUpdated);
     return () => {
-      window.removeEventListener(GRAPH_DATA_UPDATED_EVENT, handleGraphDataUpdated);
+      offGraph();
+      offOverrides();
       window.removeEventListener('storage', handleStorage);
-      window.removeEventListener(NODE_TYPE_OVERRIDES_UPDATED_EVENT, handleNodeTypeOverridesUpdated);
     };
   }, []);
 
@@ -261,7 +268,7 @@ export default function QAPage() {
   };
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: { xs: 1, md: 1.5 }, gap: 1.5, bgcolor: 'background.default', flexDirection: isNarrow ? 'column' : 'row' }}>
+    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent', flexDirection: isNarrow ? 'column' : 'row' }}>
       <Paper
         elevation={0}
         sx={{
@@ -269,23 +276,24 @@ export default function QAPage() {
           minWidth: 0,
           display: 'flex',
           flexDirection: 'column',
-          border: '1px solid',
-          borderColor: 'divider',
-          borderRadius: 3,
+          border: '1px solid rgba(255, 255, 255, 0.4)',
+          borderRadius: 4,
           overflow: 'hidden',
-          background: 'linear-gradient(180deg, #ffffff 0%, #fbfcff 100%)',
-          transition: 'width 0.2s ease',
+          background: 'rgba(255, 255, 255, 0.65)',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)',
+          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', background: 'linear-gradient(90deg, rgba(59,130,246,0.06) 0%, rgba(99,102,241,0.04) 100%)' }}>
+        <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', background: (theme) => theme.palette.gradients.headerBlue }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <Box sx={{ width: 38, height: 38, borderRadius: '10px', background: 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.7), 0 4px 8px rgba(99,102,241,0.1)' }}>
+              <Box sx={{ width: 38, height: 38, borderRadius: '10px', background: 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)', color: 'accent.indigoDark', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.7), 0 4px 8px rgba(99,102,241,0.1)' }}>
                 <Forum fontSize="small" />
               </Box>
               <Box>
-                <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#1e293b' }}>智能问答</Typography>
-                <Typography variant="caption" sx={{ color: '#64748b' }}>在检索上下文中提问，右侧可同步查看图谱线索</Typography>
+                <Typography variant="subtitle1" fontWeight={700} sx={{ color: 'slate.800' }}>智能问答</Typography>
+                <Typography variant="caption" sx={{ color: 'slate.500' }}>在检索上下文中提问，右侧可同步查看图谱线索</Typography>
               </Box>
             </Box>
             <Button size="small" variant="outlined" startIcon={graphExpanded ? <AccountTree fontSize="small" /> : <Forum fontSize="small" />} onClick={() => setGraphExpanded(!graphExpanded)}>
@@ -313,7 +321,7 @@ export default function QAPage() {
           confirmDeleteSession={confirmDeleteSession}
         />
 
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.25, md: 2 }, display: 'flex', flexDirection: 'column', gap: 1.5, bgcolor: '#f8fafc' }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.5, md: 3 }, display: 'flex', flexDirection: 'column', gap: 2, background: 'transparent' }}>
           {messages.length === 0 ? (
             <EmptyState
               title="开始提问吧"
@@ -342,8 +350,8 @@ export default function QAPage() {
           <div ref={messagesEndRef} />
         </Box>
 
-        <Divider />
-        <Box sx={{ p: { xs: 1.25, md: 1.5 }, bgcolor: 'common.white' }}>
+        <Divider sx={{ opacity: 0.5 }} />
+        <Box sx={{ p: { xs: 1.5, md: 2.5 }, background: 'rgba(255, 255, 255, 0.4)' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1 }}>
                 <TextField
@@ -360,11 +368,11 @@ export default function QAPage() {
                     '& .MuiOutlinedInput-root': {
                       borderRadius: 3,
                       fontSize: 13.5,
-                      bgcolor: '#ffffff',
+                      bgcolor: 'background.paper',
                       boxShadow: 'inset 0 2px 6px rgba(15,23,42,0.02)',
                       transition: 'all 0.2s',
                       '&.Mui-focused': {
-                        bgcolor: '#ffffff',
+                        bgcolor: 'background.paper',
                         boxShadow: '0 0 0 3px rgba(99,102,241,0.15)',
                       }
                     },
@@ -372,12 +380,12 @@ export default function QAPage() {
                 />
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                   <FormControlLabel
-                    control={<Checkbox size="small" checked={includeHistory} onChange={e => setIncludeHistory(e.target.checked)} sx={{ color: '#94a3b8', '&.Mui-checked': { color: '#6366f1' } }} />}
+                    control={<Checkbox size="small" checked={includeHistory} onChange={e => setIncludeHistory(e.target.checked)} sx={{ color: 'slate.400', '&.Mui-checked': { color: 'accent.indigo' } }} />}
                     label={<Typography variant="caption" color="text.secondary">带上历史上下文</Typography>}
                     sx={{ ml: 0.25 }}
                   />
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 'auto' }}>
-                    <Typography variant="caption" sx={{ color: '#94a3b8' }}>Enter 发送，Shift + Enter 换行</Typography>
+                    <Typography variant="caption" sx={{ color: 'slate.400' }}>Enter 发送，Shift + Enter 换行</Typography>
                     <Button
                       variant="contained"
                       onClick={sendMessage}
@@ -386,16 +394,16 @@ export default function QAPage() {
                         minWidth: 92, 
                         minHeight: 38, 
                         borderRadius: 2.5,
-                        background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+                        background: (theme) => theme.palette.gradients.primary,
                         boxShadow: '0 4px 12px rgba(99,102,241,0.25)',
                         fontWeight: 600,
                         '&:hover': {
-                          background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+                          background: (theme) => theme.palette.gradients.primaryHover,
                           boxShadow: '0 6px 16px rgba(99,102,241,0.3)',
                         },
                         '&.Mui-disabled': {
-                          background: '#e2e8f0',
-                          color: '#94a3b8',
+                          background: 'slate.200',
+                          color: 'slate.400',
                           boxShadow: 'none'
                         }
                       }}

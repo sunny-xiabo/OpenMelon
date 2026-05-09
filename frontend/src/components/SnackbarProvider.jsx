@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { Snackbar, Box, Typography, Slide } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { CheckCircleOutline, ErrorOutline, InfoOutlined, WarningAmberOutlined } from '@mui/icons-material';
 
 const SnackbarContext = createContext();
@@ -16,10 +17,10 @@ const ICONS = {
 };
 
 const STYLES = {
-  success: { color: '#10b981', bg: 'rgba(16,185,129,0.06)', border: 'rgba(16,185,129,0.3)' },
+  success: { color: 'accent.emerald', bg: 'rgba(16,185,129,0.06)', border: 'rgba(16,185,129,0.3)' },
   error: { color: '#ef4444', bg: 'rgba(239,68,68,0.06)', border: 'rgba(239,68,68,0.3)' },
-  info: { color: '#3b82f6', bg: 'rgba(59,130,246,0.06)', border: 'rgba(59,130,246,0.3)' },
-  warning: { color: '#f59e0b', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.3)' },
+  info: { color: 'accent.blue', bg: 'rgba(59,130,246,0.06)', border: 'rgba(59,130,246,0.3)' },
+  warning: { color: 'accent.amber', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.3)' },
 };
 
 function SlideTransition(props) {
@@ -62,7 +63,7 @@ export function SnackbarProvider({ children }) {
             px: 2,
             py: 1,
             mt: 2,
-            bgcolor: 'rgba(255, 255, 255, 0.95)',
+            bgcolor: (theme) => alpha(theme.palette.common.white, 0.95),
             backdropFilter: 'blur(12px)',
             border: '1px solid',
             borderColor: currentStyle.border,
@@ -86,7 +87,7 @@ export function SnackbarProvider({ children }) {
           <Box sx={{ color: currentStyle.color, display: 'flex', alignItems: 'center', zIndex: 1 }}>
             {ICONS[severity] || ICONS.info}
           </Box>
-          <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b', zIndex: 1, letterSpacing: '0.2px' }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, color: 'slate.800', zIndex: 1, letterSpacing: '0.2px' }}>
             {message}
           </Typography>
         </Box>

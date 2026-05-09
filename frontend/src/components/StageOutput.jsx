@@ -16,6 +16,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import QueryBuilderIcon from '@mui/icons-material/QueryBuilder';
 import { keyframes } from '@mui/system';
+import { alpha } from '@mui/material/styles';
 
 const pulse = keyframes`
   0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.4); }
@@ -190,8 +191,8 @@ export default function StageOutput({ content, isComplete = false }) {
                       borderRadius: '50%',
                       border: '2px solid',
                       borderColor: isActive ? 'transparent' : color,
-                      bgcolor: isDone ? color : isActive ? stage.color : '#fff',
-                      color: isDone || isActive ? '#fff' : color,
+                      bgcolor: isDone ? color : isActive ? stage.color : 'common.white',
+                      color: isDone || isActive ? 'common.white' : color,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -342,7 +343,7 @@ export default function StageOutput({ content, isComplete = false }) {
               </IconButton>
             </Box>
             <Collapse in={expanded[s.key]} unmountOnExit={false}>
-              <Box sx={{ p: 2, bgcolor: '#ffffff', overflowX: 'hidden' }}>
+              <Box sx={{ p: 2, bgcolor: 'background.paper', overflowX: 'hidden' }}>
                 {isCurrent && (
                   <Box sx={{ mb: 2, p: 1.5, borderRadius: 1.5, bgcolor: `${s.color}08`, border: `1px dashed ${s.color}33`, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                     <AutorenewIcon sx={{ fontSize: 18, color: s.color, animation: 'spin 2s linear infinite' }} />
@@ -357,15 +358,15 @@ export default function StageOutput({ content, isComplete = false }) {
                 <Box 
                   className="stage-markdown" 
                   sx={{ 
-                    fontSize: 14, 
-                    lineHeight: 1.6, 
-                    color: '#334155',
+                    fontSize: 14,
+                    lineHeight: 1.6,
+                    color: 'slate.700',
                     '& h1, & h2': { display: 'none' }, // 隐藏重复的阶段标题
                     '& h3': { color: s.color, fontSize: '1.1rem', mt: 2, mb: 1, borderBottom: `1px solid ${s.color}22`, pb: 0.5 },
                     '& p': { m: '0 0 12px', wordBreak: 'break-word' },
                     '& ul, & ol': { pl: 2.5, mb: 1.5 },
                     '& li': { mb: 0.5 },
-                    '& code': { bgcolor: '#f1f5f9', px: 0.5, py: 0.2, borderRadius: 0.5, fontSize: '0.9em', color: '#e11d48' },
+                    '& code': { bgcolor: 'slate.100', px: 0.5, py: 0.2, borderRadius: 0.5, fontSize: '0.9em', color: '#e11d48' },
                     '& table': { 
                       width: '100%', 
                       borderCollapse: 'collapse', 
@@ -374,8 +375,8 @@ export default function StageOutput({ content, isComplete = false }) {
                       display: 'table',
                       overflowX: 'auto'
                     },
-                    '& th': { bgcolor: '#f8fafc', p: 1, border: '1px solid #e2e8f0', textAlign: 'left', fontWeight: 600 },
-                    '& td': { p: 1, border: '1px solid #e2e8f0' },
+                    '& th': { bgcolor: 'slate.50', p: 1, border: '1px solid', borderColor: 'slate.200', textAlign: 'left', fontWeight: 600 },
+                    '& td': { p: 1, border: '1px solid', borderColor: 'slate.200' },
                     '& blockquote': { borderLeft: `4px solid ${s.color}44`, m: '0 0 16px', pl: 2, color: 'text.secondary', fontStyle: 'italic' }
                   }}
                 >
@@ -393,7 +394,7 @@ export default function StageOutput({ content, isComplete = false }) {
           sx={{ 
             flexShrink: 0, 
             borderRadius: 2.5, 
-            borderColor: '#f57c00',
+            borderColor: 'accent.orange',
             boxShadow: currentStage === 'final' ? '0 4px 20px rgba(245,124,0,0.15)' : 'none',
             overflow: 'hidden',
             transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -411,42 +412,42 @@ export default function StageOutput({ content, isComplete = false }) {
               justifyContent: 'space-between',
               px: 2,
               py: 1.5,
-              bgcolor: expanded.final ? 'rgba(245,124,0,0.08)' : 'background.paper',
+              bgcolor: expanded.final ? (theme) => alpha(theme.palette.accent.orange, 0.08) : 'background.paper',
               borderBottom: expanded.final ? '1px solid' : 'none',
-              borderColor: 'rgba(245,124,0,0.2)',
-              color: '#e65100',
+              borderColor: (theme) => alpha(theme.palette.accent.orange, 0.2),
+              color: 'accent.orangeDark',
               cursor: 'pointer',
               userSelect: 'none',
               transition: 'all 0.2s ease-in-out',
               backdropFilter: 'blur(8px)',
               '&:hover': {
-                bgcolor: 'rgba(245,124,0,0.04)',
+                bgcolor: (theme) => alpha(theme.palette.accent.orange, 0.04),
               }
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
               <Box sx={{ 
                 width: 24, height: 24, borderRadius: '50%', 
-                bgcolor: '#f57c00', color: '#fff', 
+                bgcolor: 'accent.orange', color: 'common.white',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 boxShadow: '0 2px 6px rgba(245,124,0,0.3)'
               }}>
                 {isComplete ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <AutorenewIcon sx={{ fontSize: 16, animation: 'spin 2s linear infinite' }} />}
               </Box>
               <Typography variant="body2" fontWeight={700}>最终测试用例结果</Typography>
-              <Chip label="Stage 4" size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'rgba(245,124,0,0.15)', color: '#e65100', fontWeight: 800 }} />
+              <Chip label="Stage 4" size="small" sx={{ height: 18, fontSize: 10, bgcolor: (theme) => alpha(theme.palette.accent.orange, 0.15), color: 'accent.orangeDark', fontWeight: 800 }} />
               {isComplete && <Chip label="生成完毕" size="small" color="success" sx={{ height: 18, fontSize: 10, fontWeight: 700 }} />}
             </Box>
-            <IconButton size="small" sx={{ color: '#f57c00', p: 0 }}>
+            <IconButton size="small" sx={{ color: 'accent.orange', p: 0 }}>
               {expanded.final ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
             </IconButton>
           </Box>
           <Collapse in={expanded.final} unmountOnExit={false}>
-            <Box sx={{ p: 2, bgcolor: '#ffffff', minHeight: 100 }}>
+            <Box sx={{ p: 2, bgcolor: 'background.paper', minHeight: 100 }}>
               {!isComplete && currentStage === 'final' && (
-                <Box sx={{ mb: 2, p: 1.5, borderRadius: 1.5, bgcolor: 'rgba(245,124,0,0.04)', border: '1px dashed rgba(245,124,0,0.2)' }}>
+                <Box sx={{ mb: 2, p: 1.5, borderRadius: 1.5, bgcolor: (theme) => alpha(theme.palette.accent.orange, 0.04), border: (theme) => '1px dashed ' + alpha(theme.palette.accent.orange, 0.2) }}>
                   <LinearProgress color="warning" sx={{ height: 4, borderRadius: 2, mb: 1 }} />
-                  <Typography variant="caption" sx={{ color: '#e65100', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: 'accent.orangeDark', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <AutorenewIcon sx={{ fontSize: 12, animation: 'spin 2s linear infinite' }} />
                     正在抽取并整理最终结构化测试用例...
                   </Typography>
@@ -455,9 +456,9 @@ export default function StageOutput({ content, isComplete = false }) {
               <Box className="stage-markdown" sx={{ 
                 fontSize: 14, 
                 lineHeight: 1.6, 
-                color: '#334155',
-                '& h3': { color: '#f57c00', fontSize: '1.2rem', mt: 3, mb: 1.5, borderBottom: '2px solid rgba(245,124,0,0.1)', pb: 0.5 },
-                '& h4': { color: '#475569', fontSize: '1rem', mt: 2, mb: 1 },
+                color: 'slate.700',
+                '& h3': { color: 'accent.orange', fontSize: '1.2rem', mt: 3, mb: 1.5, borderBottom: (theme) => '2px solid ' + alpha(theme.palette.accent.orange, 0.1), pb: 0.5 },
+                '& h4': { color: 'slate.600', fontSize: '1rem', mt: 2, mb: 1 },
                 '& p': { m: '0 0 12px' },
                 '& ul, & ol': { pl: 2.5, mb: 1.5 },
                 '& table': { 
@@ -467,13 +468,13 @@ export default function StageOutput({ content, isComplete = false }) {
                   fontSize: '13px',
                   display: 'table',
                 },
-                '& th': { bgcolor: '#f8fafc', p: 1.25, border: '1px solid #e2e8f0', textAlign: 'left', fontWeight: 700, color: '#475569' },
-                '& td': { p: 1.25, border: '1px solid #e2e8f0' }
+                '& th': { bgcolor: 'slate.50', p: 1.25, border: '1px solid', borderColor: 'slate.200', textAlign: 'left', fontWeight: 700, color: 'slate.600' },
+                '& td': { p: 1.25, border: '1px solid', borderColor: 'slate.200' }
               }}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{stageContents.final}</ReactMarkdown>
               </Box>
               {isComplete && (
-                <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid #f1f5f9', textAlign: 'center' }}>
+                <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'slate.100', textAlign: 'center' }}>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
                     <CheckCircleIcon sx={{ fontSize: 14, color: 'success.main' }} />
                     所有阶段执行完毕，标准功能列表已就绪。

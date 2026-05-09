@@ -1,8 +1,10 @@
-import nodeTypeConfigs from '../../../backend/config/node_types.json';
+import nodeTypeConfigs from '../config/node_types.json';
+import { NODE_TYPE_OVERRIDES_UPDATED_EVENT } from '../constants/events';
+import { emit } from '../utils/eventBus';
 
 export const FALLBACK_NODE_TYPE = 'Entity';
 export const NODE_TYPE_OVERRIDES_STORAGE_KEY = 'graph-node-type-overrides';
-export const NODE_TYPE_OVERRIDES_UPDATED_EVENT = 'graph-node-type-overrides-updated';
+export { NODE_TYPE_OVERRIDES_UPDATED_EVENT };
 
 export const NODE_TYPE_META = Object.fromEntries(
   nodeTypeConfigs.map((item) => [
@@ -103,7 +105,7 @@ export function saveNodeTypeOverrides(overrides) {
     NODE_TYPE_OVERRIDES_STORAGE_KEY,
     JSON.stringify(overrides || {}),
   );
-  window.dispatchEvent(new Event(NODE_TYPE_OVERRIDES_UPDATED_EVENT));
+  emit(NODE_TYPE_OVERRIDES_UPDATED_EVENT);
 }
 
 export function mergeNodeTypeConfigs(configs = [], overrides = {}) {

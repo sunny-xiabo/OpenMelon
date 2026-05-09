@@ -1,5 +1,6 @@
 import { Box, IconButton, Paper, Tooltip, Typography } from '@mui/material';
 import { ChevronLeft, ChevronRight } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
 import { PROPERTY_LABELS } from '../constants';
 
 export default function NodeDetailPanel({ collapsed, selectedNode, setCollapsed }) {
@@ -14,7 +15,7 @@ export default function NodeDetailPanel({ collapsed, selectedNode, setCollapsed 
             right: 24,
             width: 44,
             height: 44,
-            bgcolor: 'rgba(255,255,255,0.9)',
+            bgcolor: (theme) => alpha(theme.palette.common.white, 0.9),
             backdropFilter: 'blur(8px)',
             border: '1px solid',
             borderColor: 'divider',
@@ -47,10 +48,10 @@ export default function NodeDetailPanel({ collapsed, selectedNode, setCollapsed 
         width: 360,
         display: 'flex',
         flexDirection: 'column',
-        bgcolor: 'rgba(255,255,255,0.85)',
+        bgcolor: (theme) => alpha(theme.palette.common.white, 0.85),
         backdropFilter: 'blur(16px)',
         border: '1px solid',
-        borderColor: 'rgba(255,255,255,0.5)',
+        borderColor: (theme) => alpha(theme.palette.common.white, 0.5),
         borderRadius: 4,
         boxShadow: '0 12px 40px rgba(15,23,42,0.08)',
         zIndex: 20,
@@ -58,9 +59,9 @@ export default function NodeDetailPanel({ collapsed, selectedNode, setCollapsed 
         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       }}
     >
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.75, borderBottom: '1px solid rgba(226,232,240,0.6)' }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1e293b' }}>节点详情</Typography>
-        <IconButton size="small" onClick={() => setCollapsed(true)} sx={{ bgcolor: 'rgba(241,245,249,0.8)', '&:hover': { bgcolor: '#e2e8f0' } }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.75, borderBottom: '1px solid', borderBottomColor: (theme) => alpha(theme.palette.slate[200], 0.6) }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'slate.800' }}>节点详情</Typography>
+        <IconButton size="small" onClick={() => setCollapsed(true)} sx={{ bgcolor: (theme) => alpha(theme.palette.slate[100], 0.8), '&:hover': { bgcolor: 'slate.200' } }}>
           <ChevronRight fontSize="small" />
         </IconButton>
       </Box>
@@ -68,7 +69,7 @@ export default function NodeDetailPanel({ collapsed, selectedNode, setCollapsed 
         {selectedNode?.labels && (
           <Box sx={{ mb: 2 }}>
             <Typography variant="caption" color="text.disabled" sx={{ textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700 }}>类型</Typography>
-            <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 500, color: '#334155' }}>{selectedNode.labels.join(', ')}</Typography>
+            <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 500, color: 'slate.700' }}>{selectedNode.labels.join(', ')}</Typography>
           </Box>
         )}
         {selectedNode?.properties && Object.entries(selectedNode.properties).map(([key, value]) => {
@@ -84,13 +85,14 @@ export default function NodeDetailPanel({ collapsed, selectedNode, setCollapsed 
                 sx={{
                   mt: 0.5,
                   wordBreak: 'break-word',
-                  color: '#1e293b',
+                  color: 'slate.800',
                   ...(isLong && {
                     whiteSpace: 'pre-wrap',
-                    bgcolor: 'rgba(248,250,252,0.6)',
+                    bgcolor: (theme) => alpha(theme.palette.slate[50], 0.6),
                     p: 1.5,
                     borderRadius: 2,
-                    border: '1px solid rgba(226,232,240,0.5)',
+                    border: '1px solid',
+                    borderColor: (theme) => alpha(theme.palette.slate[200], 0.5),
                     fontSize: 13,
                     lineHeight: 1.6,
                   }),

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { promptHubAPI } from '../../../services/api';
-import { PROMPT_HUB_UPDATED_EVENT } from '../../../constants/promptHub';
+import { PROMPT_HUB_UPDATED_EVENT } from '../../../constants/events';
+import { on } from '../../../utils/eventBus';
 import {
   DEFAULT_TEMPLATE_ID,
   FALLBACK_SKILL_OPTIONS,
@@ -81,10 +82,7 @@ export function usePromptHubOptions({ isActive, showSnackbar }) {
     const handlePromptHubUpdated = () => {
       loadPromptHubOptions(true);
     };
-    window.addEventListener(PROMPT_HUB_UPDATED_EVENT, handlePromptHubUpdated);
-    return () => {
-      window.removeEventListener(PROMPT_HUB_UPDATED_EVENT, handlePromptHubUpdated);
-    };
+    return on(PROMPT_HUB_UPDATED_EVENT, handlePromptHubUpdated);
   }, [loadPromptHubOptions]);
 
   return {

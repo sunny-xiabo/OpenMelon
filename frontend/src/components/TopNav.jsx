@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppBar, Toolbar, Typography, Box, Tabs, Tab, IconButton, Tooltip } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { AutoGraphRounded, AccountCircle } from '@mui/icons-material';
 
 export default function TopNav({ tabs, currentTab, onTabChange }) {
@@ -14,8 +15,8 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
       elevation={4}
       sx={{
         // 极客风深色渐变背景，与 OpenMelon 的整体调性保持一致
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #312e81 100%)',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        background: (theme) => theme.palette.gradients.nav,
+        borderBottom: (theme) => '1px solid ' + alpha(theme.palette.common.white, 0.05),
       }}
     >
       <Toolbar sx={{ gap: 2, minHeight: '56px !important', px: '24px !important' }}>
@@ -58,12 +59,12 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
               },
               // 滚动箭头的样式
               '& .MuiTabs-scrollButtons': {
-                color: 'rgba(255,255,255,0.6)',
+                color: (theme) => alpha(theme.palette.common.white, 0.6),
                 '&.Mui-disabled': {
                   opacity: 0.2,
                 },
                 '&:hover': {
-                  color: '#fff',
+                  color: 'common.white',
                 },
               },
             }}
@@ -82,7 +83,7 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
                   minHeight: 56,
                   px: 2.5,
                   py: 1.5,
-                  color: currentTab === i ? 'primary.main' : 'rgba(255,255,255,0.65)',
+                  color: currentTab === i ? 'primary.main' : (theme) => alpha(theme.palette.common.white, 0.65),
                   fontWeight: currentTab === i ? 700 : 500,
                   textTransform: 'none',
                   letterSpacing: 0.5,
@@ -90,12 +91,12 @@ export default function TopNav({ tabs, currentTab, onTabChange }) {
                   borderRadius: '8px 8px 0 0',
                   margin: '0 4px',
                   '&:hover': {
-                    color: currentTab === i ? 'primary.main' : '#fff',
-                    bgcolor: 'rgba(255,255,255,0.05)',
+                    color: currentTab === i ? 'primary.main' : 'common.white',
+                    bgcolor: (theme) => alpha(theme.palette.common.white, 0.05),
                   },
                   '&.Mui-selected': {
                     color: '#a5b4fc',
-                    bgcolor: 'rgba(255,255,255,0.08)',
+                    bgcolor: (theme) => alpha(theme.palette.common.white, 0.08),
                   },
                 }}
               />

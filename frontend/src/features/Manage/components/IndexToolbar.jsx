@@ -7,6 +7,7 @@ import {
   TextField,
   Tooltip,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { Refresh as RefreshIcon } from '@mui/icons-material';
 
 export default function IndexToolbar({
@@ -19,10 +20,10 @@ export default function IndexToolbar({
   statusFilter,
 }) {
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.25, bgcolor: '#f8fafc', borderBottom: '1px solid rgba(226,232,240,0.8)', gap: 1.25, flexWrap: 'wrap' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.25, bgcolor: 'slate.50', borderBottom: (theme) => `1px solid ${alpha(theme.palette.slate[200], 0.8)}`, gap: 1.25, flexWrap: 'wrap' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
         <FormControl size="small" sx={{ minWidth: 120 }}>
-          <Select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} sx={{ borderRadius: 2, bgcolor: '#ffffff', fontSize: 13 }}>
+          <Select value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} sx={{ borderRadius: 2, bgcolor: 'common.white', fontSize: 13 }}>
             <MenuItem value="all">全部时间</MenuItem>
             <MenuItem value="today">今日导入</MenuItem>
             <MenuItem value="week">本周导入</MenuItem>
@@ -30,7 +31,7 @@ export default function IndexToolbar({
           </Select>
         </FormControl>
         <FormControl size="small" sx={{ minWidth: 120 }}>
-          <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} sx={{ borderRadius: 2, bgcolor: '#ffffff', fontSize: 13 }}>
+          <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} sx={{ borderRadius: 2, bgcolor: 'common.white', fontSize: 13 }}>
             <MenuItem value="all">全部状态</MenuItem>
             <MenuItem value="indexed">已索引</MenuItem>
             <MenuItem value="failed">失败</MenuItem>
@@ -42,7 +43,7 @@ export default function IndexToolbar({
           value={searchText}
           onChange={(event) => setSearchText(event.target.value)}
           onKeyDown={(event) => event.key === 'Enter' && loadFiles()}
-          sx={{ width: 220, '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#ffffff' }, '& .MuiInputBase-input': { fontSize: 13 } }}
+          sx={{ width: 220, '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'common.white' }, '& .MuiInputBase-input': { fontSize: 13 } }}
         />
       </Box>
       <Tooltip title="刷新列表">

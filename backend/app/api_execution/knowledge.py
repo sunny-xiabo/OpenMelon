@@ -160,7 +160,7 @@ async def write_run_to_graph_with_retry(
             last_error = exc
             logger.warning("图谱写入失败 (run_id=%s, attempt=%d/%d): %s", run_id, attempt, max_retries, exc)
             if attempt < max_retries:
-                await asyncio.sleep(retry_delay * attempt)
+                await asyncio.sleep(retry_delay * (2 ** (attempt - 1)))
     return {
         "success": False,
         "error": str(last_error),

@@ -96,7 +96,7 @@ export default function StepResult() {
                 )}
 
                 {runReport && (
-                  <Paper sx={{ p: 3, bgcolor: '#ffffff', borderRadius: 3, border: '1px solid', borderColor: getRunTone(runReport.status) }}>
+                  <Paper sx={{ p: 3, background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', borderRadius: 4, border: '1px solid', borderColor: getRunTone(runReport.status), boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                      <Typography variant="h6" sx={{ color: getRunTone(runReport.status), fontWeight: 800, mb: 1 }}>
                         {getRunStatusMeta(runReport.status).label}
                      </Typography>
@@ -259,7 +259,7 @@ export default function StepResult() {
                 )}
 
                 {runResult && (
-                  <Paper sx={{ p: 3, bgcolor: '#ffffff', borderRadius: 3, border: '1px solid', borderColor: runResult.status === 'passed' ? 'success.main' : 'error.main' }}>
+                  <Paper sx={{ p: 3, background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', borderRadius: 4, border: '1px solid', borderColor: runResult.status === 'passed' ? 'success.main' : 'error.main', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                      <Typography variant="h6" sx={{ color: runResult.status === 'passed' ? 'success.main' : 'error.main', fontWeight: 800, mb: 1 }}>
                         单步执行{runResult.status === 'passed' ? '通过' : '失败'}
                      </Typography>

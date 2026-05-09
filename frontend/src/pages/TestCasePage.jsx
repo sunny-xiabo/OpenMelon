@@ -1,7 +1,8 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
 import {
   Box,
   Paper,
+  CircularProgress,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -11,7 +12,6 @@ import { testCaseAPI, vectorAPI, graphAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import StageOutput from '../components/StageOutput';
 import TestCaseListView from '../components/TestCaseListView';
-import TestCaseMindMap from '../components/TestCaseMindMap';
 import { parseTestCasesFromMarkdown } from '../utils/parseTestCases';
 import EmptyState from '../components/EmptyState';
 import { ALL_EXTS } from '../features/TestCase/constants';
@@ -21,6 +21,8 @@ import GenerationPanel from '../features/TestCase/components/GenerationPanel';
 import ResultFilters from '../features/TestCase/components/ResultFilters';
 import ResultHeader, { ResultActionBar } from '../features/TestCase/components/ResultHeader';
 import ResultSummaryCards from '../features/TestCase/components/ResultSummaryCards';
+
+const TestCaseMindMap = lazy(() => import('../components/TestCaseMindMap'));
 
 export default function TestCasePage({ isActive = true }) {
   const theme = useTheme();
@@ -81,7 +83,7 @@ export default function TestCasePage({ isActive = true }) {
     try {
       const filters = await graphAPI.getFilters();
       setAvailableModules(filters.modules || []);
-    } catch { }
+    } catch (err) { console.error('Failed to load filters:', err); }
   };
 
 
@@ -248,7 +250,7 @@ export default function TestCasePage({ isActive = true }) {
   ), [filteredTestCases]);
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: 1.5, gap: 1.5, bgcolor: 'background.default', flexDirection: isNarrow ? 'column' : 'row' }}>
+    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent', flexDirection: isNarrow ? 'column' : 'row' }}>
       <GenerationPanel
         availableModules={availableModules}
         clearFile={clearFile}
@@ -278,7 +280,21 @@ export default function TestCasePage({ isActive = true }) {
         templateOptions={templateOptions}
       />
 
-      <Paper elevation={0} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid', borderColor: 'divider', borderRadius: 3 }}>
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          flex: 1, 
+          minWidth: 0, 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden', 
+          border: '1px solid rgba(255, 255, 255, 0.4)', 
+          borderRadius: 4,
+          background: 'rgba(255, 255, 255, 0.65)',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)'
+        }}
+      >
         <ResultHeader
           checkVectorStatus={checkVectorStatus}
           generating={generating}
@@ -286,7 +302,7 @@ export default function TestCasePage({ isActive = true }) {
           useVector={useVector}
           vectorStatus={vectorStatus}
         />
-        <Box sx={{ flex: 1, p: 2, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'background.paper' }}>
+        <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'transparent' }}>
           <ResultActionBar
             exportAnchorEl={exportAnchorEl}
             exportExcel={exportExcel}
@@ -329,7 +345,9 @@ export default function TestCasePage({ isActive = true }) {
             viewMode === 'stages' ? (
               <StageOutput content={streamingContent} isComplete />
             ) : viewMode === 'mindmap' && parsedTestCases.length > 0 ? (
-              <TestCaseMindMap testCases={filteredTestCases} />
+              <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>}>
+                <TestCaseMindMap testCases={filteredTestCases} />
+              </Suspense>
             ) : parsedTestCases.length > 0 ? (
               <TestCaseListView testCases={filteredTestCases} />
             ) : (

@@ -18,18 +18,18 @@ export default function HorizontalBars({ modules }) {
             <Box sx={{ '&:hover .bar-fill': { filter: 'brightness(1.1)' }, cursor: 'default' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.5, gap: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 700, fontSize: 10, minWidth: 16 }}>
+                  <Typography variant="caption" sx={{ color: 'slate.400', fontWeight: 700, fontSize: 10, minWidth: 16 }}>
                     #{idx + 1}
                   </Typography>
                   <Typography variant="body2" fontWeight={600} noWrap>
                     {item.module_name}
                   </Typography>
                 </Box>
-                <Typography variant="caption" sx={{ fontWeight: 600, color: tone.color === 'success' ? '#22c55e' : tone.color === 'warning' ? '#f59e0b' : '#ef4444' }}>
+                <Typography variant="caption" sx={{ fontWeight: 600, color: tone.color === 'success' ? '#22c55e' : tone.color === 'warning' ? 'accent.amber' : '#ef4444' }}>
                   {item.coverage_percentage.toFixed(1)}%
                 </Typography>
               </Box>
-              <Box sx={{ height: 10, borderRadius: 999, bgcolor: '#f1f5f9', overflow: 'hidden' }}>
+              <Box sx={{ height: 10, borderRadius: 999, bgcolor: 'slate.100', overflow: 'hidden' }}>
                 <Box
                   className="bar-fill"
                   sx={{

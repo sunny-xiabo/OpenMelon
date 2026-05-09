@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import { useAPIExecution } from '../context';
 import EmptyState from '../../../components/EmptyState';
+import ConfirmDialog from '../../../components/ConfirmDialog';
 import { METHOD_COLORS } from '../constants';
 import StageHeader from './StageHeader';
 
@@ -65,6 +66,7 @@ export default function StepScope() {
   const [tagFilter, setTagFilter] = React.useState('all');
   const [methodFilter, setMethodFilter] = React.useState('all');
   const [riskFilter, setRiskFilter] = React.useState('all');
+  const [confirmDialog, setConfirmDialog] = React.useState({ open: false, message: '', onConfirm: null });
 
   const scopedOperations = React.useMemo(() => (
     filteredOperations.filter((operation) => {
@@ -119,8 +121,12 @@ export default function StepScope() {
 
   const handleGenerateDsl = () => {
     if (selectedSummary.high > 0) {
-      const confirmed = window.confirm(`当前选择包含 ${selectedSummary.high} 个高风险接口，确认继续生成测试脚本？`);
-      if (!confirmed) return;
+      setConfirmDialog({
+        open: true,
+        message: `当前选择包含 ${selectedSummary.high} 个高风险接口，确认继续生成测试脚本？`,
+        onConfirm: () => { setConfirmDialog({ open: false, message: '', onConfirm: null }); generateDsl(); },
+      });
+      return;
     }
     generateDsl();
   };
@@ -137,26 +143,26 @@ export default function StepScope() {
                   )}
                 />
                 
-                <Paper sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                   <Stack spacing={2.5}>
                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(5, 1fr)' }, gap: 1.5 }}>
-                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: '#f8f9fa' }}>
+                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid rgba(255, 255, 255, 0.8)', borderRadius: 2, bgcolor: 'rgba(255, 255, 255, 0.6)' }}>
                         <Typography variant="caption" color="text.secondary">接口总数</Typography>
                         <Typography variant="h6" fontWeight={800}>{selectedSummary.total}</Typography>
                       </Paper>
-                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: selectedSummary.selected ? 'primary.light' : 'divider', borderRadius: 2, bgcolor: selectedSummary.selected ? 'primary.light' : '#f8f9fa' }}>
+                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: selectedSummary.selected ? 'primary.light' : 'rgba(255, 255, 255, 0.8)', borderRadius: 2, bgcolor: selectedSummary.selected ? 'rgba(99, 102, 241, 0.08)' : 'rgba(255, 255, 255, 0.6)' }}>
                         <Typography variant="caption" color="text.secondary">已选范围</Typography>
                         <Typography variant="h6" fontWeight={800}>{selectedSummary.selected}</Typography>
                       </Paper>
-                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: '#f8f9fa' }}>
+                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid rgba(255, 255, 255, 0.8)', borderRadius: 2, bgcolor: 'rgba(255, 255, 255, 0.6)' }}>
                         <Typography variant="caption" color="text.secondary">只读 GET</Typography>
                         <Typography variant="h6" fontWeight={800} color="success.main">{selectedSummary.get}</Typography>
                       </Paper>
-                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: '#f8f9fa' }}>
+                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid rgba(255, 255, 255, 0.8)', borderRadius: 2, bgcolor: 'rgba(255, 255, 255, 0.6)' }}>
                         <Typography variant="caption" color="text.secondary">写入接口</Typography>
                         <Typography variant="h6" fontWeight={800} color="warning.main">{selectedSummary.write}</Typography>
                       </Paper>
-                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: selectedSummary.high ? 'error.light' : 'divider', borderRadius: 2, bgcolor: selectedSummary.high ? 'rgba(211, 47, 47, 0.06)' : '#f8f9fa' }}>
+                      <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: selectedSummary.high ? 'error.light' : 'rgba(255, 255, 255, 0.8)', borderRadius: 2, bgcolor: selectedSummary.high ? 'rgba(211, 47, 47, 0.06)' : 'rgba(255, 255, 255, 0.6)' }}>
                         <Typography variant="caption" color="text.secondary">高风险</Typography>
                         <Typography variant="h6" fontWeight={800} color="error.main">{selectedSummary.high}</Typography>
                       </Paper>
@@ -208,7 +214,7 @@ export default function StepScope() {
                       </Typography>
                     </Stack>
 
-                  <TableContainer sx={{ maxHeight: 500, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                  <TableContainer sx={{ maxHeight: 500, borderRadius: 2, border: '1px solid rgba(255, 255, 255, 0.6)', bgcolor: 'rgba(255, 255, 255, 0.5)' }}>
                     <Table size="small" stickyHeader>
                       <TableHead>
                         <TableRow>
@@ -220,12 +226,29 @@ export default function StepScope() {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {scopedOperations.map(op => {
+                        {scopedOperations.map((op, index) => {
                           const opKey = getOperationKey(op);
                           const isSelected = selectedOperationIds.has(opKey);
                           const risk = getOperationRisk(op.method);
                           return (
-                            <TableRow key={opKey} hover onClick={() => toggleOperation(opKey)} sx={{ cursor: 'pointer' }}>
+                            <TableRow 
+                              key={opKey} 
+                              hover 
+                              onClick={() => toggleOperation(opKey)} 
+                              sx={{ 
+                                cursor: 'pointer',
+                                opacity: 0,
+                                animation: 'fadeSlideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
+                                animationDelay: `${Math.min(index * 0.03, 1.5)}s`,
+                                '@keyframes fadeSlideUp': {
+                                  '0%': { opacity: 0, transform: 'translateY(12px)' },
+                                  '100%': { opacity: 1, transform: 'translateY(0)' },
+                                },
+                                '&:hover': {
+                                  bgcolor: 'rgba(99, 102, 241, 0.04) !important',
+                                }
+                              }}
+                            >
                               <TableCell padding="checkbox"><Checkbox size="small" checked={isSelected} /></TableCell>
                               <TableCell><Chip size="small" label={op.method} color={METHOD_COLORS[op.method] || 'default'} variant="outlined" sx={{ fontWeight: 800 }} /></TableCell>
                               <TableCell><Chip size="small" label={risk.label} color={risk.color} variant={risk.value === 'high' ? 'filled' : 'outlined'} /></TableCell>
@@ -247,6 +270,13 @@ export default function StepScope() {
                   </Stack>
                 </Paper>
               </Stack>
+      <ConfirmDialog
+        open={confirmDialog.open}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ open: false, message: '', onConfirm: null })}
+        danger
+      />
   </>
   );
 }

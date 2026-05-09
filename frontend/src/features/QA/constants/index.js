@@ -4,5 +4,3 @@ export const METHOD_LABELS = {
   hybrid: 'Hybrid',
   visualization: 'Visualization',
 };
-
-export const GRAPH_DATA_UPDATED_EVENT = 'graph-data-updated';

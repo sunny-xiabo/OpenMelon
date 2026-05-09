@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
+from app.storage.sqlite_store import BaseSQLiteStore
+
 
 DEFAULT_NODE_TYPES_CONFIG_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "node_types.json"
@@ -33,20 +35,91 @@ FALLBACK_NODE_TYPE = "Entity"
 DOCUMENT_CHUNK_NODE_TYPE = "DocumentChunk"
 
 
-def _load_configs_from_disk() -> List[Dict]:
-    if not NODE_TYPES_CONFIG_PATH.exists():
+class NodeTypeStore(BaseSQLiteStore):
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        seed_path: Path | None = None,
+    ) -> None:
+        self._seed_path = seed_path or NODE_TYPES_CONFIG_PATH
+        super().__init__(db_path)
+        self._initialize_from_seed_if_empty()
+
+    def _init_schema(self) -> None:
+        self._conn.executescript("""
+            CREATE TABLE IF NOT EXISTS graph_node_types (
+                type TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                bg TEXT NOT NULL,
+                border TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 100,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_graph_node_types_category
+                ON graph_node_types(category);
+        """)
+
+    def list_configs(self) -> List[Dict]:
+        rows = self._query(
+            "SELECT data FROM graph_node_types ORDER BY sort_order ASC, type ASC"
+        )
+        return [json.loads(row["data"]) for row in rows]
+
+    def replace_configs(self, configs: List[Dict]) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM graph_node_types")
+            for index, config in enumerate(configs):
+                self._save_config_no_lock(config, index)
+            self._conn.commit()
+
+    def _initialize_from_seed_if_empty(self) -> None:
+        with self._lock:
+            existing = self._query_one("SELECT COUNT(*) AS count FROM graph_node_types")
+            if existing and existing["count"] > 0:
+                return
+            for index, config in enumerate(_load_seed_configs(self._seed_path)):
+                self._save_config_no_lock(config, index)
+            self._conn.commit()
+
+    def _save_config_no_lock(self, config: Dict, sort_order: int) -> None:
+        self._conn.execute(
+            """
+            INSERT OR REPLACE INTO graph_node_types
+                (type, category, bg, border, size, sort_order, data)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                config["type"],
+                config["category"],
+                config["color"]["bg"],
+                config["color"]["border"],
+                int(config["size"]),
+                sort_order,
+                json.dumps(config, ensure_ascii=False),
+            ),
+        )
+
+
+def _load_seed_configs(path: Path) -> List[Dict]:
+    if not path.exists():
         raise FileNotFoundError(
-            f"Node type config file not found: {NODE_TYPES_CONFIG_PATH}. "
+            f"Node type config seed file not found: {path}. "
             f"Set NODE_TYPES_CONFIG_PATH or ensure the file is packaged correctly."
         )
-    with NODE_TYPES_CONFIG_PATH.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def _write_configs_to_disk(configs: List[Dict]) -> None:
-    with NODE_TYPES_CONFIG_PATH.open("w", encoding="utf-8") as f:
-        json.dump(configs, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+node_type_store = NodeTypeStore()
+
+
+def _load_configs_from_store() -> List[Dict]:
+    return node_type_store.list_configs()
+
+
+def _write_configs_to_store(configs: List[Dict]) -> None:
+    node_type_store.replace_configs(configs)
 
 
 def _refresh_globals(configs: List[Dict]) -> None:
@@ -69,7 +142,7 @@ def _refresh_globals(configs: List[Dict]) -> None:
 
 
 def reload_node_type_configs() -> List[Dict]:
-    configs = _load_configs_from_disk()
+    configs = _load_configs_from_store()
     _refresh_globals(configs)
     return list(NODE_TYPE_CONFIGS)
 
@@ -178,7 +251,7 @@ def create_node_type_config(payload: Dict) -> Dict:
 
     configs = _deep_copy_configs(NODE_TYPE_CONFIGS)
     configs.append(data)
-    _write_configs_to_disk(configs)
+    _write_configs_to_store(configs)
     _refresh_globals(configs)
     return next(item for item in list_node_type_configs() if item["type"] == data["type"])
 
@@ -209,7 +282,7 @@ def update_node_type_config(node_type: str, payload: Dict) -> Dict:
             configs[index] = data
             break
 
-    _write_configs_to_disk(configs)
+    _write_configs_to_store(configs)
     _refresh_globals(configs)
     return next(item for item in list_node_type_configs() if item["type"] == node_type)
 
@@ -222,7 +295,7 @@ def delete_node_type_config(node_type: str) -> None:
         raise ValueError("系统保留类型不可删除")
 
     configs = [item for item in _deep_copy_configs(NODE_TYPE_CONFIGS) if item["type"] != node_type]
-    _write_configs_to_disk(configs)
+    _write_configs_to_store(configs)
     _refresh_globals(configs)
 
 

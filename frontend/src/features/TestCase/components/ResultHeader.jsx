@@ -1,5 +1,6 @@
 import { Box, Button, Menu, MenuItem, Switch, Tooltip, Typography } from '@mui/material';
 import { SaveAlt, Schema } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
 import PageHeader from '../../../components/PageHeader';
 
 const viewButtonSx = (active) => ({
@@ -8,7 +9,7 @@ const viewButtonSx = (active) => ({
   px: 1.5,
   minWidth: 60,
   whiteSpace: 'nowrap',
-  color: active ? '#fff' : 'text.secondary',
+  color: active ? 'common.white' : 'text.secondary',
   bgcolor: active ? 'primary.main' : 'transparent',
   fontWeight: active ? 600 : 500,
   boxShadow: 'none',
@@ -42,16 +43,16 @@ export default function ResultHeader({
             alignItems: 'center',
             flexShrink: 0,
             whiteSpace: 'nowrap',
-            bgcolor: (vectorStatus?.available && useVector) ? 'rgba(59,130,246,0.05)' : '#ffffff',
+            bgcolor: (theme) => (vectorStatus?.available && useVector) ? alpha(theme.palette.accent.blue, 0.05) : theme.palette.background.paper,
             border: '1px solid',
-            borderColor: (vectorStatus?.available && useVector) ? 'rgba(59,130,246,0.4)' : 'divider',
+            borderColor: (theme) => (vectorStatus?.available && useVector) ? alpha(theme.palette.accent.blue, 0.4) : theme.palette.divider,
             borderRadius: 2.5,
             p: 0.5,
             boxShadow: (vectorStatus?.available && useVector) ? '0 0 0 3px rgba(59,130,246,0.1)' : '0 1px 3px rgba(15,23,42,0.05)',
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             '&:hover': {
-              bgcolor: (vectorStatus?.available && useVector) ? 'rgba(59,130,246,0.08)' : '#f8fafc',
-              borderColor: (vectorStatus?.available && useVector) ? 'rgba(59,130,246,0.6)' : 'rgba(99,102,241,0.3)',
+              bgcolor: (theme) => (vectorStatus?.available && useVector) ? alpha(theme.palette.accent.blue, 0.08) : theme.palette.slate[50],
+              borderColor: (theme) => (vectorStatus?.available && useVector) ? alpha(theme.palette.accent.blue, 0.6) : alpha(theme.palette.accent.indigo, 0.3),
             },
           }}
         >
@@ -65,14 +66,14 @@ export default function ResultHeader({
               py: 0.5,
               px: 1.25,
               borderRadius: 2,
-              bgcolor: vectorStatus?.available ? 'rgba(16,185,129,0.1)' : 'rgba(148,163,184,0.1)',
+              bgcolor: (theme) => vectorStatus?.available ? alpha(theme.palette.accent.emerald, 0.1) : alpha(theme.palette.slate[400], 0.1),
               transition: 'background 0.2s',
-              '&:hover': { bgcolor: vectorStatus?.available ? 'rgba(16,185,129,0.15)' : 'rgba(148,163,184,0.15)' },
+              '&:hover': { bgcolor: (theme) => vectorStatus?.available ? alpha(theme.palette.accent.emerald, 0.15) : alpha(theme.palette.slate[400], 0.15) },
             }}
             title="点击刷新连接状态"
           >
-            <Box sx={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, bgcolor: vectorStatus?.available ? '#10b981' : '#94a3b8', boxShadow: vectorStatus?.available ? '0 0 6px rgba(16,185,129,0.5)' : 'none' }} />
-            <Typography variant="caption" sx={{ color: vectorStatus?.available ? '#059669' : '#64748b', fontWeight: 800, whiteSpace: 'nowrap' }}>
+            <Box sx={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, bgcolor: vectorStatus?.available ? 'accent.emerald' : 'slate.400', boxShadow: vectorStatus?.available ? '0 0 6px rgba(16,185,129,0.5)' : 'none' }} />
+            <Typography variant="caption" sx={{ color: vectorStatus?.available ? 'accent.emeraldDark' : 'slate.500', fontWeight: 800, whiteSpace: 'nowrap' }}>
               {vectorStatus?.available ? '向量库就绪' : '向量库异常'}
             </Typography>
           </Box>
@@ -100,11 +101,11 @@ export default function ResultHeader({
                   padding: 2,
                   '&.Mui-checked': {
                     transform: 'translateX(16px)',
-                    color: '#fff',
+                    color: 'common.white',
                     '& + .MuiSwitch-track': {
                       opacity: 1,
-                      backgroundColor: '#3b82f6',
-                      backgroundImage: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+                      backgroundColor: 'accent.blue',
+                      backgroundImage: (theme) => theme.palette.gradients.primary,
                     },
                   },
                 },
@@ -123,7 +124,7 @@ export default function ResultHeader({
                 },
               }}
             />
-            <Typography variant="body2" sx={{ fontWeight: 700, color: (vectorStatus?.available && useVector) ? '#1e40af' : (vectorStatus?.available ? '#475569' : 'text.disabled'), userSelect: 'none', whiteSpace: 'nowrap' }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: (vectorStatus?.available && useVector) ? '#1e40af' : (vectorStatus?.available ? 'slate.600' : 'text.disabled'), userSelect: 'none', whiteSpace: 'nowrap' }}>
               参考检索
             </Typography>
           </Box>
@@ -176,7 +177,7 @@ export function ResultActionBar({
               onClick={storeToVector}
               disabled={storingVector || !hasResult || generating || !vectorStatus?.available}
               startIcon={<Schema fontSize="small" />}
-              sx={{ borderColor: 'rgba(226,232,240,0.8)', '&:hover': { background: 'rgba(59,130,246,0.04)' } }}
+              sx={{ borderColor: (theme) => alpha(theme.palette.slate[200], 0.8), '&:hover': { background: (theme) => alpha(theme.palette.accent.blue, 0.04) } }}
             >
               {storingVector ? '存储中...' : '存入向量库'}
             </Button>

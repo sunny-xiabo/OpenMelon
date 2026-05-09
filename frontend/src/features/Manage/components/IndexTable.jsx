@@ -10,6 +10,7 @@ import {
   TableRow,
   Tooltip,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { Delete as DeleteIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import EmptyState from '../../../components/EmptyState';
 import StatusBadge from '../../../components/StatusBadge';
@@ -24,7 +25,7 @@ export default function IndexTable({
   toggleOne,
 }) {
   return (
-    <TableContainer sx={{ flex: 1, overflow: 'auto', bgcolor: 'background.paper' }}>
+    <TableContainer sx={{ flex: 1, overflow: 'auto', background: 'transparent' }}>
       <Table size="small" stickyHeader>
         <TableHead>
           <TableRow>
@@ -55,11 +56,25 @@ export default function IndexTable({
               </TableCell>
             </TableRow>
           ) : (
-            paginatedFiles.map((file) => (
+            paginatedFiles.map((file, index) => (
               <TableRow
                 key={file.id}
                 selected={selected.has(file.id)}
                 hover
+                sx={{
+                  opacity: 0,
+                  animation: 'fadeSlideUp 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards',
+                  animationDelay: `${index * 0.04}s`,
+                  '@keyframes fadeSlideUp': {
+                    '0%': { opacity: 0, transform: 'translateY(12px)' },
+                    '100%': { opacity: 1, transform: 'translateY(0)' },
+                  },
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s',
+                  '&:hover': {
+                    bgcolor: 'rgba(99, 102, 241, 0.04) !important',
+                  }
+                }}
               >
                 <TableCell padding="checkbox">
                   <Checkbox
@@ -67,12 +82,12 @@ export default function IndexTable({
                     onChange={() => toggleOne(file.id)}
                   />
                 </TableCell>
-                <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, color: '#1e293b' }}>
+                <TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, color: 'slate.800' }}>
                   <Tooltip title={file.filename} placement="top-start" arrow>
                     <span>{file.filename}</span>
                   </Tooltip>
                 </TableCell>
-                <TableCell sx={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#475569' }}>
+                <TableCell sx={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'slate.600' }}>
                   <Tooltip title={file.doc_type || '-'} placement="top" arrow>
                     <span>{file.doc_type || '-'}</span>
                   </Tooltip>
@@ -80,7 +95,7 @@ export default function IndexTable({
                 <TableCell sx={{ maxWidth: 130 }}>
                   {file.module ? (
                     <Tooltip title={file.module} placement="top" arrow>
-                      <Chip size="small" label={file.module} sx={{ maxWidth: 120, borderRadius: 1.5, bgcolor: 'rgba(245,158,11,0.1)', color: '#d97706', fontWeight: 500, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />
+                      <Chip size="small" label={file.module} sx={{ maxWidth: 120, borderRadius: 1.5, bgcolor: (theme) => alpha(theme.palette.accent.amber, 0.1), color: 'accent.amberDark', fontWeight: 500, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />
                     </Tooltip>
                   ) : '-'}
                 </TableCell>

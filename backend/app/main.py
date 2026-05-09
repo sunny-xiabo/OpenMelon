@@ -150,6 +150,15 @@ async def lifespan(app: FastAPI):
 
     app.state._neo4j_writer = writer_instance
 
+    # 恢复上次服务重启后残留的 queued/running 状态任务，标记为 failed
+    try:
+        from app.api_execution.run_queue import recover_stale_runs
+        recovered_ids = recover_stale_runs()
+        if recovered_ids:
+            logger.info("已恢复 %d 个残留执行任务: %s", len(recovered_ids), recovered_ids)
+    except Exception as exc:
+        logger.warning("恢复残留执行任务失败: %s", exc)
+
     logger.info("OpenMelon 服务启动完成")
 
     yield
