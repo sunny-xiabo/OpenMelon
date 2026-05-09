@@ -165,7 +165,7 @@ export default function StepOrchestrate() {
                 />
                 
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-                  <Paper sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                  <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                     <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>添加断言</Typography>
                     <Stack spacing={2}>
                       <FormControl size="small" fullWidth>
@@ -202,7 +202,7 @@ export default function StepOrchestrate() {
                     </Stack>
                   </Paper>
 
-                  <Paper sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                  <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>运行参数</Typography>
                      <Stack spacing={2}>
                        <TextField size="small" label="Base URL" placeholder="如 http://localhost:8000" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} />
@@ -218,8 +218,8 @@ export default function StepOrchestrate() {
                   </Paper>
                 </Box>
 
-                <Paper sx={{ p: 0, borderRadius: 3, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', overflow: 'hidden' }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#f8f9fa' }}>
+                <Paper sx={{ p: 0, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)', overflow: 'hidden' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1.5, borderBottom: '1px solid rgba(255, 255, 255, 0.6)', bgcolor: 'rgba(255, 255, 255, 0.6)' }}>
                     <Stack direction="row" spacing={1} alignItems="center">
                       <DataObjectOutlined color="primary" fontSize="small" />
                       <Box>
@@ -274,7 +274,7 @@ export default function StepOrchestrate() {
                        <Button size="small" variant="outlined" onClick={exportPostmanCollection}>导出 Postman</Button>
                     </Stack>
                   </Box>
-                  <Box sx={{ bgcolor: '#f8f9fa', px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+                  <Box sx={{ bgcolor: 'rgba(255, 255, 255, 0.6)', px: 2, py: 1, borderBottom: '1px solid rgba(255, 255, 255, 0.6)' }}>
                     <Stack direction="row" spacing={2} alignItems="center">
                       <Typography variant="caption" sx={{ color: 'primary.main', fontFamily: 'monospace', fontWeight: 700 }}>JSON</Typography>
                       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -284,8 +284,7 @@ export default function StepOrchestrate() {
                   </Box>
                   <Box
                     sx={{
-                      borderTop: '1px solid',
-                      borderColor: dslText && !jsonValidation.valid ? 'error.main' : 'divider',
+                      borderTop: '1px solid rgba(255, 255, 255, 0.6)',
                       '& .cm-editor': {
                         fontSize: 13,
                         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',

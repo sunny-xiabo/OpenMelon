@@ -10,7 +10,7 @@ export default function NodeTypeEmbeddedHeader({ loadNodeTypes, openCreateDialog
         </Typography>
       </Box>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-        <Button variant="contained" size="small" onClick={openCreateDialog} sx={{ background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)', boxShadow: '0 2px 8px rgba(99,102,241,0.25)', fontWeight: 600 }}>新增类型</Button>
+        <Button variant="contained" color="primary" size="small" onClick={openCreateDialog}>新增类型</Button>
         <Button variant="outlined" size="small" onClick={resetAllNodeTypeOverrides}>重置前端样式</Button>
         <Button variant="outlined" size="small" onClick={loadNodeTypes}>刷新配置</Button>
       </Box>

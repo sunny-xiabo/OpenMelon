@@ -15,7 +15,8 @@ import {
 import PageHeader from '../components/PageHeader';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useSnackbar } from '../components/SnackbarProvider';
-import { PROMPT_HUB_UPDATED_EVENT } from '../constants/promptHub';
+import { PROMPT_HUB_UPDATED_EVENT } from '../constants/events';
+import { emit } from '../utils/eventBus';
 import { promptHubAPI } from '../services/api';
 import { CATEGORY_FORM, SKILL_FORM, TEMPLATE_FORM } from '../features/PromptHub/constants';
 import { buildPromptHubSummary, filterPromptHubRecords, filterSkills } from '../features/PromptHub/utils';
@@ -101,7 +102,7 @@ export default function PromptHubConfigPage({ embedded = false }) {
   };
 
   const notifyPromptHubUpdated = () => {
-    window.dispatchEvent(new CustomEvent(PROMPT_HUB_UPDATED_EVENT));
+    emit(PROMPT_HUB_UPDATED_EVENT);
   };
 
   const updateEditor = (patch) => {

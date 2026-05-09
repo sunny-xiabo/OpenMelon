@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Box,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { Network } from 'vis-network';
 import { DataSet } from 'vis-data';
 import { graphAPI } from '../services/api';
@@ -13,7 +14,8 @@ import {
 } from '../theme/nodeTypes';
 import LoadingOverlay from '../components/LoadingOverlay';
 import EmptyState from '../components/EmptyState';
-import { GRAPH_DATA_UPDATED_EVENT } from '../features/Graph/constants';
+import { GRAPH_DATA_UPDATED_EVENT } from '../constants/events';
+import { on } from '../utils/eventBus';
 import GraphLegend from '../features/Graph/components/GraphLegend';
 import GraphToolbar from '../features/Graph/components/GraphToolbar';
 import NodeDetailPanel from '../features/Graph/components/NodeDetailPanel';
@@ -42,7 +44,8 @@ export default function GraphPage({ isActive = true }) {
     try {
       const data = await graphAPI.getNodeTypes();
       setNodeTypeConfigs(data.node_types || []);
-    } catch {
+    } catch (err) {
+      console.error('Failed to load node types:', err);
       setNodeTypeConfigs([]);
     }
   };
@@ -81,6 +84,12 @@ export default function GraphPage({ isActive = true }) {
         networkRef.current.fit({ animation: false });
       });
     }
+    return () => {
+      if (networkRef.current) {
+        networkRef.current.destroy();
+        networkRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => { checkGraphStatus(); }, []);
@@ -103,13 +112,13 @@ export default function GraphPage({ isActive = true }) {
     const handleNodeTypeOverridesUpdated = () => {
       setNodeTypeOverrides(loadNodeTypeOverrides());
     };
-    window.addEventListener(GRAPH_DATA_UPDATED_EVENT, handleGraphDataUpdated);
+    const offGraph = on(GRAPH_DATA_UPDATED_EVENT, handleGraphDataUpdated);
+    const offOverrides = on(NODE_TYPE_OVERRIDES_UPDATED_EVENT, handleNodeTypeOverridesUpdated);
     window.addEventListener('storage', handleStorage);
-    window.addEventListener(NODE_TYPE_OVERRIDES_UPDATED_EVENT, handleNodeTypeOverridesUpdated);
     return () => {
-      window.removeEventListener(GRAPH_DATA_UPDATED_EVENT, handleGraphDataUpdated);
+      offGraph();
+      offOverrides();
       window.removeEventListener('storage', handleStorage);
-      window.removeEventListener(NODE_TYPE_OVERRIDES_UPDATED_EVENT, handleNodeTypeOverridesUpdated);
     };
   }, []);
 
@@ -239,14 +248,14 @@ export default function GraphPage({ isActive = true }) {
               flex: 1,
               minHeight: 0,
               outline: 'none',
-              bgcolor: '#f8fafc',
-              backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)',
+              bgcolor: 'transparent',
+              backgroundImage: 'radial-gradient(rgba(15, 23, 42, 0.1) 1px, transparent 1px)',
               backgroundSize: '24px 24px',
             }}
           />
 
           {graphReady === false && (
-            <Box sx={{ position: 'absolute', inset: 0, p: 2, display: 'flex', zIndex: 5, bgcolor: 'rgba(248,250,252,0.9)', backdropFilter: 'blur(4px)' }}>
+            <Box sx={{ position: 'absolute', inset: 0, p: 2, display: 'flex', zIndex: 5, bgcolor: 'rgba(255, 255, 255, 0.5)', backdropFilter: 'blur(8px)' }}>
               <EmptyState
                 title="暂无数据"
                 description="Neo4j 为空，上传完成后会自动恢复，也可以手动刷新数据。"

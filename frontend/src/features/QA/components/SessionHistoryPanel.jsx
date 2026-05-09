@@ -6,6 +6,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   Add,
   Check as CheckIcon,
@@ -70,12 +71,12 @@ export default function SessionHistoryPanel({
                       py: 0.85,
                       borderRadius: 2,
                       cursor: isEditing ? 'default' : 'pointer',
-                      bgcolor: isActive ? 'rgba(99,102,241,0.08)' : 'transparent',
+                      bgcolor: isActive ? (theme) => alpha(theme.palette.accent.indigo, 0.08) : 'transparent',
                       border: '1px solid',
-                      borderColor: isActive ? 'rgba(99,102,241,0.25)' : 'transparent',
+                      borderColor: isActive ? (theme) => alpha(theme.palette.accent.indigo, 0.25) : 'transparent',
                       transition: 'all 0.15s',
                       '&:hover': {
-                        bgcolor: isActive ? 'rgba(99,102,241,0.1)' : 'rgba(0,0,0,0.03)',
+                        bgcolor: isActive ? (theme) => alpha(theme.palette.accent.indigo, 0.1) : (theme) => alpha(theme.palette.common.black, 0.03),
                         '& .session-actions': { opacity: 1 },
                       },
                     }}
@@ -106,10 +107,10 @@ export default function SessionHistoryPanel({
                         </Box>
                       ) : (
                         <>
-                          <Typography variant="body2" sx={{ fontSize: 12.5, fontWeight: isActive ? 600 : 500, color: isActive ? '#4f46e5' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <Typography variant="body2" sx={{ fontSize: 12.5, fontWeight: isActive ? 600 : 500, color: isActive ? 'accent.indigoDark' : 'slate.700', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {session.title || session.id.slice(0, 8)}
                           </Typography>
-                          <Typography variant="caption" sx={{ fontSize: 10.5, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <Typography variant="caption" sx={{ fontSize: 10.5, color: 'slate.400', display: 'flex', alignItems: 'center', gap: 0.75 }}>
                             {formatRelativeTime(session.updated_at)}
                             {session.message_count > 0 && <span>· {session.message_count} 条消息</span>}
                           </Typography>
@@ -119,7 +120,7 @@ export default function SessionHistoryPanel({
                     {!isEditing && (
                       <Box className="session-actions" sx={{ display: 'flex', opacity: 0, transition: 'opacity 0.15s', flexShrink: 0 }} onClick={(event) => event.stopPropagation()}>
                         <IconButton size="small" onClick={() => handleStartRename(session.id, session.title)} sx={{ p: 0.25 }}>
-                          <EditIcon sx={{ fontSize: 13, color: '#94a3b8' }} />
+                          <EditIcon sx={{ fontSize: 13, color: 'slate.400' }} />
                         </IconButton>
                         <IconButton size="small" onClick={() => handleDeleteSession(session.id, session.title)} sx={{ p: 0.25 }}>
                           <DeleteIcon sx={{ fontSize: 13, color: '#f87171' }} />

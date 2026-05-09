@@ -14,6 +14,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 export default function PromptHubEditorDialog({
   open,
@@ -39,7 +40,7 @@ export default function PromptHubEditorDialog({
             borderRadius: 2.5,
             border: '1px solid',
             borderColor: isTemplate ? 'primary.light' : 'success.light',
-            bgcolor: isTemplate ? 'rgba(59,130,246,0.06)' : 'rgba(16,185,129,0.08)',
+            bgcolor: (theme) => isTemplate ? alpha(theme.palette.accent.blue, 0.06) : alpha(theme.palette.accent.emerald, 0.08),
           }}
         >
           <Typography variant="subtitle2" fontWeight={700}>
@@ -179,8 +180,8 @@ export default function PromptHubEditorDialog({
                 lineHeight: 1.6,
                 whiteSpace: 'pre-wrap',
                 borderRadius: 2,
-                bgcolor: isTemplate ? 'rgba(59,130,246,0.08)' : 'rgba(16,185,129,0.1)',
-                color: '#0f172a',
+                bgcolor: (theme) => isTemplate ? alpha(theme.palette.accent.blue, 0.08) : alpha(theme.palette.accent.emerald, 0.1),
+                color: 'slate.900',
               }}
             >
               {isTemplate

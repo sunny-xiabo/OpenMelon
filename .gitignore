@@ -50,6 +50,8 @@ logs/
 backend/app/data/*.db
 backend/app/data/*.db-shm
 backend/app/data/*.db-wal
+# Legacy JSON store files (migrated to SQLite, kept as migration seeds only)
+backend/app/data/api_execution/*.json
 
 # =============================================================
 # 前端

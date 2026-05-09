@@ -2,7 +2,8 @@ import React from 'react';
 import { Stack, Typography, Paper, Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, Checkbox, Alert } from '@mui/material';
 import { CloudUploadOutlined, ContentPasteOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
-import { NEW_PROJECT_VALUE, NEW_ENVIRONMENT_VALUE, ENVIRONMENT_TYPE_OPTIONS } from '../constants';
+import { useSnackbar } from '../../../components/SnackbarProvider';
+import { NEW_PROJECT_VALUE, NEW_ENVIRONMENT_VALUE } from '../constants';
 import StageHeader from './StageHeader';
 
 const ENVIRONMENT_VARIABLES_EXAMPLE = JSON.stringify({
@@ -48,28 +49,26 @@ const AI_BOUNDARY_OPTIONS = [
 export default function StepImport() {
   const {
     fileInputRef, setSelectedFile, selectedFile, parseFile, sourceUrl, setSourceUrl, parseUrl,
-    projects, selectedProjectId, applyProjectValues, loadEnvironments, setProjectName,
+    projects, selectedProjectId, applyProjectValues, loadEnvironments,
     environments, selectedEnvironmentId, applyEnvironmentValues,
-    projectName, environmentName, environmentType, setEnvironmentType,
-    environmentTimeoutMs, setEnvironmentTimeoutMs, baseUrl, setBaseUrl,
-    environmentVariablesText, setEnvironmentVariablesText,
+    baseUrl, setBaseUrl, environmentVariablesText, setEnvironmentVariablesText,
     allowAiGenerateDsl, setAllowAiGenerateDsl, allowAiExecution, setAllowAiExecution,
     allowAiRepair, setAllowAiRepair, allowScheduledExecution, setAllowScheduledExecution,
     allowOverwriteHistory, setAllowOverwriteHistory, maxAutoRepairs, setMaxAutoRepairs,
     maxReruns, setMaxReruns, maxRequestsPerRun, setMaxRequestsPerRun,
     operationAllowlistText, setOperationAllowlistText, operationBlocklistText, setOperationBlocklistText,
-    riskOverridesText, setRiskOverridesText, saveCurrentEnvironment, handleDeleteEnvironment, handleDeleteProject,
-    setSelectedProjectId, setSelectedEnvironmentId, setEnvironments, setEnvironmentName, spec
+    riskOverridesText, setRiskOverridesText,
   } = useAPIExecution();
+  const showSnackbar = useSnackbar();
 
   return (
     <>
     <Stack spacing={3}>
                 <StageHeader title="步骤 1: 导入 API 规范" />
                 
-                <Paper sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                   <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>拖拽上传 OpenAPI/Swagger 文件</Typography>
-                  <Box sx={{ border: '2px dashed', borderColor: 'divider', borderRadius: 2, p: 4, textAlign: 'center', mb: 3, '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' }, cursor: 'pointer' }} onClick={() => fileInputRef.current?.click()}>
+                  <Box sx={{ border: '2px dashed rgba(99, 102, 241, 0.3)', borderRadius: 3, p: 4, textAlign: 'center', mb: 3, '&:hover': { borderColor: 'primary.main', bgcolor: 'rgba(99, 102, 241, 0.04)' }, cursor: 'pointer', transition: 'all 0.2s' }} onClick={() => fileInputRef.current?.click()}>
                     <CloudUploadOutlined color="primary" sx={{ fontSize: 48, mb: 1 }} />
                     <Typography variant="body1">将文件拖拽至此处，或 <Typography component="span" color="primary">浏览文件</Typography></Typography>
                     <input ref={fileInputRef} type="file" accept=".json,.yaml,.yml,.har,.md,.txt,.csv,.html,.htm,.docx,.xlsx,.xls" hidden onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
@@ -89,8 +88,13 @@ export default function StepImport() {
                   </Stack>
                 </Paper>
 
-                <Paper sx={{ p: 3, borderRadius: 3, border: '1px solid', borderColor: 'divider', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                  <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>项目与环境设置</Typography>
+                <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
+                  <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+                    项目与环境选择
+                    <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      管理项目和环境请前往 设置 页面
+                    </Typography>
+                  </Typography>
                   <Stack spacing={2}>
                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                        <FormControl size="small">
@@ -101,25 +105,7 @@ export default function StepImport() {
                            onChange={(event) => {
                              const projectId = event.target.value;
                              if (projectId === NEW_PROJECT_VALUE) {
-                               setSelectedProjectId('');
-                               setSelectedEnvironmentId('');
-                               setEnvironments([]);
-                               setProjectName(spec?.info?.title || 'OpenMelon');
-                               setEnvironmentName('本地测试');
-                               setEnvironmentType('test');
-                               setEnvironmentVariablesText('{}');
-                               setEnvironmentTimeoutMs('30000');
-                               setAllowAiExecution(false);
-                               setAllowAiRepair(false);
-                               setAllowScheduledExecution(false);
-                               setAllowAiGenerateDsl(true);
-                               setAllowOverwriteHistory(true);
-                               setMaxAutoRepairs('0');
-                               setMaxReruns('0');
-                               setMaxRequestsPerRun('0');
-                               setRiskOverridesText('{}');
-                               setOperationAllowlistText('');
-                               setOperationBlocklistText('');
+                               showSnackbar('请前往"设置"页面创建新项目', 'info');
                                return;
                              }
                              const project = projects.find((item) => item.project_id === projectId);
@@ -127,7 +113,7 @@ export default function StepImport() {
                              loadEnvironments(projectId);
                            }}
                          >
-                           <MenuItem value={NEW_PROJECT_VALUE}>新建项目</MenuItem>
+                           <MenuItem value={NEW_PROJECT_VALUE}>新建项目...</MenuItem>
                            {projects.map((project) => (
                              <MenuItem key={project.project_id} value={project.project_id}>{project.name}</MenuItem>
                            ))}
@@ -141,38 +127,19 @@ export default function StepImport() {
                            onChange={(event) => {
                              const environmentId = event.target.value;
                              if (environmentId === NEW_ENVIRONMENT_VALUE) {
-                               setSelectedEnvironmentId('');
-                               setEnvironmentName('本地测试');
-                               setEnvironmentType('test');
-                               setEnvironmentVariablesText('{}');
-                               setEnvironmentTimeoutMs('30000');
+                               showSnackbar('请前往"设置"页面创建新环境', 'info');
                                return;
                              }
                              const environment = environments.find((item) => item.environment_id === environmentId);
                              if (environment) applyEnvironmentValues(environment);
                            }}
                          >
-                           <MenuItem value={NEW_ENVIRONMENT_VALUE}>新建环境</MenuItem>
+                           <MenuItem value={NEW_ENVIRONMENT_VALUE}>新建环境...</MenuItem>
                            {environments.map((environment) => (
                              <MenuItem key={environment.environment_id} value={environment.environment_id}>{environment.name}</MenuItem>
                            ))}
                          </Select>
                        </FormControl>
-                     </Box>
-                     <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-                       <TextField size="small" label="项目名称" value={projectName} onChange={e => setProjectName(e.target.value)} />
-                       <TextField size="small" label="环境名称" value={environmentName} onChange={e => setEnvironmentName(e.target.value)} />
-                     </Box>
-                     <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-                       <FormControl size="small">
-                         <InputLabel>环境类型</InputLabel>
-                         <Select label="环境类型" value={environmentType} onChange={e => setEnvironmentType(e.target.value)}>
-                           {ENVIRONMENT_TYPE_OPTIONS.map((item) => (
-                             <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>
-                           ))}
-                         </Select>
-                       </FormControl>
-                       <TextField size="small" label="超时(ms)" type="number" value={environmentTimeoutMs} onChange={e => setEnvironmentTimeoutMs(e.target.value)} />
                      </Box>
                      <TextField size="small" label="Base URL" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="http://localhost:8000" helperText="执行时会和步骤 path 拼成完整请求地址。" />
                      <TextField
@@ -195,12 +162,12 @@ export default function StepImport() {
                      >
                        填入环境变量示例
                      </Button>
-                     <Paper elevation={0} sx={{ p: 2, bgcolor: 'grey.50', border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                     <Paper elevation={0} sx={{ p: 3, background: 'rgba(255, 255, 255, 0.5)', border: '1px solid rgba(255, 255, 255, 0.8)', borderRadius: 3 }}>
                        <Stack direction="row" spacing={1.5} alignItems="flex-start" justifyContent="space-between" flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
                          <Box>
                            <Typography variant="subtitle2" fontWeight={700}>项目 AI 自动化边界</Typography>
                            <Typography variant="caption" color="text.secondary">
-                             这里控制 AI 能做到哪一步：只生成、可执行、可修复、可定时。生产或高风险接口建议收紧。
+                             以下策略基于当前项目默认配置，可在此临时调整而不影响已保存的项目设置。
                            </Typography>
                          </Box>
                        </Stack>
@@ -224,7 +191,7 @@ export default function StepImport() {
                              allowOverwriteHistory: setAllowOverwriteHistory,
                            };
                            return (
-                             <Box key={item.checkedKey} sx={{ display: 'flex', alignItems: 'flex-start', p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, bgcolor: '#fff' }}>
+                             <Box key={item.checkedKey} sx={{ display: 'flex', alignItems: 'flex-start', p: 1.5, border: '1px solid rgba(255, 255, 255, 0.8)', borderRadius: 2, bgcolor: 'rgba(255, 255, 255, 0.6)' }}>
                                <Checkbox size="small" checked={Boolean(valueMap[item.checkedKey])} onChange={e => setterMap[item.checkedKey](e.target.checked)} sx={{ mt: -0.5 }} />
                                <Box>
                                  <Typography variant="body2" fontWeight={700}>{item.label}</Typography>
@@ -264,11 +231,6 @@ export default function StepImport() {
                          填入风险覆盖示例
                        </Button>
                      </Paper>
-                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                       <Button variant="outlined" onClick={saveCurrentEnvironment}>保存环境配置</Button>
-                       <Button variant="outlined" color="error" disabled={!selectedEnvironmentId} onClick={handleDeleteEnvironment}>删除当前环境</Button>
-                       <Button variant="text" color="error" disabled={!selectedProjectId} onClick={handleDeleteProject}>删除当前项目</Button>
-                     </Stack>
                   </Stack>
                 </Paper>
               </Stack>

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_DB_DIR = Path(__file__).resolve().parent.parent / "data"
 _shared_connections: dict[Path, sqlite3.Connection] = {}
+_shared_locks: dict[Path, Lock] = {}
 _shared_lock = Lock()
 
 
@@ -34,8 +35,18 @@ def get_shared_connection(db_path: Path | None = None) -> sqlite3.Connection:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
         _shared_connections[path] = conn
+        _shared_locks[path] = Lock()
         logger.info("Shared SQLite connection opened: %s", path)
         return conn
+
+
+def get_shared_lock(db_path: Path | None = None) -> Lock:
+    """Return the shared Lock for a DB file. Ensures connection exists first."""
+    path = (db_path or (_DEFAULT_DB_DIR / "openmelon.db")).expanduser().resolve()
+    # Ensure connection (and lock) is initialized
+    if path not in _shared_locks:
+        get_shared_connection(db_path)
+    return _shared_locks[path]
 
 
 class BaseSQLiteStore:
@@ -46,8 +57,8 @@ class BaseSQLiteStore:
     """
 
     def __init__(self, db_path: Path | None = None) -> None:
-        self._lock = Lock()
         self._conn = get_shared_connection(db_path)
+        self._lock = get_shared_lock(db_path)
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -70,8 +81,11 @@ class BaseSQLiteStore:
         vals = list(columns.values())
         placeholders = ", ".join(["?"] * (len(cols) + 2))
         col_names = ", ".join([id_col, "data"] + cols)
+        update_cols = ["data = excluded.data"] + [f"{c} = excluded.{c}" for c in cols]
+        update_clause = ", ".join(update_cols)
         self._conn.execute(
-            f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
+            f"INSERT INTO {table} ({col_names}) VALUES ({placeholders})"
+            f" ON CONFLICT({id_col}) DO UPDATE SET {update_clause}",
             (id_val, json.dumps(data, ensure_ascii=False)) + tuple(vals),
         )
         self._conn.commit()

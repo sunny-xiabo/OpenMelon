@@ -12,6 +12,7 @@ from app.api_execution.utils import execution_options as _execution_options
 from app.api_execution.utils import now_iso as _now
 
 MAX_CONCURRENT_RUNS = 2
+QUEUE_WAIT_TIMEOUT_S = 60
 TERMINAL_STATUSES = {"passed", "failed", "cancelled"}
 
 _semaphore = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
@@ -88,7 +89,21 @@ async def cancel_run(run_id: str) -> dict[str, Any] | None:
 async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: dict[str, Any] | None = None) -> None:
     started = time.perf_counter()
     try:
-        async with _semaphore:
+        try:
+            await asyncio.wait_for(_semaphore.acquire(), timeout=QUEUE_WAIT_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            await _mark_finished(
+                run_id,
+                {
+                    "status": "failed",
+                    "failure_reason": f"排队等待超时（{QUEUE_WAIT_TIMEOUT_S}秒），当前并发槽位已满，请稍后重试",
+                    "current_step_id": None,
+                    "current_step_name": None,
+                    "duration_ms": int((time.perf_counter() - started) * 1000),
+                },
+            )
+            return
+        try:
             if await _is_cancelled(run_id):
                 return
             await api_execution_store.async_update_run(
@@ -134,6 +149,8 @@ async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: 
             await _mark_finished(run_id, report)
             if report.get("status") == "failed":
                 await _maybe_auto_rerun(run_id, request, policy_decision)
+        finally:
+            _semaphore.release()
     except asyncio.CancelledError:
         await _mark_finished(
             run_id,
@@ -284,7 +301,7 @@ async def _maybe_auto_rerun(
     if not run:
         return
     current_attempt = run.get("attempt", 1)
-    if current_attempt > max_reruns:
+    if current_attempt >= max_reruns:
         return
 
     execution_options = run.get("execution_options") or _execution_options(request, policy_decision)

@@ -1,7 +1,7 @@
 """SQLite storage backend for API execution module.
 
-Drop-in replacement for JSONStore with indexed queries, no record limits,
-and pagination support. Uses shared SQLite connection from app.storage.sqlite_store.
+Provides indexed queries, no record limits, and pagination support.
+Uses the shared SQLite connection from app.storage.sqlite_store.
 """
 
 import json
@@ -57,6 +57,8 @@ class SQLiteStore(BaseSQLiteStore):
                 parsed_at TEXT DEFAULT '',
                 data TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_specs_content_hash ON specs(content_hash);
+            CREATE INDEX IF NOT EXISTS idx_specs_source_url ON specs(source_url);
 
             CREATE TABLE IF NOT EXISTS policy_audits (
                 audit_id TEXT PRIMARY KEY,
@@ -89,18 +91,21 @@ class SQLiteStore(BaseSQLiteStore):
                 run_at TEXT DEFAULT '',
                 data TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_automation_runs_at ON automation_runs(run_at);
 
             CREATE TABLE IF NOT EXISTS run_stage_events (
                 event_id TEXT PRIMARY KEY,
                 created_at TEXT DEFAULT '',
                 data TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_stage_events_at ON run_stage_events(created_at);
 
             CREATE TABLE IF NOT EXISTS artifact_meta (
                 artifact_id TEXT PRIMARY KEY,
                 created_at TEXT DEFAULT '',
                 data TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_artifact_at ON artifact_meta(created_at);
 
             CREATE TABLE IF NOT EXISTS knowledge_items (
                 knowledge_id TEXT PRIMARY KEY,

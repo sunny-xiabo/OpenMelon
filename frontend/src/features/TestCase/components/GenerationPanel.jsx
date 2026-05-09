@@ -13,6 +13,7 @@ import {
   Typography,
 } from '@mui/material';
 import { AutoFixHigh, DescriptionOutlined, UploadFile } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
 import PageHeader from '../../../components/PageHeader';
 import FileDropZone from './FileDropZone';
 
@@ -61,7 +62,7 @@ export default function GenerationPanel({
                 borderRadius: 1,
                 py: 0.6,
                 px: 2,
-                color: mode === item ? '#fff' : 'text.secondary',
+                color: mode === item ? 'common.white' : 'text.secondary',
                 bgcolor: mode === item ? 'primary.main' : 'transparent',
                 fontWeight: mode === item ? 600 : 500,
                 boxShadow: 'none',
@@ -78,7 +79,7 @@ export default function GenerationPanel({
       </PageHeader>
 
       <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5, overflowY: 'auto', bgcolor: 'background.paper' }}>
-        <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2.5, background: 'linear-gradient(180deg, rgba(26,115,232,0.06) 0%, #ffffff 100%)' }}>
+        <Paper elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2.5, background: (theme) => `linear-gradient(180deg, ${alpha(theme.palette.primary.main, 0.06)} 0%, ${theme.palette.background.paper} 100%)` }}>
           <Stack direction="row" spacing={1.25} alignItems="center">
             <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: 'primary.light', color: 'primary.main', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {mode === 'file' ? <UploadFile fontSize="small" /> : <DescriptionOutlined fontSize="small" />}
@@ -114,7 +115,7 @@ export default function GenerationPanel({
           placeholder={mode === 'file' ? '描述被测试系统的基本信息，或补充文件未覆盖的背景' : '描述被测试的系统、功能或模块的基本信息'}
           value={context}
           onChange={(e) => setContext(e.target.value)}
-          sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: '#f8fafc' } }}
+          sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: 'slate.50' } }}
         />
         <TextField
           label="测试需求"
@@ -124,7 +125,7 @@ export default function GenerationPanel({
           placeholder="描述希望生成的测试用例类型和重点关注的测试场景"
           value={requirements}
           onChange={(e) => setRequirements(e.target.value)}
-          sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: '#f8fafc' } }}
+          sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: 'slate.50' } }}
         />
         <Autocomplete
           freeSolo
@@ -137,7 +138,7 @@ export default function GenerationPanel({
               {...params}
               label="所属模块（可选）"
               placeholder="选择或输入模块名"
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: '#f8fafc' } }}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: 'slate.50' } }}
             />
           )}
           size="small"
@@ -149,7 +150,7 @@ export default function GenerationPanel({
             value={styleId}
             label="生成模板"
             onChange={(e) => setStyleId(e.target.value)}
-            sx={{ borderRadius: 1.5, bgcolor: '#f8fafc' }}
+            sx={{ borderRadius: 1.5, bgcolor: 'slate.50' }}
           >
             {templateOptions.map((option) => (
               <MenuItem key={option.id} value={option.id}>
@@ -170,7 +171,7 @@ export default function GenerationPanel({
               {...params}
               label="专项技能"
               placeholder="选择需要强化的测试覆盖维度"
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: '#f8fafc' } }}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1.5, bgcolor: 'slate.50' } }}
             />
           )}
           renderTags={(value, getTagProps) => value.map((option, index) => (
@@ -202,20 +203,20 @@ export default function GenerationPanel({
             sx={{
               mt: 0.5,
               minWidth: isNarrow ? '100%' : 180,
-              background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
+              background: (theme) => theme.palette.gradients.primary,
               boxShadow: '0 4px 12px rgba(99,102,241,0.25)',
               fontWeight: 600,
               '&:hover': {
-                background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+                background: (theme) => theme.palette.gradients.primaryHover,
                 boxShadow: '0 6px 16px rgba(99,102,241,0.3)',
               },
               '&.Mui-disabled': {
-                background: '#e2e8f0',
-                color: '#94a3b8',
+                background: 'slate.200',
+                color: 'slate.400',
                 boxShadow: 'none',
               },
             }}
-            startIcon={generating ? <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', animation: 'spin 1s linear infinite' }} /> : <AutoFixHigh />}
+            startIcon={generating ? <Box sx={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'common.white', animation: 'spin 1s linear infinite' }} /> : <AutoFixHigh />}
           >
             {generating ? '正在生成...' : mode === 'file' ? '基于文件生成' : '生成测试用例'}
           </Button>

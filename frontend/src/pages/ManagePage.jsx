@@ -10,7 +10,9 @@ import { fileAPI, uploadAPI, graphAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import PageHeader from '../components/PageHeader';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { GRAPH_DATA_UPDATED_EVENT, PAGE_SIZE } from '../features/Manage/constants';
+import { GRAPH_DATA_UPDATED_EVENT } from '../constants/events';
+import { emit } from '../utils/eventBus';
+import { PAGE_SIZE } from '../features/Manage/constants';
 import { buildFileStats, filterFiles } from '../features/Manage/utils';
 import ImportWorkbench from '../features/Manage/components/ImportWorkbench';
 import IndexStats from '../features/Manage/components/IndexStats';
@@ -50,7 +52,7 @@ export default function ManagePage() {
   const notifyGraphDataUpdated = () => {
     const version = String(Date.now());
     window.localStorage.setItem('graphDataVersion', version);
-    window.dispatchEvent(new Event(GRAPH_DATA_UPDATED_EVENT));
+    emit(GRAPH_DATA_UPDATED_EVENT);
   };
 
   const stopPolling = () => {
@@ -85,7 +87,7 @@ export default function ManagePage() {
           showSnackbar('处理失败', 'error');
           setTimeout(() => setUploadProgress(null), 3000);
         }
-      } catch { }
+      } catch (err) { console.error('Poll task error:', err); }
     }, 2000);
   };
 
@@ -200,7 +202,7 @@ export default function ManagePage() {
   };
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 1.5, gap: 1.5, bgcolor: 'background.default' }}>
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent' }}>
       <PageHeader title="导入管理" subtitle="上传文档、跟踪索引结果，管理知识库内容。" />
 
       <Box sx={{ display: 'flex', gap: 1.5, flexDirection: isNarrow ? 'column' : 'row', minHeight: 0, flex: 1 }}>
@@ -223,10 +225,24 @@ export default function ManagePage() {
           />
         </Box>
 
-        <Paper elevation={0} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
-          <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', background: 'linear-gradient(90deg, rgba(16,185,129,0.06) 0%, rgba(52,211,153,0.03) 100%)' }}>
-            <Typography variant="subtitle2" sx={{ color: '#1e293b', fontWeight: 600 }}>索引清单</Typography>
-            <Typography variant="caption" sx={{ color: '#64748b' }}>
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            flex: 1, 
+            minWidth: 0, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            border: '1px solid rgba(255, 255, 255, 0.4)', 
+            borderRadius: 4, 
+            overflow: 'hidden',
+            background: 'rgba(255, 255, 255, 0.65)',
+            backdropFilter: 'blur(20px)',
+            boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)'
+          }}
+        >
+          <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', background: (theme) => theme.palette.gradients.headerGreen }}>
+            <Typography variant="subtitle2" sx={{ color: 'slate.800', fontWeight: 600 }}>索引清单</Typography>
+            <Typography variant="caption" sx={{ color: 'slate.500' }}>
               查看导入结果、筛选文件状态，并按文件执行重新索引或删除操作。
             </Typography>
           </Box>

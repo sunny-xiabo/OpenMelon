@@ -15,7 +15,7 @@ export default function EmptyState({
         border: '1px dashed',
         borderColor: 'divider',
         borderRadius: 2.5,
-        bgcolor: '#fbfcff',
+        bgcolor: 'slate.50',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

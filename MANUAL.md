@@ -1350,7 +1350,9 @@ GET    /api/history/{session_id}             # 获取会话聊天记录
 
 ### 12.2 配置管理
 
-**服务端配置**：`backend/config/node_types.json`，通过「设置 > 节点类型配置」页面管理。
+**服务端配置**：共享 SQLite `backend/app/data/openmelon.db` 中的 `graph_node_types` 表，通过「设置 > 节点类型配置」页面管理。
+
+**初始化种子**：`backend/config/node_types.json` 仅在空库初始化时读取，不再作为页面 CRUD 的写入目标。
 
 **前端样式覆盖**：存储在浏览器 `localStorage`，可调整填充色、边框色、尺寸。
 
@@ -1443,8 +1445,9 @@ OpenMelon 的本地运行期数据统一使用共享 SQLite 数据库：
 - API 自动化项目、环境、接口资产、执行记录、策略审计、自动化任务、知识候选和报告制品元数据
 - 导入管理的文件追踪记录（`file_records` 表）
 - Prompt Hub 模板、技能、技能分类和版本元信息
+- 图谱节点类型配置（`graph_node_types` 表）
 
-旧 JSON 文件如 `backend/app/data/file_tracker.json`、`backend/app/data/prompt_hub.json` 以及 `backend/app/data/api_execution/*.json` 只作为空库初始化和迁移兼容源保留，正常写入不再回写 JSON。
+旧 JSON 文件如 `backend/app/data/file_tracker.json`、`backend/app/data/prompt_hub.json`、`backend/app/data/api_execution/*.json` 以及 `backend/config/node_types.json` 只作为空库初始化和迁移兼容源保留，正常写入不再回写 JSON。
 
 > SQLite 主库和 WAL/SHM 文件属于运行期产物，已通过 `.gitignore` 排除，不应提交到代码仓库。
 
@@ -1482,6 +1485,7 @@ docker compose up -d neo4j
 
 - 生产模式镜像没有重新 build，容器还在跑旧镜像
 - 或者当前没有使用带源码挂载的 Docker 开发模式
+- 空 SQLite 库首次启动需要读取 `node_types.json` 作为初始化种子
 
 **解决**：
 

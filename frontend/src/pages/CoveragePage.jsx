@@ -17,6 +17,7 @@ import {
   Tooltip,
   Collapse,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   Refresh as RefreshIcon,
   SaveAlt as SaveAltIcon,
@@ -39,7 +40,7 @@ import {
   getCoverageTone,
 } from '../features/Coverage/utils';
 
-export default function CoveragePage() {
+export default function CoveragePage({ embedded = false }) {
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState('coverageAsc');
@@ -81,36 +82,48 @@ export default function CoveragePage() {
   };
 
   return (
-    <Box sx={{ flex: 1, p: 1.5, overflow: 'auto', bgcolor: 'background.default' }}>
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
-        <PageHeader title="覆盖率视图" subtitle="从模块、功能数和用例数三个维度查看测试覆盖情况，并快速定位风险模块。">
-          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            {lastUpdated && (
-              <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
-                更新于 {lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </Typography>
-            )}
-            <Tooltip title="刷新数据">
-              <span>
-                <IconButton size="small" onClick={load} disabled={loading}
-                  sx={{ bgcolor: 'rgba(99,102,241,0.08)', '&:hover': { bgcolor: 'rgba(99,102,241,0.15)' } }}
-                >
-                  <RefreshIcon fontSize="small" sx={{ color: '#6366f1', animation: loading ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '0%': { transform: 'rotate(0)' }, '100%': { transform: 'rotate(360deg)' } } }} />
-                </IconButton>
-              </span>
-            </Tooltip>
-            {modules.length > 0 && (
-              <Tooltip title="导出 CSV 报告">
-                <IconButton size="small" onClick={() => { exportCoverageCSV(visibleModules); showSnackbar('导出成功', 'success'); }}
-                  sx={{ bgcolor: 'rgba(16,185,129,0.08)', '&:hover': { bgcolor: 'rgba(16,185,129,0.15)' } }}
-                >
-                  <SaveAltIcon fontSize="small" sx={{ color: '#10b981' }} />
-                </IconButton>
+    <Box sx={{ flex: 1, p: embedded ? 0 : { xs: 2, md: 3 }, overflow: embedded ? 'visible' : 'auto', background: 'transparent' }}>
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          border: embedded ? 'none' : '1px solid rgba(255, 255, 255, 0.4)', 
+          borderRadius: embedded ? 0 : 4, 
+          overflow: embedded ? 'visible' : 'hidden',
+          background: embedded ? 'transparent' : 'rgba(255, 255, 255, 0.65)',
+          backdropFilter: embedded ? 'none' : 'blur(20px)',
+          boxShadow: embedded ? 'none' : '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)'
+        }}
+      >
+        {!embedded && (
+          <PageHeader title="覆盖率视图" subtitle="从模块、功能数和用例数三个维度查看测试覆盖情况，并快速定位风险模块。">
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              {lastUpdated && (
+                <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
+                  更新于 {lastUpdated.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </Typography>
+              )}
+              <Tooltip title="刷新数据">
+                <span>
+                  <IconButton size="small" onClick={load} disabled={loading}
+                    sx={{ bgcolor: (theme) => alpha(theme.palette.accent.indigo, 0.08), '&:hover': { bgcolor: (theme) => alpha(theme.palette.accent.indigo, 0.15) } }}
+                  >
+                    <RefreshIcon fontSize="small" sx={{ color: 'accent.indigo', animation: loading ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '0%': { transform: 'rotate(0)' }, '100%': { transform: 'rotate(360deg)' } } }} />
+                  </IconButton>
+                </span>
               </Tooltip>
-            )}
-          </Box>
-        </PageHeader>
-        <Box sx={{ p: 2.5, bgcolor: 'background.paper' }}>
+              {modules.length > 0 && (
+                <Tooltip title="导出 CSV 报告">
+                  <IconButton size="small" onClick={() => { exportCoverageCSV(visibleModules); showSnackbar('导出成功', 'success'); }}
+                    sx={{ bgcolor: (theme) => alpha(theme.palette.accent.emerald, 0.08), '&:hover': { bgcolor: (theme) => alpha(theme.palette.accent.emerald, 0.15) } }}
+                  >
+                    <SaveAltIcon fontSize="small" sx={{ color: 'accent.emerald' }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          </PageHeader>
+        )}
+        <Box sx={{ p: embedded ? 0 : 3, background: 'transparent' }}>
           {loading ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
               <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
@@ -143,8 +156,8 @@ export default function CoveragePage() {
 
               <CoverageMetricCards metrics={metrics} modules={modules} />
 
-              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                <Paper elevation={0} sx={{ flex: '1 1 320px', border: '1px solid', borderColor: 'divider', borderRadius: 3, p: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <Paper elevation={0} sx={{ flex: '1 1 320px', border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.5)', borderRadius: 3, p: 2 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
                     总览
                   </Typography>
@@ -163,7 +176,7 @@ export default function CoveragePage() {
                   </Box>
                 </Paper>
 
-                <Paper elevation={0} sx={{ flex: '1 1 480px', border: '1px solid', borderColor: 'divider', borderRadius: 3, p: 2 }}>
+                <Paper elevation={0} sx={{ flex: '1 1 480px', border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.5)', borderRadius: 3, p: 2 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
                     模块覆盖率排行
                   </Typography>
@@ -171,7 +184,7 @@ export default function CoveragePage() {
                 </Paper>
               </Box>
 
-              <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, p: 2 }}>
+              <Paper elevation={0} sx={{ border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.5)', borderRadius: 3, p: 2 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
                   <Typography variant="subtitle2">模块明细</Typography>
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -179,7 +192,7 @@ export default function CoveragePage() {
                       共 {visibleModules.length} 个模块，平均覆盖率 {metrics.avgCoverage.toFixed(1)}%
                     </Typography>
                     <Tooltip title="点击表格行可展开查看功能和用例详情">
-                      <Typography variant="caption" sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: 'rgba(99,102,241,0.08)', color: '#6366f1', fontWeight: 600, cursor: 'default' }}>
+                      <Typography variant="caption" sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: (theme) => alpha(theme.palette.accent.indigo, 0.08), color: 'accent.indigo', fontWeight: 600, cursor: 'default' }}>
                         可展开
                       </Typography>
                     </Tooltip>
@@ -190,12 +203,12 @@ export default function CoveragePage() {
                   <Table size="small" stickyHeader>
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ width: 36, bgcolor: '#f8fafc' }} />
-                        <TableCell sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>模块名称</TableCell>
-                        <TableCell align="center" sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>功能数</TableCell>
-                        <TableCell align="center" sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>用例数</TableCell>
-                        <TableCell align="center" sx={{ bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>状态</TableCell>
-                        <TableCell sx={{ minWidth: 240, bgcolor: '#f8fafc', fontWeight: 700, fontSize: 12, color: '#475569' }}>覆盖率</TableCell>
+                        <TableCell sx={{ width: 36, bgcolor: 'slate.50' }} />
+                        <TableCell sx={{ bgcolor: 'slate.50', fontWeight: 700, fontSize: 12, color: 'slate.600' }}>模块名称</TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'slate.50', fontWeight: 700, fontSize: 12, color: 'slate.600' }}>功能数</TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'slate.50', fontWeight: 700, fontSize: 12, color: 'slate.600' }}>用例数</TableCell>
+                        <TableCell align="center" sx={{ bgcolor: 'slate.50', fontWeight: 700, fontSize: 12, color: 'slate.600' }}>状态</TableCell>
+                        <TableCell sx={{ minWidth: 240, bgcolor: 'slate.50', fontWeight: 700, fontSize: 12, color: 'slate.600' }}>覆盖率</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -207,7 +220,7 @@ export default function CoveragePage() {
                             <TableRow
                               hover
                               onClick={() => toggleRow(item.module_name)}
-                              sx={{ cursor: 'pointer', '&:nth-of-type(odd)': { bgcolor: 'rgba(248,250,252,0.5)' }, ...(isExpanded && { bgcolor: 'rgba(99,102,241,0.04) !important' }) }}
+                              sx={{ cursor: 'pointer', '&:nth-of-type(odd)': { bgcolor: (theme) => alpha(theme.palette.slate[50], 0.5) }, ...(isExpanded && { bgcolor: (theme) => `${alpha(theme.palette.accent.indigo, 0.04)} !important` }) }}
                             >
                               <TableCell sx={{ px: 0.5 }}>
                                 <IconButton size="small" sx={{ p: 0.25 }}>

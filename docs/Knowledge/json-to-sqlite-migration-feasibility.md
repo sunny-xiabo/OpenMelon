@@ -273,7 +273,7 @@ CREATE INDEX IF NOT EXISTS idx_prompt_skills_category ON prompt_skills(category)
 
 ### Phase 3: 清理与运行策略
 
-状态：**部分完成**。
+状态：**已完成**。
 
 完成迁移并稳定后：
 
@@ -303,9 +303,9 @@ backend/app/data/*.db-wal
 
 ### 回滚
 
-- 保留 `OPENMELON_STORAGE_BACKEND=json` 或对应 feature flag，允许临时回退 JSON。
-- 迁移初期不删除 JSON 源文件。
-- Store 初始化失败时应日志告警并回退 JSON store，避免服务不可启动。
+- 不再保留运行时 JSONStore 回退路径；回滚应通过恢复上一版本代码和备份 JSON/SQLite 数据完成。
+- 迁移初期不删除 JSON 源文件，作为备份和空库初始化来源。
+- Store 初始化失败时应日志告警并中断启动，避免继续产生分叉数据。
 
 ## 可行性结论
 

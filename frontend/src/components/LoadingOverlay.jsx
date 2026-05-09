@@ -1,4 +1,5 @@
 import { Box, CircularProgress, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 export default function LoadingOverlay({ message = '加载中...' }) {
   return (
@@ -9,7 +10,7 @@ export default function LoadingOverlay({ message = '加载中...' }) {
         left: 0,
         right: 0,
         bottom: 0,
-        bgcolor: 'rgba(255,255,255,0.85)',
+        bgcolor: (theme) => alpha(theme.palette.common.white, 0.85),
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',

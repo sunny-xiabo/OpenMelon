@@ -1,4 +1,5 @@
 import { Box, Paper, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   DescriptionOutlined,
   FolderOpenOutlined,
@@ -42,7 +43,7 @@ export default function IndexStats({ stats }) {
               minWidth: 0,
               p: 2,
               border: '1px solid',
-              borderColor: 'rgba(226,232,240,0.8)',
+              borderColor: (theme) => alpha(theme.palette.slate[200], 0.8),
               borderRadius: 3,
               background: `linear-gradient(135deg, ${item.accent.replace('0.08', '0.12')} 0%, rgba(255,255,255,0.8) 100%)`,
               boxShadow: '0 4px 16px rgba(15,23,42,0.03)',
@@ -55,10 +56,10 @@ export default function IndexStats({ stats }) {
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, position: 'relative', zIndex: 1 }}>
               <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: item.accent.replace('0.08', '0.8') }} />
-              <Typography variant="body2" sx={{ color: '#475569', fontWeight: 600 }}>{item.label}</Typography>
+              <Typography variant="body2" sx={{ color: 'slate.600', fontWeight: 600 }}>{item.label}</Typography>
             </Box>
-            <Typography sx={{ mt: 1.25, fontSize: 32, fontWeight: 800, lineHeight: 1, color: '#0f172a', position: 'relative', zIndex: 1, letterSpacing: '-0.5px' }}>{item.value}</Typography>
-            <Typography variant="caption" sx={{ color: '#64748b', mt: 1, display: 'block', position: 'relative', zIndex: 1 }}>
+            <Typography sx={{ mt: 1.25, fontSize: 32, fontWeight: 800, lineHeight: 1, color: 'slate.900', position: 'relative', zIndex: 1, letterSpacing: '-0.5px' }}>{item.value}</Typography>
+            <Typography variant="caption" sx={{ color: 'slate.500', mt: 1, display: 'block', position: 'relative', zIndex: 1 }}>
               {item.helper}
             </Typography>
           </Paper>

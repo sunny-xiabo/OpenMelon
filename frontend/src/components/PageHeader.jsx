@@ -1,4 +1,5 @@
 import { Typography, Box } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 export default function PageHeader({ title, subtitle = '', children }) {
   return (
@@ -8,7 +9,7 @@ export default function PageHeader({ title, subtitle = '', children }) {
         py: 2.25,
         borderBottom: '1px solid',
         borderColor: 'divider',
-        bgcolor: 'rgba(26,115,232,0.04)',
+        bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04),
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'space-between',

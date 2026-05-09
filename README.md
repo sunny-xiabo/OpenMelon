@@ -130,6 +130,8 @@ OpenMelon/
 └── docker-compose.yml   # 容器编排文件
 ```
 
+后端自有结构化运行态数据统一写入共享 SQLite `backend/app/data/openmelon.db`；旧 JSON 文件仅作为空库初始化或迁移兼容源保留，文件上传、日志、Neo4j 与 Qdrant 数据仍使用各自适合的存储介质。
+
 ---
 
 ## 文档导航

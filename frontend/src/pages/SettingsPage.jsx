@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { Box, Button, Paper, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import SettingsSuggestOutlined from '@mui/icons-material/SettingsSuggestOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
+import FolderOpenOutlined from '@mui/icons-material/FolderOpenOutlined';
 import PageHeader from '../components/PageHeader';
+import NavMenuButton from '../components/NavMenuButton';
 import NodeTypeConfigPage from './NodeTypeConfigPage';
 import PromptHubConfigPage from './PromptHubConfigPage';
+import ProjectEnvConfigPage from './ProjectEnvConfigPage';
 
 const SECTIONS = [
   {
@@ -20,14 +24,30 @@ const SECTIONS = [
     description: '管理测试用例模板、技能与默认策略',
     icon: <AutoAwesomeOutlined fontSize="small" />,
   },
+  {
+    key: 'project-env',
+    label: '项目与环境',
+    description: '管理 API 自动化的项目和测试环境配置',
+    icon: <FolderOpenOutlined fontSize="small" />,
+  },
 ];
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('node-types');
 
   return (
-    <Box sx={{ flex: 1, p: 1.5, overflow: 'auto', bgcolor: 'background.default' }}>
-      <Paper elevation={0} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
+    <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, overflow: 'auto', background: 'transparent' }}>
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          border: '1px solid rgba(255, 255, 255, 0.4)', 
+          borderRadius: 4, 
+          overflow: 'hidden',
+          background: 'rgba(255, 255, 255, 0.65)',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)'
+        }}
+      >
         <PageHeader
           title="设置"
           subtitle="统一管理系统配置项。当前已接入节点类型配置，后续可继续扩展更多设置模块。"
@@ -40,13 +60,13 @@ export default function SettingsPage() {
               minWidth: 0,
               borderRight: { xs: 'none', lg: '1px solid' },
               borderBottom: { xs: '1px solid', lg: 'none' },
-              borderColor: 'divider',
-              background: 'linear-gradient(180deg, rgba(26,115,232,0.04) 0%, rgba(99,102,241,0.02) 100%)',
+              borderColor: 'rgba(255, 255, 255, 0.5)',
+              background: 'transparent',
             }}
           >
             <Box sx={{ p: 1.5, position: 'sticky', top: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                <Box sx={{ width: 34, height: 34, borderRadius: '10px', background: 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.7), 0 4px 8px rgba(99,102,241,0.1)' }}>
+                <Box sx={{ width: 34, height: 34, borderRadius: '10px', background: 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)', color: 'accent.indigoDark', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: (theme) => `inset 0 2px 4px ${alpha(theme.palette.common.white, 0.7)}, 0 4px 8px ${alpha(theme.palette.accent.indigo, 0.1)}` }}>
                   <SettingsSuggestOutlined fontSize="small" />
                 </Box>
               <Box>
@@ -57,38 +77,23 @@ export default function SettingsPage() {
 
             <Box sx={{ display: 'flex', flexDirection: { xs: 'row', lg: 'column' }, gap: 0.75, flexWrap: 'wrap' }}>
               {SECTIONS.map((section) => (
-                <Button
+                <NavMenuButton
                   key={section.key}
-                  variant={activeSection === section.key ? 'contained' : 'outlined'}
-                  color={activeSection === section.key ? 'primary' : 'inherit'}
+                  active={activeSection === section.key}
+                  icon={section.icon}
+                  label={section.label}
+                  description={section.description}
                   onClick={() => setActiveSection(section.key)}
-                  sx={{
-                    justifyContent: 'flex-start',
-                    textAlign: 'left',
-                    px: 1.25,
-                    py: 1,
-                    minHeight: 52,
-                    borderColor: 'divider',
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.9 }}>
-                    {section.icon}
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>{section.label}</Typography>
-                      <Typography variant="caption" color={activeSection === section.key ? 'rgba(255,255,255,0.8)' : 'text.secondary'}>
-                        {section.description}
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Button>
+                />
               ))}
             </Box>
             </Box>
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 0, bgcolor: 'background.paper' }}>
+          <Box sx={{ flex: 1, minWidth: 0, background: 'transparent' }}>
             {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
             {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
+            {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
           </Box>
         </Box>
       </Paper>

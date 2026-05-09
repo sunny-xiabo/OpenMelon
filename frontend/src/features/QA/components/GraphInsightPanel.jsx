@@ -10,6 +10,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { AccountTree } from '@mui/icons-material';
 import LoadingOverlay from '../../../components/LoadingOverlay';
 import EmptyState from '../../../components/EmptyState';
@@ -48,19 +49,19 @@ export default function GraphInsightPanel({
         bgcolor: 'background.paper',
       }}
     >
-      <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(226,232,240,0.8)', background: 'linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%)' }}>
+      <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: (theme) => alpha(theme.palette.slate[200], 0.8), background: (theme) => `linear-gradient(90deg, ${theme.palette.slate[50]} 0%, ${theme.palette.slate[100]} 100%)` }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ width: 34, height: 34, borderRadius: 2, background: 'linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%)', color: '#0891b2', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.7), 0 4px 8px rgba(6,182,212,0.1)' }}>
+          <Box sx={{ width: 34, height: 34, borderRadius: 2, background: 'linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%)', color: 'accent.cyan', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.7), 0 4px 8px rgba(6,182,212,0.1)' }}>
             <AccountTree fontSize="small" />
           </Box>
           <Box>
-            <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#1e293b' }}>图谱线索</Typography>
-            <Typography variant="caption" sx={{ color: '#64748b' }}>辅助定位模块、节点关系和检索命中文档</Typography>
+            <Typography variant="subtitle1" fontWeight={700} sx={{ color: 'slate.800' }}>图谱线索</Typography>
+            <Typography variant="caption" sx={{ color: 'slate.500' }}>辅助定位模块、节点关系和检索命中文档</Typography>
           </Box>
         </Box>
       </Box>
 
-      <Box sx={{ p: 1.25, borderBottom: '1px solid rgba(226,232,240,0.8)', background: '#ffffff', display: 'flex', flexDirection: 'column', gap: 1, zIndex: 2 }}>
+      <Box sx={{ p: 1.25, borderBottom: '1px solid', borderColor: (theme) => alpha(theme.palette.slate[200], 0.8), background: 'common.white', display: 'flex', flexDirection: 'column', gap: 1, zIndex: 2 }}>
         <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             size="small"
@@ -68,7 +69,7 @@ export default function GraphInsightPanel({
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && searchEntity()}
-            sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: '#f8fafc' }, '& .MuiInputBase-input': { fontSize: 13 } }}
+            sx={{ flex: 1, minWidth: 160, '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: 'slate.50' }, '& .MuiInputBase-input': { fontSize: 13 } }}
           />
           <Button size="small" variant="contained" onClick={searchEntity} disabled={!graphReady || !searchText.trim()} sx={{ borderRadius: 2, boxShadow: 'none' }}>
             搜索
@@ -80,13 +81,13 @@ export default function GraphInsightPanel({
         </Box>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           <FormControl size="small" sx={{ minWidth: 110, flex: '0 0 auto' }}>
-            <Select value={docType} onChange={(event) => setDocType(event.target.value)} displayEmpty sx={{ borderRadius: 2, bgcolor: '#f8fafc', fontSize: 13 }}>
+            <Select value={docType} onChange={(event) => setDocType(event.target.value)} displayEmpty sx={{ borderRadius: 2, bgcolor: 'slate.50', fontSize: 13 }}>
               <MenuItem value="">全部类型</MenuItem>
               {filters.doc_types?.map((type) => <MenuItem key={type} value={type}>{type}</MenuItem>)}
             </Select>
           </FormControl>
           <FormControl size="small" sx={{ minWidth: 110, flex: '0 0 auto' }}>
-            <Select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)} displayEmpty sx={{ borderRadius: 2, bgcolor: '#f8fafc', fontSize: 13 }}>
+            <Select value={moduleFilter} onChange={(event) => setModuleFilter(event.target.value)} displayEmpty sx={{ borderRadius: 2, bgcolor: 'slate.50', fontSize: 13 }}>
               <MenuItem value="">全部模块</MenuItem>
               {filters.modules?.map((module) => <MenuItem key={module} value={module}>{module}</MenuItem>)}
             </Select>
@@ -111,13 +112,13 @@ export default function GraphInsightPanel({
             />
           </Box>
         ) : (
-          <Box ref={containerRef} sx={{ flex: 1, minHeight: 0, borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider', outline: 'none', bgcolor: '#f8fafc', backgroundImage: 'radial-gradient(#e2e8f0 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+          <Box ref={containerRef} sx={{ flex: 1, minHeight: 0, borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider', outline: 'none', bgcolor: 'slate.50', backgroundImage: (theme) => `radial-gradient(${theme.palette.slate[200]} 1px, transparent 1px)`, backgroundSize: '24px 24px' }} />
         )}
-        <Box sx={{ position: 'absolute', bottom: 16, left: 16, display: 'flex', flexWrap: 'wrap', gap: 1.25, p: 1.25, bgcolor: 'rgba(255, 255, 255, 0.8)', backdropFilter: 'blur(12px)', border: '1px solid', borderColor: 'rgba(255,255,255,0.4)', borderRadius: 3, boxShadow: '0 4px 16px rgba(0,0,0,0.04)', zIndex: 10, maxWidth: 'calc(100% - 32px)' }}>
+        <Box sx={{ position: 'absolute', bottom: 16, left: 16, display: 'flex', flexWrap: 'wrap', gap: 1.25, p: 1.25, bgcolor: (theme) => alpha(theme.palette.common.white, 0.8), backdropFilter: 'blur(12px)', border: '1px solid', borderColor: (theme) => alpha(theme.palette.common.white, 0.4), borderRadius: 3, boxShadow: '0 4px 16px rgba(0,0,0,0.04)', zIndex: 10, maxWidth: 'calc(100% - 32px)' }}>
           {legend.map(({ type, color }) => (
-            <Box key={type} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, bgcolor: 'rgba(255,255,255,0.6)', px: 1, py: 0.5, borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
+            <Box key={type} sx={{ display: 'flex', alignItems: 'center', gap: 0.75, bgcolor: (theme) => alpha(theme.palette.common.white, 0.6), px: 1, py: 0.5, borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
               <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: color.bg, boxShadow: `0 0 0 1px ${color.border}` }} />
-              <Typography variant="caption" sx={{ color: '#475569', fontWeight: 500 }}>{type}</Typography>
+              <Typography variant="caption" sx={{ color: 'slate.600', fontWeight: 500 }}>{type}</Typography>
             </Box>
           ))}
         </Box>
