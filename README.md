@@ -97,8 +97,12 @@ cd frontend && npm install && npm run dev
 
 - **问答**：![问答页面](docs/screenshots/qa-page.png)
 - **图谱总览**：![图谱总览页面](docs/screenshots/graph-page.png)
+- **导入管理**：![导入管理页面](docs/screenshots/manage-page.png)
 - **测试用例生成**：![测试用例生成页面](docs/screenshots/testcase-page.png)
-- **Prompt Hub**：![Prompt Hub 页面](docs/screenshots/prompt-hub-page.png)
+- **API 自动化**：![API 自动化页面](docs/screenshots/api-execution-page.png)
+- **设置 - 节点类型配置**：![节点类型配置](docs/screenshots/node-page.png)
+- **设置 - 项目与环境**：![项目与环境](docs/screenshots/project-env-page.png)
+- **设置 - Prompt Hub**：![Prompt Hub 页面](docs/screenshots/prompt-hub-page.png)
 </details>
 
 ---
