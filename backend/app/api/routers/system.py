@@ -84,7 +84,7 @@ async def get_logs(
         tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
         return {
             "filename": filename,
-            "lines": [l.rstrip("\\n") for l in tail],
+            "lines": [line.rstrip("\\n") for line in tail],
             "total_lines": len(all_lines),
         }
     except Exception as e:

@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from app.config import settings
 from app.engine.reranker import reranker
 

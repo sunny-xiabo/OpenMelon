@@ -60,9 +60,9 @@ export function parseTestCasesFromMarkdown(markdownText) {
       }
     }
     // 检测 ##/### 1. 标题 格式
-    else if (/^#{2,3}\s+\d+[\.\\)]\s+.+/.test(line)) {
+    else if (/^#{2,3}\s+\d+[.\\)]\s+.+/.test(line)) {
       saveCurrent();
-      const m = line.match(/^#{2,3}\s+(\d+)[\.\\)]\s+(.+)$/);
+      const m = line.match(/^#{2,3}\s+(\d+)[.\\)]\s+(.+)$/);
       if (m) {
         currentTestCase = {
           id: `TC-${m[1].padStart(3, '0')}`,
@@ -129,8 +129,8 @@ export function parseTestCasesFromMarkdown(markdownText) {
       }
     }
     // 非表格格式: 1. xxx
-    else if (currentTestCase && /^\d+[\.\)]\s+.+/.test(line) && !inTable) {
-      const m = line.match(/^(\d+)[\.\)]\s+(.+)$/);
+    else if (currentTestCase && /^\d+[.)]\s+.+/.test(line) && !inTable) {
+      const m = line.match(/^(\d+)[.)]\s+(.+)$/);
       if (m) {
         let expectedResult = '验证操作成功';
         if (i + 1 < lines.length) {

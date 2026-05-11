@@ -120,7 +120,7 @@ async def safe_stream_generator(
         # 如果有降级内容，输出降级内容
         if fallback_content:
             logger.info(f"使用降级内容: {agent_name}")
-            yield f"\n\n**注意**: 智能体执行遇到问题，使用备用内容\n\n"
+            yield "\n\n**注意**: 智能体执行遇到问题，使用备用内容\n\n"
             yield fallback_content
         else:
             # 没有降级内容，输出错误信息

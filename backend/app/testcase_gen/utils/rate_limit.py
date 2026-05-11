@@ -199,7 +199,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 status_code=429,
                 content={
                     "error": "Too Many Requests",
-                    "detail": f"请求频率超过限制，请稍后再试",
+                    "detail": "请求频率超过限制，请稍后再试",
                     "retry_after": info.get("retry_after", 60),
                 },
                 headers={

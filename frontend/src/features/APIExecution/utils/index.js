@@ -116,7 +116,7 @@ export const formatDuration = (durationMs) => {
   return `${minutes} min ${seconds} s`;
 };
 
-const formatReportTime = (value) => formatRunTime(value) || '未记录';
+const _formatReportTime = (value) => formatRunTime(value) || '未记录';
 
 const safeJsonPreview = (value) => {
   if (value === null || value === undefined || value === '') return '未记录';

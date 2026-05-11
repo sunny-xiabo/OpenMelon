@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger("testcase_gen.graph_context")
 
@@ -225,7 +225,7 @@ class GraphContextRetriever:
         if not rows:
             return ""
 
-        lines = [f"## 相关文档上下文\n\n以下文档分块与当前检索范围相关:\n"]
+        lines = ["## 相关文档上下文\n\n以下文档分块与当前检索范围相关:\n"]
         for r in rows:
             filename = r.get("filename", "unknown")
             idx = r.get("chunk_index", "?")

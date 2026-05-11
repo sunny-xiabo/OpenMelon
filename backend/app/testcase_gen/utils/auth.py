@@ -4,10 +4,8 @@ API认证中间件
 """
 
 import os
-import time
-import hashlib
 import secrets
-from typing import Optional, Dict, Any, Callable, Union
+from typing import Optional, Dict, Any, Callable
 from functools import wraps
 from datetime import datetime, timedelta
 

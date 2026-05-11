@@ -1,7 +1,7 @@
 import os
 import PyPDF2
 import pdfplumber
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 import re
 from datetime import datetime
 from app.testcase_gen.utils.logger import logger

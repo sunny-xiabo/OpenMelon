@@ -436,7 +436,7 @@ def _parse_markdown_test_cases(markdown: str) -> List[Dict[str, Any]]:
         return []
 
     for idx, match in enumerate(matches):
-        heading_level = match.group(1)
+        _heading_level = match.group(1)
         title_line = match.group(2).strip()
 
         # 确定当前小节的结束位置

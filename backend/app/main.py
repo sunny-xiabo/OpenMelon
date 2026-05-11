@@ -26,7 +26,7 @@ from app.services.indexer import DocumentIndexer
 from app.services.coverage import CoverageService
 from app.services.file_tracker import file_tracker
 from app.api.routes import router
-from app.testcase_gen.services.neo4j_writer import init_neo4j_writer, neo4j_writer
+from app.testcase_gen.services.neo4j_writer import init_neo4j_writer
 from app.testcase_gen.services.graph_context_retriever import (
     init_graph_context_retriever,
 )
@@ -219,7 +219,7 @@ app.include_router(router)
 app.include_router(testcase_router)
 
 # Ensure upload and result directories exist for testcase generator
-import os as _os
+import os as _os  # noqa: E402
 
 uploads_dir = _os.path.join(_os.path.dirname(__file__), "uploads")
 results_dir = _os.path.join(_os.path.dirname(__file__), "results")

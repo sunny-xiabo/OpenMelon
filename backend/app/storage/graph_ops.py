@@ -118,7 +118,7 @@ class GraphOperations:
 
             if module:
                 if include_chunks:
-                    query = f"""
+                    query = """
                         MATCH (m:Module)
                         WHERE m.name = $module OR m.name CONTAINS $module
                         OPTIONAL MATCH (m)-[r1]-(f)
@@ -134,7 +134,7 @@ class GraphOperations:
                         RETURN nodes, all_rels AS rels
                     """
                 else:
-                    query = f"""
+                    query = """
                         MATCH (m:Module)
                         WHERE m.name = $module OR m.name CONTAINS $module
                         MATCH (m)-[r]-(f)
@@ -145,7 +145,7 @@ class GraphOperations:
                     """
             elif doc_type:
                 if include_chunks:
-                    query = f"""
+                    query = """
                         MATCH (c:DocumentChunk)
                         WHERE c.doc_type = $doc_type
                         WITH collect(DISTINCT c) AS chunks, collect(DISTINCT c.module) AS module_names
@@ -163,7 +163,7 @@ class GraphOperations:
                     """
                 else:
                     query = (
-                        f"""
+                        """
                         MATCH (c:DocumentChunk)
                         WHERE c.doc_type = $doc_type
                         WITH collect(DISTINCT c.module) AS module_names

@@ -3,14 +3,11 @@ AI服务 - 协调三个智能体的工作流程
 需求分析 → 测试用例生成 → 测试用例评审
 """
 
-import json
 from typing import List, Dict, Any, AsyncGenerator, Optional
 
-from app.testcase_gen.models.test_case import TestCase
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.utils.performance_optimizer import (
     response_cache,
-    FileProcessingOptimizer,
     Timer,
 )
 

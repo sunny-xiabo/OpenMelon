@@ -5,7 +5,7 @@
 
 import re
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from app.testcase_gen.utils.logger import logger
 
 
@@ -143,7 +143,8 @@ class TestCaseParser:
         
         for line in lines:
             line = line.strip()
-            if not line: continue
+            if not line:
+                continue
             
             # 分隔行
             if re.match(r'^\|[\s\-:|]+\|$', line):
@@ -163,7 +164,8 @@ class TestCaseParser:
                     step_num = len(steps) + 1
                     try:
                         step_num = int(re.sub(r'[^\d]', '', cells[0]))
-                    except: pass
+                    except (ValueError, IndexError):
+                        pass
                     
                     steps.append({
                         'step_number': step_num,
