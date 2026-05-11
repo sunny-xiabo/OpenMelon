@@ -5,6 +5,13 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [Unreleased]
+
+### 变更 (Changed)
+- **CI 配置暂时下线**: 暂时移除 GitHub Actions 配置 `.github/workflows/ci.yml` 和 GitLab CI 配置 `.gitlab-ci.yml`，避免远端仓库展示和文档导航混杂；后续如需恢复自动化检查，可从历史提交中恢复对应配置。
+
+---
+
 ## [0.2.8] - 2026-05-09
 
 *(API 自动化执行稳定性修复 & 前端模块加载容错增强)*
