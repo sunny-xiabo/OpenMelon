@@ -4,10 +4,9 @@
 """
 
 import time
-from typing import Callable, Optional
+from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse
 
 from app.testcase_gen.utils.logger import logger
 

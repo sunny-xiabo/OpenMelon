@@ -3,10 +3,9 @@
 负责评审测试用例的质量，检查完整性、一致性、可执行性，并输出改进后的测试用例
 """
 
-import json
 import sys
 import os
-from typing import List, Dict, Any, AsyncGenerator
+from typing import Dict, Any, AsyncGenerator
 
 # 添加父目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

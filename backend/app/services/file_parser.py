@@ -4,10 +4,9 @@ import os
 import re
 import json
 import html
-import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Any, Optional, Tuple
 from fastapi import UploadFile
 
 
@@ -330,7 +329,7 @@ def parse_epub(content: bytes, filename: str) -> Tuple[str, str]:
             opf_dir = os.path.dirname(opf_path)
             if opf_path in namelist:
                 opf_root = ET.fromstring(zf.read(opf_path))
-                ns = {"opf": "http://www.idpf.org/2007/opf"}
+                _ns = {"opf": "http://www.idpf.org/2007/opf"}
                 manifest = {}
                 for item in opf_root.findall(".//{*}item"):
                     item_id = item.get("id", "")
@@ -384,7 +383,7 @@ def auto_detect_doc_type(text: str, filename: str) -> str:
 
 def auto_detect_module(text: str, filename: str) -> str:
     lower_name = filename.lower()
-    name_no_ext = os.path.splitext(lower_name)[0]
+    _name_no_ext = os.path.splitext(lower_name)[0]
     module_patterns = [
         r"(用户中心|用户管理|user[\s_-]?center|account)",
         r"(支付|payment|pay)",

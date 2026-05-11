@@ -1,6 +1,4 @@
 import logging
-import os
-import sys
 from app.utils.logger import setup_logger as _main_setup
 
 

@@ -624,7 +624,7 @@ class VectorOperations:
                         }
                     )
                 return results
-        except Exception as e:
+        except Exception:
             return []
 
     async def get_test_case_count(self) -> int:
@@ -635,5 +635,5 @@ class VectorOperations:
                 result = await session.run(query)
                 record = await result.single()
                 return record.get("count", 0) if record else 0
-        except:
+        except Exception:
             return 0

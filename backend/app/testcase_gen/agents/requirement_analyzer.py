@@ -1,5 +1,4 @@
-import json
-from typing import Dict, Any, AsyncGenerator, List, Tuple
+from typing import Dict, Any, AsyncGenerator, Tuple
 import sys
 import os
 
@@ -109,13 +108,13 @@ class RequirementAnalyzer:
         # 根据文件类型选择合适的模型客户端
         selected_model_client = self._get_model_client_for_file_type(file_path)
         file_extension = file_path.lower().split(".")[-1] if "." in file_path else ""
-        file_type = self._get_file_type_name(file_extension)
+        _file_type = self._get_file_type_name(file_extension)
 
         logger.info(
             f"文件类型: {file_extension}, 使用模型: {DEEPSEEK_MODEL_NAME if selected_model_client == deepseek_model_client else QWEN_MODEL_NAME}"
         )
 
-        file_content = await self._read_file_content(file_path, file_extension)
+        _file_content = await self._read_file_content(file_path, file_extension)
 
         prompt, system_message = await self._build_default_prompts(
             file_path, file_extension, context, user_requirements, graph_context

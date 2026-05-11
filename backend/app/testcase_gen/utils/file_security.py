@@ -4,6 +4,14 @@
 此文件仅为向后兼容保留
 """
 
+import os
+import re
+import uuid
+import hashlib
+from typing import Tuple
+from pathlib import Path
+from urllib.parse import unquote
+
 import warnings
 warnings.warn(
     "file_security.py 已废弃，请使用 file_handler.py",
@@ -11,15 +19,7 @@ warnings.warn(
     stacklevel=2
 )
 
-import os
-import re
-import uuid
-import hashlib
-from typing import Optional, Tuple
-from pathlib import Path
-from urllib.parse import quote, unquote
-
-from app.testcase_gen.utils.logger import logger
+from app.testcase_gen.utils.logger import logger  # noqa: E402
 
 
 # 允许的文件名字符（字母、数字、下划线、连字符、点）
@@ -138,7 +138,7 @@ def check_path_traversal(file_path: str) -> Tuple[bool, str]:
 
     # 解析路径并检查是否超出基准目录
     try:
-        resolved = Path(file_path).resolve()
+        Path(file_path).resolve()
         # 这里需要与基准目录比较，暂时只检查基本模式
     except Exception:
         return False, "路径解析失败"

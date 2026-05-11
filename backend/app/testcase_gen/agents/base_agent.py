@@ -3,8 +3,7 @@
 提供所有智能体的公共功能
 """
 
-import os
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import AsyncGenerator
 from abc import ABC, abstractmethod
 
 from autogen_agentchat.agents import AssistantAgent
@@ -14,9 +13,6 @@ from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 from app.testcase_gen.utils.llms import (
     model_client,
     deepseek_model_client,
-    QWEN_MODEL_NAME,
-    DEEPSEEK_MODEL_NAME,
-    get_model_config,
 )
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.pdf_service import pdf_service
@@ -74,7 +70,7 @@ class BaseAgent(ABC):
         返回:
             文件内容（文本格式）
         """
-        file_extension = self.get_file_extension(file_path)
+        _file_extension = self.get_file_extension(file_path)
 
         if self.is_pdf_file(file_path):
             return pdf_service.extract_text_from_pdf(file_path)
@@ -198,7 +194,7 @@ class StreamingProcessor:
 **提供的上下文：**
 {context[:500] if context else "无"}
 """,
-            "TestCaseGenerator": f"""## 测试用例（降级模式）
+            "TestCaseGenerator": """## 测试用例（降级模式）
 
 由于AI服务暂时不可用，无法生成详细测试用例。
 
@@ -222,7 +218,7 @@ class StreamingProcessor:
 - **步骤：** 触发错误条件
 - **预期：** 显示适当错误信息
 """,
-            "TestCaseReviewer": f"""## 评审报告（降级模式）
+            "TestCaseReviewer": """## 评审报告（降级模式）
 
 由于AI服务暂时不可用，无法完成详细评审。
 

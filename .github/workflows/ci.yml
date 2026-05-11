@@ -4,8 +4,16 @@ on:
   push:
     branches: [master, devxia]
     tags: ['v*']
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'scripts/**'
   pull_request:
     branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'scripts/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

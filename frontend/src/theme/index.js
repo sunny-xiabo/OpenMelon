@@ -1,4 +1,4 @@
-import { createTheme, alpha } from '@mui/material/styles';
+import { createTheme } from '@mui/material/styles';
 import { NODE_TYPE_META } from './nodeTypes';
 
 // Tailwind Slate scale -- primary text/bg/border system

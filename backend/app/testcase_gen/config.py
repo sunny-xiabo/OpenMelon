@@ -1,4 +1,3 @@
-import os
 from typing import Set
 from app.config import settings
 

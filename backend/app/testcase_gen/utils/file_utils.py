@@ -4,18 +4,18 @@
 此文件仅为向后兼容保留
 """
 
+import os
+from typing import List
+import uuid
+import aiofiles
+import time
+
 import warnings
 warnings.warn(
     "file_utils.py 已废弃，请使用 file_handler.py",
     DeprecationWarning,
     stacklevel=2
 )
-
-import os
-from typing import List
-import uuid
-import aiofiles
-import time
 
 
 def save_uploaded_file(file_content: bytes, directory: str, filename: str = None) -> str:

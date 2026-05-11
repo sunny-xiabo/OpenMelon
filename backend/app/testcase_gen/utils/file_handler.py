@@ -16,7 +16,7 @@ import uuid
 import time
 import hashlib
 import aiofiles
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 from pathlib import Path
 from urllib.parse import unquote
 

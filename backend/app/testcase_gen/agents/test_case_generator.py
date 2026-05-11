@@ -3,10 +3,9 @@
 负责基于需求分析结果生成详细的测试用例
 """
 
-import json
 import sys
 import os
-from typing import List, Dict, Any, AsyncGenerator
+from typing import Dict, Any, AsyncGenerator
 
 # 添加父目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

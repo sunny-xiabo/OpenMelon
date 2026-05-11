@@ -1,8 +1,7 @@
 import json
 import yaml
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any
 from datetime import datetime
-import re
 from app.testcase_gen.utils.logger import logger
 
 class OpenAPIService:

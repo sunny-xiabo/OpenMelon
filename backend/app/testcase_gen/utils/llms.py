@@ -8,13 +8,12 @@ load_dotenv(_env_path, override=True)
 
 try:
     # Prefer AutoGen's client when available, but source config from OpenMelon settings
-    from autogen_ext.models.openai import OpenAIChatCompletionClient
+    from autogen_ext.models.openai import OpenAIChatCompletionClient  # noqa: E402
 except Exception:
     OpenAIChatCompletionClient = None  # type: ignore
-from openai import AsyncOpenAI
-from app.config import settings
-from typing import Any
-from app.testcase_gen.utils.logger import logger
+from openai import AsyncOpenAI  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.testcase_gen.utils.logger import logger  # noqa: E402
 
 # 模型配置管理
 # 优先级：统一配置 > 单独配置
