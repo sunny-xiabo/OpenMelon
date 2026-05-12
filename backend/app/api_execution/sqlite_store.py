@@ -237,6 +237,12 @@ class SQLiteStore(BaseSQLiteStore):
             self._conn.commit()
             return cursor.rowcount > 0
 
+    def delete_all_runs(self) -> int:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM runs")
+            self._conn.commit()
+            return cursor.rowcount
+
     # ---- projects ----
 
     def save_project(self, project: dict[str, Any]) -> dict[str, Any]:

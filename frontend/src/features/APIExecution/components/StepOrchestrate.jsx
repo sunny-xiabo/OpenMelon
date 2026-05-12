@@ -245,11 +245,19 @@ export default function StepOrchestrate() {
                   )}
                 />
 
-                <Box sx={{ 
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap',
-                  p: 2.5, bgcolor: '#f8fafc', borderRadius: 4, border: '1px solid', borderColor: 'rgba(0,0,0,0.04)',
-                  boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.5)'
+                <Paper sx={{ 
+                  borderRadius: 4, 
+                  border: '1px solid', 
+                  borderColor: 'rgba(0,0,0,0.08)',
+                  boxShadow: '0 12px 40px -12px rgba(0,0,0,0.06)',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column'
                 }}>
+                  <Box sx={{ 
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap',
+                    p: 2, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: '#ffffff'
+                  }}>
                   <Stack direction="row" spacing={2} alignItems="center">
                     <Box sx={{ width: 44, height: 44, borderRadius: '12px', bgcolor: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', boxShadow: '0 2px 8px rgba(79, 70, 229, 0.15)' }}>
                       <DataObjectOutlined />
@@ -293,40 +301,30 @@ export default function StepOrchestrate() {
                   </Stack>
                 </Box>
 
-                <Paper 
-                  elevation={0} 
-                  sx={{ 
-                    borderRadius: 4, 
-                    border: '1px solid',
-                    borderColor: 'rgba(0,0,0,0.06)', 
-                    overflow: 'hidden',
-                    boxShadow: '0 12px 40px -12px rgba(0,0,0,0.08)'
-                  }}
-                >
-                  <FlowWorkbench
-                    dslText={dslText}
-                    setDslText={setDslText}
-                    parsedScript={parsedScript}
-                    runStepId={runStepId}
-                    setRunStepId={setRunStepId}
-                    baseUrl={baseUrl}
-                    setBaseUrl={setBaseUrl}
-                    bearerToken={bearerToken}
-                    setBearerToken={setBearerToken}
-                    globalHeadersText={globalHeadersText}
-                    setGlobalHeadersText={setGlobalHeadersText}
-                    runReport={runReport}
-                    disabledStepIds={disabledFlowStepIds}
-                    setDisabledStepIds={setDisabledFlowStepIds}
-                    onDirtyChange={setFlowDirty}
-                    requestConfirm={requestConfirm}
-                    selectedProjectId={selectedProjectId}
-                    projectName={projectName}
-                    editorTheme={apiJsonEditorTheme}
-                    editorHighlightStyle={syntaxHighlighting(apiJsonHighlightStyle)}
-                    completionSource={dslCompletionSource}
-                  />
-                </Paper>
+                <FlowWorkbench
+                  dslText={dslText}
+                  setDslText={setDslText}
+                  parsedScript={parsedScript}
+                  runStepId={runStepId}
+                  setRunStepId={setRunStepId}
+                  baseUrl={baseUrl}
+                  setBaseUrl={setBaseUrl}
+                  bearerToken={bearerToken}
+                  setBearerToken={setBearerToken}
+                  globalHeadersText={globalHeadersText}
+                  setGlobalHeadersText={setGlobalHeadersText}
+                  runReport={runReport}
+                  disabledStepIds={disabledFlowStepIds}
+                  setDisabledStepIds={setDisabledFlowStepIds}
+                  onDirtyChange={setFlowDirty}
+                  requestConfirm={requestConfirm}
+                  selectedProjectId={selectedProjectId}
+                  projectName={projectName}
+                  editorTheme={apiJsonEditorTheme}
+                  editorHighlightStyle={syntaxHighlighting(apiJsonHighlightStyle)}
+                  completionSource={dslCompletionSource}
+                />
+              </Paper>
 
                 {aiPatch?.patch_operations?.length > 0 && (
                   <Paper 

@@ -19,8 +19,21 @@ export default function FlowVariablePanel({
   onInsertVariable,
 }) {
   return (
-    <Paper sx={{ p: 2, borderRadius: 3, border: '1px solid rgba(255,255,255,0.65)', bgcolor: 'rgba(255,255,255,0.52)' }}>
-      <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 1.5 }}>变量流转</Typography>
+    <Box 
+      sx={{ 
+        p: 2.5, 
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowY: 'auto'
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2, pb: 1, borderBottom: '1px solid', borderColor: 'rgba(0,0,0,0.04)' }}>
+        <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: 'secondary.50', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'secondary.main' }}>
+          <Box sx={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid currentColor' }} />
+        </Box>
+        <Typography variant="subtitle2" fontWeight={800}>上下文变量池</Typography>
+      </Stack>
       <Stack spacing={1.25}>
         <Box>
           <Typography variant="caption" color="text.secondary" fontWeight={700}>初始变量</Typography>
@@ -58,7 +71,7 @@ export default function FlowVariablePanel({
           </Stack>
         </Box>
       </Stack>
-    </Paper>
+    </Box>
   );
 }
 

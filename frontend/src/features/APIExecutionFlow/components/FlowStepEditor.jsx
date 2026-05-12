@@ -40,11 +40,22 @@ export default function FlowStepEditor({
   onUpdateRetry,
 }) {
   return (
-    <Paper sx={{ p: 2, borderRadius: 3, border: '1px solid rgba(255,255,255,0.65)', bgcolor: 'rgba(255,255,255,0.52)' }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+    <Box 
+      sx={{ 
+        p: 2.5, 
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowY: 'auto'
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2, pb: 1, borderBottom: '1px solid', borderColor: 'rgba(0,0,0,0.04)' }}>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="subtitle2" fontWeight={800}>步骤配置</Typography>
-          {dirty && <Chip size="small" label="未保存" color="warning" variant="outlined" />}
+          <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
+            <AddOutlined fontSize="small" sx={{ transform: 'rotate(45deg)' }} />
+          </Box>
+          <Typography variant="subtitle2" fontWeight={800}>步骤精细配置</Typography>
+          {dirty && <Chip size="small" label="未保存" color="warning" variant="filled" sx={{ height: 20, fontSize: '0.7rem', fontWeight: 800 }} />}
         </Stack>
         <Button size="small" variant="contained" startIcon={<SaveOutlined />} disabled={!stepDraft} onClick={onSave}>保存步骤</Button>
       </Stack>
@@ -97,6 +108,6 @@ export default function FlowStepEditor({
           <JsonField label="Retry" value={stepDraft.retryText} onChange={(value) => onUpdateDraft({ retryText: value })} minRows={3} />
         </Stack>
       )}
-    </Paper>
+    </Box>
   );
 }

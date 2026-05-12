@@ -49,11 +49,20 @@ export default function FlowStepList({
   const stepIds = steps.map((step) => step.id);
 
   return (
-    <Paper sx={{ p: 2, borderRadius: 3, border: '1px solid rgba(255,255,255,0.65)', bgcolor: 'rgba(255,255,255,0.52)' }}>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-        <SwapVertOutlined color="primary" fontSize="small" />
-        <Typography variant="subtitle2" fontWeight={800}>流程步骤</Typography>
-        <Chip size="small" label={`${steps.length} 步`} variant="outlined" />
+    <Box 
+      sx={{ 
+        p: 2.5, 
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column'
+      }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2, pb: 1, borderBottom: '1px solid', borderColor: 'rgba(0,0,0,0.04)' }}>
+        <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
+          <SwapVertOutlined fontSize="small" />
+        </Box>
+        <Typography variant="subtitle2" fontWeight={800} sx={{ flex: 1 }}>大纲与流程管理</Typography>
+        <Chip size="small" label={`${steps.length} 步`} variant="outlined" sx={{ fontWeight: 700, borderRadius: 1.5 }} />
       </Stack>
       <DndContext
         sensors={sensors}
@@ -83,7 +92,7 @@ export default function FlowStepList({
           </Stack>
         </SortableContext>
       </DndContext>
-    </Paper>
+    </Box>
   );
 }
 

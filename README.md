@@ -10,12 +10,13 @@
 
 ## 核心特性
 
-- **多通道智能问答 (Agentic RAG)**：LLM 自动识别用户问题意图（图谱/向量/混合/可视化）。支持自动改写查询、评估答案充分性的多步推理，并搭配 BGE 重排序 (Reranker) 提升精度。所有回答均标注精确引用。
-- **多智能体测试用例生成**：基于 AutoGen 的“需求分析 → 用例生成 → 用例评审”三阶段流水线。支持 Prompt Hub 动态配置模板与技能，生成结果自动“双写落盘”至图谱和向量库，支持导出 Excel/XMind。
-- **动态图谱可视化**：vis.js 实时渲染，支持拖拽、缩放、节点高亮。支持多维筛选和 2 度关系子图探索。
+- **多通道智能问答 (Agentic RAG)**：LLM 自动识别用户问题意图（图谱/向量/混合/可视化），支持自动改写查询、评估答案充分性的多步推理，搭配 BGE 重排序 (Reranker) 提升精度，所有回答均标注精确引用。
+- **多智能体测试用例生成**：基于 AutoGen 的三阶段流水线（需求分析、用例生成、用例评审），支持 Prompt Hub 动态配置模板与技能，生成结果双写落盘至图谱和向量库，支持导出 Excel/XMind。
+- **全链路 API 自动化**：IDE 级三栏式工作台，支持接口编排拖拽排序、变量跨步骤注入、AI 修复补丁、执行历史批量管理（勾选删除/一键清空全部）及执行经验知识沉淀。
+- **动态图谱可视化**：vis.js 实时渲染，支持拖拽、缩放、节点高亮，支持多维筛选和 2 度关系子图探索。
 - **全链路数据仪表盘**：涵盖图谱覆盖率、API 自动化健康度及 UI 自动化（规划中）的多维度可视化聚合看板，快速定位高风险功能。
 - **全格式文档解析与管理**：支持 16 种文件格式的解析（PDF/Word/Markdown/XMind 等），提供异步上传、文件追踪、重新索引及批量管理。
-- **灵活的部署与配置**：支持 OpenAI / Qwen / DeepSeek / Mimo 等多 Provider；原生支持企业级通知 Webhook。
+- **灵活的部署与配置**：支持 OpenAI / Qwen / DeepSeek / Mimo 等多 Provider；运行时产物统一存放在 backend/runtime/，支持 OPENMELON_DATA_DIR 自定义挂载；原生支持企业级通知 Webhook。
 
 ---
 
@@ -124,17 +125,32 @@ npm run dev
 ```text
 OpenMelon/
 ├── backend/app/
-│   ├── api/             # FastAPI 路由映射与依赖注入
-│   ├── engine/          # RAG 核心编排层（意图路由、多路召回、Rerank）
-│   ├── storage/         # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
-│   ├── services/        # 业务逻辑（文档解析、覆盖率计算等）
-│   └── testcase_gen/    # 基于 AutoGen 的多智能体测试用例生成模块
-├── frontend/src/        # React 前端代码，已按 pages + features 结构拆分业务模块
-├── docs/                # 项目补充文档及截图资源
-└── docker-compose.yml   # 容器编排文件
+│   ├── api/                 # 通用 FastAPI 路由（问答、图谱、导入、日志等）
+│   ├── api_execution/       # API 自动化模块（接口解析、DSL、编排执行、策略、AI 修复、知识沉淀）
+│   │   ├── routes/          # 各子模块路由（runs、specs、projects、knowledge、templates 等）
+│   │   ├── services/        # 业务服务（run_service、spec_service、knowledge_service 等）
+│   │   └── sqlite_store.py  # 模块专属 SQLite 存储层
+│   ├── engine/              # RAG 核心编排层（意图路由、多路召回、Rerank）
+│   ├── storage/             # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
+│   ├── services/            # 业务逻辑（文档解析、覆盖率计算、会话管理、企业 Webhook 等）
+│   ├── testcase_gen/        # 基于 AutoGen 的多智能体测试用例生成模块
+│   └── runtime_paths.py     # 集中管理所有运行时产物路径，支持 OPENMELON_DATA_DIR 环境变量
+├── backend/runtime/         # 运行时产物（数据库、日志、上传文件等，不提交 git）
+│   ├── data/openmelon.db    # SQLite 主库（执行历史、项目、知识、Prompt Hub 等所有结构化数据）
+│   ├── data/uploads/        # 用户上传的原始文件
+│   └── logs/                # 应用日志
+├── frontend/src/
+│   ├── pages/               # 页面组件（QA、Graph、Manage、TestCase、APIExecution、Dashboard、Settings）
+│   ├── features/            # 功能模块（APIExecution、APIExecutionFlow、Graph、QA、PromptHub 等）
+│   ├── api/                 # 前端 API 客户端（execution.js、client.js 等）
+│   └── components/          # 通用 UI 组件
+├── docs/                    # 项目补充文档及截图资源
+├── deploy/                  # 部署配置（Nginx、Docker 相关）
+├── scripts/                 # 运维脚本
+└── docker-compose.yml       # 容器编排文件
 ```
 
-后端所有的运行态产物（数据库、日志、导出文件、上传文件及旧 JSON 数据）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
+后端所有的运行时产物（数据库、日志、导出文件、上传文件）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
 
 ---
 

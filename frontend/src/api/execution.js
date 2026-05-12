@@ -292,6 +292,17 @@ export const apiExecutionAPI = {
       method: 'DELETE',
     }),
 
+  batchDeleteRuns: (runIds) =>
+    fetchJSON(`${API_BASE}/api-execution/runs/batch-delete`, {
+      method: 'POST',
+      body: JSON.stringify(runIds),
+    }),
+
+  clearAllRuns: () =>
+    fetchJSON(`${API_BASE}/api-execution/runs/clear-all`, {
+      method: 'DELETE',
+    }),
+
   exportPytest: (script) =>
     fetchBlob(`${API_BASE}/api-execution/export/pytest`, {
       method: 'POST',

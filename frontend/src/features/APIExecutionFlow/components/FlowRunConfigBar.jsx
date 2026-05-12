@@ -1,4 +1,5 @@
 import {
+  Box,
   Button,
   FormControl,
   InputLabel,
@@ -22,7 +23,7 @@ export default function FlowRunConfigBar({
   onOpenTemplateDialog,
 }) {
   return (
-    <Paper sx={{ p: 2, borderRadius: 3, border: '1px solid rgba(255,255,255,0.65)', bgcolor: 'rgba(255,255,255,0.5)' }}>
+    <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
         <TextField size="small" label="Base URL" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} sx={{ flex: 1 }} />
         <FormControl size="small" sx={{ minWidth: 220 }}>
@@ -34,10 +35,10 @@ export default function FlowRunConfigBar({
         <TextField size="small" label="Bearer Token" type="password" value={bearerToken} onChange={(event) => setBearerToken(event.target.value)} sx={{ minWidth: 220 }} />
       </Stack>
       <TextField size="small" label="全局请求头 (JSON)" multiline minRows={2} value={globalHeadersText} onChange={(event) => setGlobalHeadersText(event.target.value)} sx={{ mt: 1.5, width: '100%', '& .MuiInputBase-input': { fontFamily: 'monospace' } }} />
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }}>
-        <Button size="small" variant="outlined" onClick={() => onOpenTemplateDialog('load')}>载入流程模板</Button>
-        <Button size="small" variant="contained" onClick={() => onOpenTemplateDialog('save')}>保存为流程模板</Button>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
+        <Button size="small" variant="outlined" onClick={() => onOpenTemplateDialog('load')} sx={{ borderRadius: 2 }}>载入流程模板</Button>
+        <Button size="small" variant="contained" onClick={() => onOpenTemplateDialog('save')} sx={{ borderRadius: 2, bgcolor: '#475569', color: '#fff', '&:hover': { bgcolor: '#334155' } }}>保存为流程模板</Button>
       </Stack>
-    </Paper>
+    </Box>
   );
 }
