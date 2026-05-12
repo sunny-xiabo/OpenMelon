@@ -190,3 +190,41 @@ def test_unified_automation_and_knowledge_store_roundtrip(tmp_path):
 
     assert store.list_automation_runs()[0]["automation_run_id"] == "api-run:run-1"
     assert store.list_knowledge_items(item_type="api_run_summary")[0]["knowledge_id"] == "knowledge-1"
+
+
+def test_flow_template_automation_definition_store_roundtrip(tmp_path):
+    store = APIExecutionStore(tmp_path)
+    template = store.save_automation_definition(
+        {
+            "definition_id": "flow-template:template-1",
+            "definition_type": "flow_template",
+            "automation_type": "api",
+            "template_id": "template-1",
+            "project_id": "project-1",
+            "name": "登录流程",
+            "description": "登录后查询用户",
+            "tags": ["smoke"],
+            "script": {
+                "case_id": "case-1",
+                "name": "登录流程",
+                "steps": [{"id": "login", "name": "login", "method": "POST", "path": "/login", "operation_id": "login"}],
+            },
+            "created_at": "2026-05-11T00:00:01Z",
+            "updated_at": "2026-05-11T00:00:02Z",
+        }
+    )
+    store.save_automation_definition(
+        {
+            "definition_id": "api:case-1",
+            "automation_type": "api",
+            "name": "普通自动化定义",
+            "created_at": "2026-05-11T00:00:01Z",
+            "updated_at": "2026-05-11T00:00:03Z",
+        }
+    )
+
+    assert store.get_automation_definition("flow-template:template-1") == template
+    assert [item["template_id"] for item in store.list_automation_definitions(definition_type="flow_template")] == ["template-1"]
+    assert [item["template_id"] for item in store.list_automation_definitions(project_id="project-1", definition_type="flow_template")] == ["template-1"]
+    assert store.list_automation_definitions(project_id="project-2", definition_type="flow_template") == []
+    assert store.delete_automation_definition("flow-template:template-1") is True

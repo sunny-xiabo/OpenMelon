@@ -1,8 +1,10 @@
 import hashlib
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 import json
 import os
 import tempfile
 import uuid
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,13 +16,20 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
+from app.api.logging_service import log_event
 from app.api_execution.schemas import (
     APIEnvironmentConfig,
     APIEnvironmentListResponse,
     APIEnvironmentUpsertRequest,
+    APIFlowTemplate,
+    APIFlowTemplateListResponse,
+    APIFlowTemplateUpsertRequest,
     AIDslEnhanceRequest,
+    AIFlowDraftRequest,
+    AIFlowDraftResponse,
     AIRepairPatchRequest,
     AIPatchResponse,
+    AutomationTaskCenterSummaryResponse,
     AutomationTaskListResponse,
     AutomationTaskRecord,
     APIOperationAsset,
@@ -30,11 +39,16 @@ from app.api_execution.schemas import (
     PolicyAuditListResponse,
     APITestCaseDsl,
     CreateRunResponse,
+    DemoBootstrapResponse,
     ExportScriptRequest,
     GenerateDslRequest,
     KnowledgeIngestResponse,
     KnowledgeCandidateApproveResponse,
+    KnowledgeCandidateCreateResponse,
+    KnowledgeItem,
+    KnowledgeReviewResponse,
     KnowledgeSearchResponse,
+    KnowledgeStatusUpdateRequest,
     OpenAPIParseResponse,
     OperationsResponse,
     ParseUrlRequest,
@@ -47,6 +61,7 @@ from app.api_execution.schemas import (
     ValidateDslRequest,
 )
 from app.api_execution.ai_assistant import (
+    build_flow_draft,
     build_repair_patch,
     build_repair_patch_with_configured_ai,
     enhance_dsl_with_configured_ai,
@@ -66,10 +81,369 @@ from app.api_execution.utils import now_iso as _now_iso
 
 router = APIRouter(prefix="/api-execution", tags=["api-execution"])
 
+RUN_STATUSES = ("queued", "running", "passed", "failed", "cancelled")
+FLOW_TEMPLATE_DEFINITION_TYPE = "flow_template"
+TASK_CENTER_STATUSES = ("pending", "running", "failed", "resolved")
+TASK_TYPE_LABELS = {
+    "manual_review": "失败待诊断",
+    "knowledge_ingest_candidate": "知识待确认",
+    "knowledge_write_failure": "知识写入失败",
+    "scheduled_run_review": "定时执行待处理",
+    "policy_blocked": "策略阻断",
+}
+TASK_ACTION_BUCKETS = (
+    ("failure_diagnosis", "失败待诊断", {"manual_review"}),
+    ("knowledge_confirmation", "知识待确认", {"knowledge_ingest_candidate"}),
+    ("policy_blocked", "策略阻断", {"policy_blocked", "scheduled_run_review"}),
+    ("knowledge_write_failure", "写入失败", {"knowledge_write_failure"}),
+    ("scheduled_failure", "定时失败", {"scheduled_run_review"}),
+)
+
+
+def _dashboard_summary(project_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 200))
+    project_filter = project_id.strip() if project_id else None
+    runs = api_execution_store.list_runs(limit=safe_limit, project_id=project_filter)
+    pending_tasks = api_execution_store.list_automation_tasks(
+        limit=200,
+        status="pending",
+        project_id=project_filter,
+    )
+
+    status_counts = {status: 0 for status in RUN_STATUSES}
+    total_duration = 0
+    duration_count = 0
+    failure_reasons: Counter[str] = Counter()
+    failure_steps: Counter[str] = Counter()
+    template_runs: dict[str, dict[str, Any]] = {}
+    recent_failures = []
+
+    for run in runs:
+        status = str(run.get("status") or "").lower()
+        if status in status_counts:
+            status_counts[status] += 1
+        duration_ms = _safe_int(run.get("duration_ms"))
+        if duration_ms > 0 and status not in {"queued", "running"}:
+            total_duration += duration_ms
+            duration_count += 1
+        template_id = str((run.get("execution_options") or {}).get("flow_template_id") or "").strip()
+        if template_id:
+            template_name = str((run.get("execution_options") or {}).get("flow_template_name") or template_id).strip() or template_id
+            template = template_runs.setdefault(template_id, {
+                "template_id": template_id,
+                "template_name": template_name,
+                "run_count": 0,
+                "passed": 0,
+                "failed": 0,
+                "cancelled": 0,
+                "running": 0,
+                "queued": 0,
+                "total_duration_ms": 0,
+                "duration_count": 0,
+                "last_run_at": "",
+            })
+            template["run_count"] += 1
+            template[status] = template.get(status, 0) + 1
+            if duration_ms > 0 and status not in {"queued", "running"}:
+                template["total_duration_ms"] += duration_ms
+                template["duration_count"] += 1
+            if not template["last_run_at"] or str(run.get("run_at") or "") > template["last_run_at"]:
+                template["last_run_at"] = str(run.get("run_at") or "")
+        if status == "failed":
+            reason = _failure_reason(run)
+            failure_reasons[reason] += 1
+            for result in run.get("results") or []:
+                if result.get("status") != "passed":
+                    failure_steps[_failure_step_key(result)] += 1
+            recent_failures.append(_run_summary(run))
+
+    total_runs = len(runs)
+    passed_count = status_counts["passed"]
+    finished_count = sum(status_counts[status] for status in ("passed", "failed", "cancelled"))
+    pass_rate = round((passed_count / finished_count) * 100, 1) if finished_count else 0
+
+    return {
+        "project_id": project_filter or "",
+        "limit": safe_limit,
+        "total_runs": total_runs,
+        "status_counts": status_counts,
+        "pass_rate": pass_rate,
+        "average_duration_ms": round(total_duration / duration_count) if duration_count else 0,
+        "pending_task_count": len(pending_tasks),
+        "failure_reason_top": _counter_items(failure_reasons),
+        "failure_step_top": _counter_items(failure_steps),
+        "template_stats": [
+            {
+                "template_id": item["template_id"],
+                "template_name": item["template_name"],
+                "run_count": item["run_count"],
+                "pass_rate": _rate(item["passed"], item["passed"] + item["failed"]),
+                "failure_rate": _rate(item["failed"], item["passed"] + item["failed"]),
+                "failed_count": item["failed"],
+                "average_duration_ms": round(item["total_duration_ms"] / item["duration_count"]) if item["duration_count"] else 0,
+                "last_run_at": item["last_run_at"],
+            }
+            for item in sorted(template_runs.values(), key=lambda entry: (-entry["run_count"], entry["template_name"]))
+        ][:5],
+        "recent_failures": recent_failures[:10],
+        "recent_runs": [_run_summary(run) for run in runs[:20]],
+    }
+
+
+def _task_center_summary(project_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 200))
+    project_filter = project_id.strip() if project_id else None
+    tasks_by_status = {
+        status: api_execution_store.list_automation_tasks(limit=200, status=status, project_id=project_filter)
+        for status in TASK_CENTER_STATUSES
+    }
+    tasks = [task for status in TASK_CENTER_STATUSES for task in tasks_by_status[status]]
+
+    status_counts = {status: len(tasks_by_status[status]) for status in TASK_CENTER_STATUSES}
+    risk_counter: Counter[str] = Counter()
+    type_stats: dict[str, dict[str, Any]] = {}
+    bucket_stats = {
+        bucket: {"bucket": bucket, "label": label, "count": 0, "pending_count": 0, "task_types": set()}
+        for bucket, label, _types in TASK_ACTION_BUCKETS
+    }
+
+    for task in tasks:
+        status = str(task.get("status") or "pending")
+        task_type = _normalized_task_type(task)
+        risk = str(task.get("risk_level") or "unknown")
+        risk_counter[risk] += 1
+        type_item = type_stats.setdefault(
+            task_type,
+            {
+                "task_type": task_type,
+                "label": TASK_TYPE_LABELS.get(task_type, task_type or "未分类任务"),
+                "count": 0,
+                "pending_count": 0,
+                "failed_count": 0,
+                "resolved_count": 0,
+            },
+        )
+        type_item["count"] += 1
+        if status == "pending":
+            type_item["pending_count"] += 1
+        elif status == "failed":
+            type_item["failed_count"] += 1
+        elif status == "resolved":
+            type_item["resolved_count"] += 1
+
+        for bucket, _label, task_types in TASK_ACTION_BUCKETS:
+            if task_type not in task_types:
+                continue
+            bucket_stats[bucket]["count"] += 1
+            bucket_stats[bucket]["task_types"].add(task_type)
+            if status == "pending":
+                bucket_stats[bucket]["pending_count"] += 1
+
+    recent_tasks = sorted(
+        tasks,
+        key=lambda item: (item.get("updated_at") or item.get("created_at") or ""),
+        reverse=True,
+    )[:safe_limit]
+
+    return {
+        "total_task_count": len(tasks),
+        "pending_task_count": status_counts["pending"],
+        "failed_task_count": status_counts["failed"],
+        "resolved_task_count": status_counts["resolved"],
+        "status_counts": status_counts,
+        "risk_counts": [{"label": label, "count": count} for label, count in risk_counter.most_common()],
+        "type_counts": sorted(type_stats.values(), key=lambda item: (-item["pending_count"], -item["count"], item["label"])),
+        "action_buckets": [
+            {
+                **bucket,
+                "task_types": sorted(bucket["task_types"]),
+            }
+            for bucket in bucket_stats.values()
+        ],
+        "recent_tasks": recent_tasks,
+    }
+
+
+def _normalized_task_type(task: dict[str, Any]) -> str:
+    task_type = str(task.get("task_type") or "").strip()
+    decision = task.get("decision") or {}
+    if decision.get("allowed") is False and str(decision.get("risk_level") or "") == "blocked":
+        return "policy_blocked"
+    return task_type or "manual_review"
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _rate(count: int, total: int) -> float:
+    return round((count / total) * 100, 1) if total else 0
+
+
+def _flow_template_performance(project_id: str | None = None, limit: int = 200) -> dict[str, dict[str, Any]]:
+    performance: dict[str, dict[str, Any]] = {}
+    for run in api_execution_store.list_runs(limit=limit, project_id=project_id):
+        template_id = str((run.get("execution_options") or {}).get("flow_template_id") or "").strip()
+        if not template_id:
+            continue
+        status = str(run.get("status") or "").lower()
+        item = performance.setdefault(
+            template_id,
+            {
+                "run_count": 0,
+                "passed": 0,
+                "failed": 0,
+                "cancelled": 0,
+                "last_run_at": "",
+            },
+        )
+        item["run_count"] += 1
+        if status in {"passed", "failed", "cancelled"}:
+            item[status] += 1
+        if not item["last_run_at"] or str(run.get("run_at") or "") > item["last_run_at"]:
+            item["last_run_at"] = str(run.get("run_at") or "")
+    for item in performance.values():
+        finished = item["passed"] + item["failed"] + item["cancelled"]
+        item["pass_rate"] = round(item["passed"] / finished, 3) if finished else 0
+        item["failure_rate"] = round(item["failed"] / finished, 3) if finished else 0
+    return performance
+
+
+def _failure_reason(run: dict[str, Any]) -> str:
+    reason = str(run.get("failure_reason") or "").strip()
+    if reason:
+        return reason
+    for result in run.get("results") or []:
+        if result.get("status") == "passed":
+            continue
+        error = str(result.get("error") or "").strip()
+        if error:
+            return error
+        for assertion in result.get("assertions") or []:
+            if not assertion.get("passed"):
+                message = str(assertion.get("message") or assertion.get("type") or "").strip()
+                if message:
+                    return message
+    return "未知失败"
+
+
+def _failure_step_key(result: dict[str, Any]) -> str:
+    method = str(result.get("method") or "").upper() or "HTTP"
+    target = str(result.get("url") or result.get("name") or result.get("step_id") or "未知步骤").strip()
+    return f"{method} {target}"
+
+
+def _counter_items(counter: Counter[str], limit: int = 5) -> list[dict[str, Any]]:
+    return [{"label": label, "count": count} for label, count in counter.most_common(limit)]
+
+
+def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
+    options = run.get("execution_options") or {}
+    return {
+        "run_id": run.get("run_id") or "",
+        "run_at": run.get("run_at") or run.get("finished_at") or run.get("started_at") or "",
+        "case_id": run.get("case_id") or "",
+        "case_name": run.get("case_name") or "",
+        "project_id": options.get("project_id") or "",
+        "project_name": (options.get("project_policy_snapshot") or {}).get("name") or "",
+        "environment_id": options.get("environment_id") or "",
+        "environment_name": (options.get("environment_snapshot") or {}).get("name") or "",
+        "status": run.get("status") or "",
+        "mode": run.get("mode") or "",
+        "duration_ms": _safe_int(run.get("duration_ms")),
+        "total": _safe_int(run.get("total")),
+        "passed": _safe_int(run.get("passed")),
+        "failed": _safe_int(run.get("failed")),
+        "failure_reason": _failure_reason(run) if run.get("status") == "failed" else "",
+    }
+
+
+def _flow_template_from_definition(definition: dict[str, Any]) -> dict[str, Any]:
+    template_id = definition.get("template_id") or definition.get("definition_id", "").replace("flow-template:", "", 1)
+    project_id = definition.get("project_id", "")
+    return {
+        "template_id": template_id,
+        "project_id": project_id,
+        "name": definition.get("name", ""),
+        "description": definition.get("description", ""),
+        "tags": definition.get("tags") or [],
+        "script": definition.get("script") or {},
+        "version": definition.get("version") or "v1",
+        "deprecated": bool(definition.get("deprecated", False)),
+        "scope": definition.get("scope") or ("项目内" if project_id else "全项目可用"),
+        "performance_snapshot": definition.get("performance_snapshot") or _flow_template_performance(project_id or None).get(template_id, {}),
+        "created_at": definition.get("created_at", ""),
+        "updated_at": definition.get("updated_at", ""),
+    }
+
 
 @router.get("/projects", response_model=APIProjectListResponse)
 async def list_projects():
     return {"projects": api_execution_store.list_projects()}
+
+
+@router.get("/dashboard/summary")
+async def get_dashboard_summary(project_id: str | None = None, limit: int = 50):
+    return _dashboard_summary(project_id=project_id, limit=limit)
+
+
+@router.get("/flow-templates", response_model=APIFlowTemplateListResponse)
+async def list_flow_templates(project_id: str | None = None, limit: int = 100):
+    safe_limit = max(1, min(limit, 200))
+    definitions = api_execution_store.list_automation_definitions(
+        limit=safe_limit,
+        project_id=project_id,
+        definition_type=FLOW_TEMPLATE_DEFINITION_TYPE,
+    )
+    return {"templates": [_flow_template_from_definition(item) for item in definitions]}
+
+
+@router.post("/flow-templates", response_model=APIFlowTemplate)
+async def upsert_flow_template(request: APIFlowTemplateUpsertRequest):
+    now = _now_iso()
+    template_id = request.template_id or str(uuid.uuid4())
+    definition_id = f"flow-template:{template_id}"
+    existing = api_execution_store.get_automation_definition(definition_id) or {}
+    tags = [tag.strip() for tag in request.tags if tag.strip()]
+    name = request.name.strip() or request.script.name or "API 流程模板"
+    script = {
+        **request.script.model_dump(),
+        "flow_template_id": template_id,
+        "flow_template_name": name,
+        "flow_template_tags": tags,
+    }
+    definition = {
+        **existing,
+        "definition_id": definition_id,
+        "definition_type": FLOW_TEMPLATE_DEFINITION_TYPE,
+        "automation_type": "api",
+        "template_id": template_id,
+        "project_id": request.project_id.strip(),
+        "name": name,
+        "description": request.description.strip(),
+        "tags": tags,
+        "script": script,
+        "status": "active",
+        "source_id": request.script.case_id,
+        "created_at": existing.get("created_at") or now,
+        "updated_at": now,
+    }
+    saved = api_execution_store.save_automation_definition(definition)
+    return _flow_template_from_definition(saved)
+
+
+@router.delete("/flow-templates/{template_id}")
+async def delete_flow_template(template_id: str):
+    definition_id = template_id if template_id.startswith("flow-template:") else f"flow-template:{template_id}"
+    existing = api_execution_store.get_automation_definition(definition_id)
+    if not existing or existing.get("definition_type") != FLOW_TEMPLATE_DEFINITION_TYPE:
+        raise NotFoundError(message=str("流程模板不存在"))
+    if not api_execution_store.delete_automation_definition(definition_id):
+        raise NotFoundError(message=str("流程模板不存在"))
+    return {"deleted": True}
 
 
 @router.get("/policy/audits", response_model=PolicyAuditListResponse)
@@ -85,6 +459,11 @@ async def list_automation_tasks(limit: int = 20, status: str | None = None, proj
     return {"tasks": api_execution_store.list_automation_tasks(safe_limit, safe_status, project_id)}
 
 
+@router.get("/automation/task-center/summary", response_model=AutomationTaskCenterSummaryResponse)
+async def get_task_center_summary(limit: int = 50, project_id: str | None = None):
+    return _task_center_summary(project_id=project_id, limit=limit)
+
+
 @router.post("/automation/tasks/{task_id}/resolve", response_model=AutomationTaskRecord)
 async def resolve_automation_task(task_id: str):
     now = _now_iso()
@@ -98,7 +477,8 @@ async def resolve_automation_task(task_id: str):
         },
     )
     if not task:
-        raise HTTPException(status_code=404, detail="待处理任务不存在")
+        raise NotFoundError(message=str("待处理任务不存在"))
+    _log_task_event(task, "task_resolved")
     return task
 
 
@@ -159,17 +539,17 @@ async def search_repair_knowledge(request: Request, query: str, project_id: str 
 async def approve_knowledge_candidate(request: Request, task_id: str):
     task = api_execution_store.get_automation_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="待沉淀候选不存在")
+        raise NotFoundError(message=str("待沉淀候选不存在"))
     if task.get("task_type") != "knowledge_ingest_candidate":
-        raise HTTPException(status_code=400, detail="该待处理项不是知识沉淀候选")
+        raise InvalidRequestError(message=str("该待处理项不是知识沉淀候选"))
     run_id = task.get("run_id")
     run = api_execution_store.get_run(run_id) if run_id else None
     if not run:
-        raise HTTPException(status_code=404, detail="候选关联的执行记录不存在")
+        raise NotFoundError(message=str("候选关联的执行记录不存在"))
 
     response = await _ingest_single_run_to_knowledge(request, run)
     now = _now_iso()
-    api_execution_store.update_automation_task(
+    resolved_task = api_execution_store.update_automation_task(
         task_id,
         {
             "status": "resolved",
@@ -184,7 +564,90 @@ async def approve_knowledge_candidate(request: Request, task_id: str):
             },
         },
     )
+    if resolved_task:
+        _log_task_event(resolved_task, "knowledge_candidate_approved")
     return {"task_id": task_id, "run_id": run_id, **response}
+
+
+@router.get("/knowledge/review", response_model=KnowledgeReviewResponse)
+async def list_knowledge_review_items(
+    limit: int = 50,
+    project_id: str | None = None,
+    status: str | None = None,
+    item_type: str | None = None,
+):
+    safe_limit = max(1, min(limit, 200))
+    items = api_execution_store.list_knowledge_items(limit=200, item_type=item_type)
+    if project_id:
+        safe_project_id = project_id.strip()
+        items = [item for item in items if item.get("project_id", "") in {"", safe_project_id}]
+    if status:
+        safe_status = status.strip()
+        items = [item for item in items if _knowledge_status(item) == safe_status]
+    normalized = [_normalize_knowledge_item(item) for item in items[:safe_limit]]
+    return {"items": normalized}
+
+
+@router.patch("/knowledge/items/{knowledge_id}/status", response_model=KnowledgeItem)
+async def update_knowledge_item_status(knowledge_id: str, request: KnowledgeStatusUpdateRequest):
+    safe_status = request.status.strip()
+    if safe_status not in {"active", "invalid", "revoked"}:
+        raise InvalidRequestError(message=str("知识状态只支持 active、invalid、revoked"))
+    item = _get_knowledge_item(knowledge_id)
+    if not item:
+        raise NotFoundError(message=str("知识项不存在"))
+    now = _now_iso()
+    patch = {
+        **item,
+        "status": safe_status,
+        "governance_note": request.note.strip(),
+        "updated_at": now,
+    }
+    if safe_status == "invalid":
+        patch["invalidated_at"] = now
+        patch["revoked_at"] = None
+    elif safe_status == "revoked":
+        patch["revoked_at"] = now
+        patch["invalidated_at"] = None
+    else:
+        patch["invalidated_at"] = None
+        patch["revoked_at"] = None
+    saved = api_execution_store.save_knowledge_item(patch)
+    _invalidate_knowledge_index()
+    log_event(
+        "warning" if safe_status != "active" else "info",
+        "knowledge",
+        f"knowledge_{safe_status}",
+        "知识状态已更新",
+        request.note.strip() or f"知识项状态更新为 {safe_status}",
+        project_id=saved.get("project_id", ""),
+        trace_id=saved.get("source_run_id") or knowledge_id,
+        source_id=knowledge_id,
+        refs=[saved.get("source_run_id")],
+        data=saved,
+    )
+    return _normalize_knowledge_item(saved)
+
+
+@router.post("/knowledge/runs/{run_id}/candidate", response_model=KnowledgeCandidateCreateResponse)
+async def create_run_knowledge_candidate(run_id: str):
+    run = api_execution_store.get_run(run_id)
+    if not run:
+        raise NotFoundError(message=str("执行历史不存在"))
+    task = _save_knowledge_ingest_candidate(run, trigger_source="manual_repair_deposit")
+    if not task:
+        raise InvalidRequestError(message=str("该执行记录暂不能生成知识沉淀候选"))
+    summary = task.get("summary") or {}
+    return {
+        "task_id": task.get("task_id", ""),
+        "run_id": run_id,
+        "status": task.get("status", "pending"),
+        "risk_level": task.get("risk_level", "medium"),
+        "reason": task.get("reason", ""),
+        "candidate_item_count": summary.get("candidate_item_count", 0),
+        "has_repair_history": summary.get("has_repair_history", False),
+        "already_resolved": task.get("status") == "resolved",
+    }
 
 
 @router.post("/projects", response_model=APIProjectConfig)
@@ -206,28 +669,28 @@ async def upsert_project(request: APIProjectUpsertRequest):
 async def get_project(project_id: str):
     project = api_execution_store.get_project(project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="API 项目不存在")
+        raise NotFoundError(message=str("API 项目不存在"))
     return project
 
 
 @router.delete("/projects/{project_id}")
 async def delete_project(project_id: str):
     if not api_execution_store.delete_project(project_id):
-        raise HTTPException(status_code=404, detail="API 项目不存在")
+        raise NotFoundError(message=str("API 项目不存在"))
     return {"deleted": True}
 
 
 @router.get("/projects/{project_id}/environments", response_model=APIEnvironmentListResponse)
 async def list_project_environments(project_id: str):
     if not api_execution_store.get_project(project_id):
-        raise HTTPException(status_code=404, detail="API 项目不存在")
+        raise NotFoundError(message=str("API 项目不存在"))
     return {"environments": api_execution_store.list_environments(project_id)}
 
 
 @router.post("/projects/{project_id}/environments", response_model=APIEnvironmentConfig)
 async def upsert_project_environment(project_id: str, request: APIEnvironmentUpsertRequest):
     if not api_execution_store.get_project(project_id):
-        raise HTTPException(status_code=404, detail="API 项目不存在")
+        raise NotFoundError(message=str("API 项目不存在"))
     return _save_environment(project_id, request)
 
 
@@ -235,14 +698,14 @@ async def upsert_project_environment(project_id: str, request: APIEnvironmentUps
 async def update_environment(environment_id: str, request: APIEnvironmentUpsertRequest):
     existing = api_execution_store.get_environment(environment_id)
     if not existing:
-        raise HTTPException(status_code=404, detail="API 环境不存在")
+        raise NotFoundError(message=str("API 环境不存在"))
     return _save_environment(existing["project_id"], request, environment_id=environment_id)
 
 
 @router.delete("/environments/{environment_id}")
 async def delete_environment(environment_id: str):
     if not api_execution_store.delete_environment(environment_id):
-        raise HTTPException(status_code=404, detail="API 环境不存在")
+        raise NotFoundError(message=str("API 环境不存在"))
     return {"deleted": True}
 
 
@@ -254,13 +717,13 @@ async def parse_openapi_file(file: UploadFile = File(...)):
     filename = file.filename or ""
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="仅支持 OpenAPI / Postman / HAR / Markdown / Word / Excel / HTML / TXT / CSV 文件")
+        raise InvalidRequestError(message=str("仅支持 OpenAPI / Postman / HAR / Markdown / Word / Excel / HTML / TXT / CSV 文件"))
 
     content = await file.read()
     if not content:
-        raise HTTPException(status_code=400, detail="API 文档文件不能为空")
+        raise InvalidRequestError(message=str("API 文档文件不能为空"))
     if len(content) > MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=413, detail="文件大小不能超过 10MB")
+        raise InvalidRequestError(message=str("文件大小不能超过 10MB"))
 
     content_hash = _content_hash(content)
     cached_spec = api_execution_store.get_spec_by_content_hash(content_hash)
@@ -275,7 +738,7 @@ async def parse_openapi_file(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"API 文档解析失败: {exc}") from exc
+        raise InvalidRequestError(message=str(f"API 文档解析失败: {exc}"))from exc
     finally:
         if "tmp_path" in locals() and os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -295,9 +758,9 @@ async def parse_openapi_url(request: ParseUrlRequest):
             response.raise_for_status()
             parsed_info = await parse_api_description_url(url, client=client, response=response)
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=400, detail=f"OpenAPI URL 获取失败: {exc}") from exc
+        raise InvalidRequestError(message=str(f"OpenAPI URL 获取失败: {exc}"))from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidRequestError(message=str(exc)) from exc
 
     content_hash = _content_hash(response.content)
     if not request.force_refresh:
@@ -310,14 +773,41 @@ async def parse_openapi_url(request: ParseUrlRequest):
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"API 文档解析失败: {exc}") from exc
+        raise InvalidRequestError(message=str(f"API 文档解析失败: {exc}"))from exc
+
+
+@router.get("/demo/openapi", response_model=OpenAPIParseResponse)
+async def load_demo_openapi():
+    demo_file = Path(__file__).resolve().parents[3] / "docs" / "samples" / "api-flow-demo-openapi.json"
+    if not demo_file.exists():
+        raise NotFoundError(message=str("Demo OpenAPI 资产不存在"))
+    try:
+        return _parse_and_store(str(demo_file), filename=demo_file.name)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise InvalidRequestError(message=str(f"Demo OpenAPI 解析失败: {exc}"))from exc
+
+
+@router.post("/demo/bootstrap", response_model=DemoBootstrapResponse)
+async def bootstrap_demo_project():
+    demo_file = Path(__file__).resolve().parents[3] / "docs" / "samples" / "api-flow-demo-openapi.json"
+    if not demo_file.exists():
+        raise NotFoundError(message=str("Demo OpenAPI 资产不存在"))
+    try:
+        spec = await run_in_threadpool(lambda: _parse_and_store(str(demo_file), filename=demo_file.name))
+        return _seed_demo_project(spec)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise InvalidRequestError(message=str(f"Demo 项目初始化失败: {exc}"))from exc
 
 
 @router.get("/specs/{spec_id}/operations", response_model=OperationsResponse)
 async def get_spec_operations(spec_id: str):
     spec = api_execution_store.get_spec(spec_id)
     if not spec:
-        raise HTTPException(status_code=404, detail="OpenAPI 资产不存在")
+        raise NotFoundError(message=str("OpenAPI 资产不存在"))
     return {
         "spec_id": spec_id,
         "operation_count": spec.get("operation_count", 0),
@@ -329,11 +819,11 @@ async def get_spec_operations(spec_id: str):
 async def generate_dsl(request: GenerateDslRequest):
     spec = api_execution_store.get_spec(request.spec_id)
     if not spec:
-        raise HTTPException(status_code=404, detail="OpenAPI 资产不存在")
+        raise NotFoundError(message=str("OpenAPI 资产不存在"))
     try:
         return generate_api_dsl(spec, request.operation_ids)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidRequestError(message=str(exc)) from exc
 
 
 _VALID_ASSERTION_TYPES = {
@@ -381,6 +871,42 @@ async def enhance_dsl_endpoint(request: AIDslEnhanceRequest):
     return await enhance_dsl_with_configured_ai(request.script, request.project_policy_snapshot)
 
 
+@router.post("/ai/flow-draft", response_model=AIFlowDraftResponse)
+async def flow_draft_endpoint(request: AIFlowDraftRequest):
+    spec = api_execution_store.get_spec(request.spec_id)
+    if not spec:
+        raise NotFoundError(message=str("OpenAPI 资产不存在"))
+    project_id = str(request.project_policy_snapshot.get("project_id") or "").strip()
+    flow_templates = [
+        _flow_template_from_definition(item)
+        for item in api_execution_store.list_automation_definitions(
+            limit=50,
+            project_id=project_id or None,
+            definition_type=FLOW_TEMPLATE_DEFINITION_TYPE,
+        )
+    ]
+    template_performance = _flow_template_performance(project_id or None)
+    flow_templates = [
+        {
+            **template,
+            "performance": template_performance.get(template.get("template_id", ""), {}),
+        }
+        for template in flow_templates
+    ]
+    try:
+        return build_flow_draft(
+            spec,
+            request.business_goal,
+            request.operation_ids,
+            project_name=request.project_name,
+            environment_name=request.environment_name,
+            base_url=request.base_url,
+            flow_templates=flow_templates,
+        )
+    except ValueError as exc:
+        raise InvalidRequestError(message=str(exc)) from exc
+
+
 @router.post("/ai/repair-patch", response_model=AIPatchResponse)
 async def repair_patch_endpoint(api_request: Request, request: AIRepairPatchRequest):
     historical_context = await _search_historical_repair_context(
@@ -400,12 +926,12 @@ async def repair_patch_endpoint(api_request: Request, request: AIRepairPatchRequ
 async def auto_repair_and_rerun(run_id: str):
     run = api_execution_store.get_run(run_id)
     if not run:
-        raise HTTPException(status_code=404, detail="执行历史不存在")
+        raise NotFoundError(message=str("执行历史不存在"))
     script = _script_from_report(run)
     if not script:
-        raise HTTPException(status_code=400, detail="执行历史缺少可修复脚本")
+        raise InvalidRequestError(message=str("执行历史缺少可修复脚本"))
     if run.get("status") == "passed" or not run.get("failed"):
-        raise HTTPException(status_code=400, detail="当前执行记录没有失败步骤，无需自动修复")
+        raise InvalidRequestError(message=str("当前执行记录没有失败步骤，无需自动修复"))
 
     options = run.get("execution_options") or {}
     policy_snapshot = options.get("project_policy_snapshot") or {}
@@ -416,7 +942,7 @@ async def auto_repair_and_rerun(run_id: str):
         if result.get("status") != "passed" and result.get("step_id")
     ]
     if not failed_step_ids:
-        raise HTTPException(status_code=400, detail="当前执行记录没有可重跑的失败步骤")
+        raise InvalidRequestError(message=str("当前执行记录没有可重跑的失败步骤"))
 
     try:
         _assert_auto_repair_allowed(run, policy_snapshot)
@@ -469,7 +995,7 @@ async def auto_repair_and_rerun(run_id: str):
         decision = _decision_from_run(run, risk_level="blocked", reason=str(exc))
         _save_automation_task("manual_review", run, decision, reason=str(exc))
         _save_policy_audit("auto_repair_blocked", decision, run_id=run_id)
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidRequestError(message=str(exc)) from exc
 
 
 @router.post("/runs/single-step", response_model=APIStepRunResult)
@@ -486,14 +1012,14 @@ async def run_single_step_endpoint(request: RunScriptRequest):
         saved_report = _save_run_report(_single_step_report(request.script, result, _execution_options(request, policy_decision)))
         return (saved_report.get("results") or [result])[0]
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidRequestError(message=str(exc)) from exc
 
 
 @router.post("/runs", response_model=APIRunReport)
 async def run_all_steps_endpoint(request: RunScriptRequest):
     try:
         if request.replace_run_id and not api_execution_store.get_run(request.replace_run_id):
-            raise HTTPException(status_code=404, detail="要更新的执行历史不存在")
+            raise NotFoundError(message=str("要更新的执行历史不存在"))
         policy_decision = _assert_policy_allowed(request, step_ids=request.step_ids)
         report = await run_all_steps(
             request.script,
@@ -510,12 +1036,14 @@ async def run_all_steps_endpoint(request: RunScriptRequest):
         report["execution_options"] = _execution_options(request, policy_decision)
         if request.replace_run_id:
             report["run_id"] = request.replace_run_id
+            existing = api_execution_store.get_run(request.replace_run_id) or {}
             if request.step_ids:
-                existing = api_execution_store.get_run(request.replace_run_id) or {}
                 report = _merge_partial_run_report(existing, report, request.script)
+            if request.script.ai_repair_source:
+                report = _append_applied_repair_summary(existing, report, request.script, request.step_ids, policy_decision)
         return _save_run_report(report)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidRequestError(message=str(exc)) from exc
 
 
 @router.post("/runs/async", response_model=CreateRunResponse)
@@ -525,7 +1053,7 @@ async def create_background_run(request: RunScriptRequest):
         queued_run = await enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
         return {"run_id": queued_run["run_id"], "status": queued_run["status"]}
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise InvalidRequestError(message=str(exc)) from exc
 
 
 @router.get("/runs", response_model=APIRunHistoryResponse)
@@ -550,7 +1078,7 @@ async def list_case_runs(case_id: str, limit: int = 20):
 async def get_run_report(run_id: str):
     run = api_execution_store.get_run(run_id)
     if not run:
-        raise HTTPException(status_code=404, detail="执行历史不存在")
+        raise NotFoundError(message=str("执行历史不存在"))
     return run
 
 
@@ -558,7 +1086,7 @@ async def get_run_report(run_id: str):
 async def stream_run_progress(run_id: str):
     run = api_execution_store.get_run(run_id)
     if not run:
-        raise HTTPException(status_code=404, detail="执行历史不存在")
+        raise NotFoundError(message=str("执行历史不存在"))
 
     if run.get("status") in {"passed", "failed", "cancelled"}:
         async def _final():
@@ -594,7 +1122,7 @@ def _sse_format(event: str, data: dict[str, Any]) -> str:
 async def cancel_background_run(run_id: str):
     run = await cancel_run(run_id)
     if not run:
-        raise HTTPException(status_code=404, detail="执行历史不存在")
+        raise NotFoundError(message=str("执行历史不存在"))
     return run
 
 
@@ -604,7 +1132,7 @@ async def delete_run_history(run_id: str):
     if run and run.get("status") in {"queued", "running"}:
         await cancel_run(run_id)
     if not api_execution_store.delete_run(run_id):
-        raise HTTPException(status_code=404, detail="执行历史不存在")
+        raise NotFoundError(message=str("执行历史不存在"))
     return {"deleted": True}
 
 
@@ -664,6 +1192,220 @@ def _store_parsed_info(
     }
     api_execution_store.save_spec(spec)
     return spec
+
+
+DEMO_PROJECT_ID = "demo-api-flow"
+DEMO_ENVIRONMENT_ID = "demo-api-flow-local"
+
+
+def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
+    now = _now_iso()
+    base_url = (spec.get("servers") or [{}])[0].get("url") or "http://localhost:18080"
+    project = api_execution_store.save_project(
+        {
+            "project_id": DEMO_PROJECT_ID,
+            "name": "OpenMelon Demo API Flow",
+            "description": "内置 API Flow Orchestration 演示项目，包含订单流程、失败样例和修复知识。",
+            "default_environment_id": DEMO_ENVIRONMENT_ID,
+            "spec_id": spec.get("spec_id"),
+            "enabled": True,
+            "allow_ai_execution": True,
+            "allow_ai_repair": True,
+            "allow_scheduled_execution": False,
+            "allow_ai_generate_dsl": True,
+            "allow_overwrite_history": True,
+            "max_auto_repairs": 2,
+            "max_reruns": 2,
+            "max_requests_per_run": 10,
+            "risk_overrides": {"POST /orders": "medium"},
+            "operation_allowlist": ["POST /auth/login", "POST /orders", "GET /orders/{order_id}"],
+            "operation_blocklist": [],
+            "created_at": (api_execution_store.get_project(DEMO_PROJECT_ID) or {}).get("created_at") or now,
+            "updated_at": now,
+        }
+    )
+    environment = api_execution_store.save_environment(
+        {
+            "environment_id": DEMO_ENVIRONMENT_ID,
+            "project_id": DEMO_PROJECT_ID,
+            "name": "Demo 本地环境",
+            "environment_type": "test",
+            "base_url": base_url,
+            "headers": {"Accept": "application/json"},
+            "variables": {
+                "username": "demo",
+                "password": "demo-password",
+                "sku": "SKU-001",
+            },
+            "timeout_ms": 30000,
+            "continue_on_failure": True,
+            "enabled": True,
+            "created_at": (api_execution_store.get_environment(DEMO_ENVIRONMENT_ID) or {}).get("created_at") or now,
+            "updated_at": now,
+        }
+    )
+    script = _demo_script(spec, base_url)
+    seeded_runs = [
+        _save_run_report(_demo_run_report(script, "demo-run-passed", "passed")),
+        _save_run_report(_demo_run_report(script, "demo-run-failed", "failed")),
+        _save_run_report(_demo_run_report(script, "demo-run-repaired", "repaired")),
+    ]
+    knowledge_ids: set[str] = set()
+    for run in seeded_runs:
+        for item in build_run_knowledge_items(run):
+            api_execution_store.save_knowledge_item(item)
+            knowledge_ids.add(item.get("knowledge_id", ""))
+    pending_tasks = api_execution_store.list_automation_tasks(status="pending", project_id=DEMO_PROJECT_ID)
+    return {
+        "spec": spec,
+        "project": project,
+        "environment": environment,
+        "seeded_run_ids": [run.get("run_id", "") for run in seeded_runs],
+        "knowledge_item_count": len([item for item in knowledge_ids if item]),
+        "pending_task_count": len(pending_tasks),
+    }
+
+
+def _demo_script(spec: dict[str, Any], base_url: str) -> dict[str, Any]:
+    operation_ids = [operation.get("id") for operation in spec.get("operations") or [] if operation.get("id")]
+    script = generate_api_dsl(spec, operation_ids)
+    script.update(
+        {
+            "case_id": "demo-order-flow",
+            "name": "Demo 登录创建订单并查询",
+            "target_project": "OpenMelon Demo API Flow",
+            "environment": "Demo 本地环境",
+            "base_url": base_url,
+            "flow_template_id": "demo-order-template",
+            "flow_template_name": "Demo 订单流程模板",
+            "flow_template_tags": ["demo", "order", "smoke"],
+        }
+    )
+    return script
+
+
+def _demo_run_report(script: dict[str, Any], run_id: str, scenario: str) -> dict[str, Any]:
+    now = _now_iso()
+    results = []
+    failed_step_id = "s3"
+    for step in script.get("steps") or []:
+        step_id = step.get("id", "")
+        status_code = 201 if step.get("operation_id") == "createOrder" else 200
+        status = "passed"
+        assertions = [{"type": "status_code_in", "passed": True, "expected": [status_code], "actual": status_code}]
+        error = ""
+        if scenario == "failed" and step_id == failed_step_id:
+            status = "failed"
+            status_code = 404
+            assertions = [{"type": "status_code_in", "passed": False, "expected": [200], "actual": 404, "message": "期望订单详情返回 200，实际返回 404"}]
+            error = "订单 ID 未正确传递或测试数据不存在"
+        results.append(
+            {
+                "step_id": step_id,
+                "name": step.get("name", ""),
+                "method": step.get("method", ""),
+                "url": f"{script.get('base_url', '')}{step.get('path', '')}",
+                "status": status,
+                "status_code": status_code,
+                "duration_ms": 120 if status == "passed" else 180,
+                "assertions": assertions,
+                "error": error,
+            }
+        )
+    failed = sum(1 for result in results if result["status"] != "passed")
+    passed = len(results) - failed
+    report = {
+        "run_id": run_id,
+        "run_at": now,
+        "case_id": script.get("case_id", ""),
+        "target_project": script.get("target_project", ""),
+        "case_name": script.get("name", ""),
+        "mode": "demo",
+        "script": script,
+        "execution_options": _demo_execution_options(script),
+        "status": "failed" if failed else "passed",
+        "duration_ms": sum(result["duration_ms"] for result in results),
+        "total": len(results),
+        "passed": passed,
+        "failed": failed,
+        "skipped": 0,
+        "results": results,
+        "failure_reason": "订单详情返回 404" if failed else "",
+        "failure_diagnostics": _demo_failure_diagnostics() if failed else [],
+    }
+    if scenario == "repaired":
+        summary = {
+            "type": "controlled_repair_rerun",
+            "source": "low_risk_repair",
+            "source_label": "低风险 AI 修复项",
+            "created_at": "2026-05-12T00:00:00Z",
+            "before": {"status": "failed", "passed": 2, "failed": 1, "duration_ms": 420},
+            "after": {"status": "passed", "passed": 3, "failed": 0, "duration_ms": report["duration_ms"]},
+            "failed_step_ids": [failed_step_id],
+            "patched_fields": [{"step_id": "s3", "field": "path_params", "reason": "修复 order_id 变量引用"}],
+            "status_changed": True,
+            "failed_delta": -1,
+            "risk_level": "low",
+            "repair_effect_score": {"score": 100, "level": "good", "label": "修复有效"},
+        }
+        report["automation_summary"] = summary
+        report["repair_history"] = [summary]
+    return report
+
+
+def _demo_execution_options(script: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_id": DEMO_PROJECT_ID,
+        "environment_id": DEMO_ENVIRONMENT_ID,
+        "base_url": script.get("base_url", ""),
+        "environment_snapshot": {
+            "environment_id": DEMO_ENVIRONMENT_ID,
+            "project_id": DEMO_PROJECT_ID,
+            "name": "Demo 本地环境",
+            "environment_type": "test",
+            "base_url": script.get("base_url", ""),
+            "headers": {"Accept": "application/json"},
+            "variables": {"username": "demo", "password": "demo-password", "sku": "SKU-001"},
+            "timeout_ms": 30000,
+            "continue_on_failure": True,
+        },
+        "project_policy_snapshot": {
+            "project_id": DEMO_PROJECT_ID,
+            "name": "OpenMelon Demo API Flow",
+            "allow_ai_execution": True,
+            "allow_ai_repair": True,
+            "allow_scheduled_execution": False,
+            "allow_ai_generate_dsl": True,
+            "allow_overwrite_history": True,
+            "max_auto_repairs": 2,
+            "max_reruns": 2,
+            "max_requests_per_run": 10,
+            "risk_overrides": {"POST /orders": "medium"},
+            "operation_allowlist": ["POST /auth/login", "POST /orders", "GET /orders/{order_id}"],
+            "operation_blocklist": [],
+        },
+        "flow_template_id": script.get("flow_template_id", ""),
+        "flow_template_name": script.get("flow_template_name", ""),
+        "flow_template_tags": script.get("flow_template_tags", []),
+        "timeout_ms": 30000,
+        "continue_on_failure": True,
+    }
+
+
+def _demo_failure_diagnostics() -> list[dict[str, Any]]:
+    return [
+        {
+            "step_id": "s3",
+            "category": "variable_reference_missing",
+            "severity": "high",
+            "explanation": "订单详情接口返回 404，常见原因是创建订单步骤未正确提取或传递 order_id。",
+            "suggestions": [
+                "确认创建订单响应中的订单 ID 路径，例如 data.id。",
+                "确认查询订单 path_params.order_id 引用 {{order_id}}。",
+                "修复后优先只重跑查询订单失败步骤。",
+            ],
+        }
+    ]
 
 
 def _save_environment(
@@ -734,6 +1476,7 @@ def _save_run_report(report: dict[str, Any]) -> dict[str, Any]:
     api_execution_store.save_run(saved)
     _save_unified_automation_records(saved)
     _save_knowledge_ingest_candidate(saved)
+    _log_run_event(saved)
     return saved
 
 
@@ -841,7 +1584,68 @@ def _save_policy_audit(action: str, decision: dict[str, Any], run_id: str | None
         "approved": decision.get("allowed", False),
         "approval_note": "系统策略自动判定",
     }
-    return api_execution_store.save_policy_audit(audit)
+    saved = api_execution_store.save_policy_audit(audit)
+    _log_policy_event(saved)
+    return saved
+
+
+def _log_run_event(run: dict[str, Any]) -> None:
+    options = run.get("execution_options") or {}
+    status = run.get("status", "")
+    level = "error" if status == "failed" else "warning" if status == "cancelled" else "info"
+    title = "API 执行失败" if status == "failed" else "API 执行完成"
+    log_event(
+        level,
+        "api_execution",
+        f"run_{status or 'unknown'}",
+        title,
+        run.get("failure_reason") or f"通过 {run.get('passed', 0)} / 失败 {run.get('failed', 0)}",
+        project_id=options.get("project_id", ""),
+        trace_id=run.get("run_id", ""),
+        source_id=run.get("run_id", ""),
+        refs=[run.get("case_id"), options.get("environment_id"), options.get("flow_template_id")],
+        data={
+            "run_id": run.get("run_id"),
+            "case_id": run.get("case_id"),
+            "case_name": run.get("case_name"),
+            "status": status,
+            "passed": run.get("passed", 0),
+            "failed": run.get("failed", 0),
+            "duration_ms": run.get("duration_ms", 0),
+        },
+    )
+
+
+def _log_policy_event(audit: dict[str, Any]) -> None:
+    allowed = bool(audit.get("approved"))
+    decision = audit.get("decision") or {}
+    log_event(
+        "info" if allowed else "warning",
+        "policy",
+        audit.get("action", "policy_audit"),
+        "策略允许执行" if allowed else "策略需要关注",
+        audit.get("approval_note") or "系统策略自动判定",
+        project_id=audit.get("project_id", ""),
+        trace_id=audit.get("run_id") or audit.get("audit_id", ""),
+        source_id=audit.get("audit_id", ""),
+        refs=[audit.get("run_id"), audit.get("environment_id")],
+        data={"audit_id": audit.get("audit_id"), "decision": decision},
+    )
+
+
+def _log_task_event(task: dict[str, Any], event_type: str = "task_created") -> None:
+    log_event(
+        "error" if task.get("risk_level") == "blocked" or task.get("status") == "failed" else "warning" if task.get("status") == "pending" else "info",
+        "task_center",
+        event_type,
+        "待处理任务已创建" if event_type == "task_created" else "待处理任务已更新",
+        task.get("reason") or task.get("resolution_note") or task.get("task_id", ""),
+        project_id=task.get("project_id", ""),
+        trace_id=task.get("run_id") or task.get("task_id", ""),
+        source_id=task.get("task_id", ""),
+        refs=[task.get("run_id"), task.get("environment_id"), task.get("result_run_id")],
+        data=task,
+    )
 
 
 def _save_unified_automation_records(run: dict[str, Any]) -> None:
@@ -911,22 +1715,27 @@ def _stage_events_from_run(run: dict[str, Any]) -> list[tuple[str, str]]:
     return events
 
 
-def _save_knowledge_ingest_candidate(run: dict[str, Any]) -> None:
+def _save_knowledge_ingest_candidate(run: dict[str, Any], trigger_source: str = "run_completed") -> dict[str, Any] | None:
     run_id = run.get("run_id")
     if not run_id:
-        return
+        return None
+    task_id = f"knowledge-candidate:{run_id}"
+    existing = api_execution_store.get_automation_task(task_id)
+    if existing and existing.get("status") == "resolved":
+        return existing
+    now = _now_iso()
     decision = {
         "allowed": False,
         "risk_level": _knowledge_candidate_risk(run),
         "project_id": (run.get("execution_options") or {}).get("project_id", ""),
         "environment_id": (run.get("execution_options") or {}).get("environment_id", ""),
-        "trigger_source": "run_completed",
+        "trigger_source": trigger_source,
     }
-    api_execution_store.save_automation_task(
+    task = api_execution_store.save_automation_task(
         {
-            "task_id": f"knowledge-candidate:{run_id}",
-            "created_at": _now_iso(),
-            "updated_at": _now_iso(),
+            "task_id": task_id,
+            "created_at": (existing or {}).get("created_at") or now,
+            "updated_at": now,
             "task_type": "knowledge_ingest_candidate",
             "status": "pending",
             "run_id": run_id,
@@ -939,6 +1748,8 @@ def _save_knowledge_ingest_candidate(run: dict[str, Any]) -> None:
                 "passed": run.get("passed", 0),
                 "failed": run.get("failed", 0),
                 "has_repair_history": bool(run.get("repair_history")),
+                "repair_count": len(run.get("repair_history") or []),
+                "automation_summary_type": (run.get("automation_summary") or {}).get("type", ""),
                 "candidate_item_count": len(build_run_knowledge_items(run)),
             },
             "decision": decision,
@@ -947,6 +1758,8 @@ def _save_knowledge_ingest_candidate(run: dict[str, Any]) -> None:
             "resolution_note": "",
         }
     )
+    _log_task_event(task, "knowledge_candidate_created")
+    return task
 
 
 def _knowledge_candidate_risk(run: dict[str, Any]) -> str:
@@ -987,15 +1800,18 @@ async def _ingest_single_run_to_knowledge(request: Request, run: dict[str, Any])
             response["knowledge_count"] += 1
             if vector_ops is not None and llm_client is not None:
                 response["vector_written"] += await _index_knowledge_item(vector_ops, llm_client, item)
+        if response["knowledge_count"]:
+            _invalidate_knowledge_index()
         if graph_ops is not None:
             graph_result = await write_run_to_graph_with_retry(graph_ops, run)
             if graph_result["success"]:
                 response["graph_written"] += graph_result["written"]
             else:
                 response["errors"].append(f"图谱写入失败: {graph_result['error']}")
-                api_execution_store.save_automation_task(
+                task = api_execution_store.save_automation_task(
                     build_graph_write_failure_task(run, graph_result["error"], graph_result["attempt"])
                 )
+                _log_task_event(task, "knowledge_write_failed")
         response["run_count"] += 1
     except Exception as exc:
         response["errors"].append(f"{run.get('run_id', '<unknown>')}: {exc}")
@@ -1046,6 +1862,7 @@ async def _search_historical_repair_context(
                 for item in items
                 if item.get("item_type") in {"api_repair", "api_failure"}
                 and (not project_id or item.get("project_id") in {"", project_id})
+                and _vector_knowledge_item_is_active(item)
             ]
             if filtered:
                 return filtered[:top_k]
@@ -1070,6 +1887,7 @@ def _build_knowledge_index() -> tuple[list[dict[str, Any]], dict[str, list[int]]
         item
         for item in api_execution_store.list_knowledge_items(limit=200)
         if item.get("item_type") in {"api_repair", "api_failure"}
+        and _knowledge_status(item) == "active"
     ]
     index: dict[str, list[int]] = {}
     for i, item in enumerate(items):
@@ -1089,6 +1907,12 @@ def _get_knowledge_index() -> tuple[list[dict[str, Any]], dict[str, list[int]]]:
         _KNOWLEDGE_INDEX["index"] = index
         _KNOWLEDGE_INDEX["ts"] = now
     return _KNOWLEDGE_INDEX["items"], _KNOWLEDGE_INDEX["index"]
+
+
+def _invalidate_knowledge_index() -> None:
+    _KNOWLEDGE_INDEX["items"] = None
+    _KNOWLEDGE_INDEX["index"] = None
+    _KNOWLEDGE_INDEX["ts"] = 0.0
 
 
 def _search_local_repair_knowledge(query: str, *, project_id: str = "", top_k: int = 3) -> list[dict[str, Any]]:
@@ -1113,6 +1937,36 @@ def _search_local_repair_knowledge(query: str, *, project_id: str = "", top_k: i
     ]
     scored.sort(key=lambda pair: (pair[0], pair[1].get("created_at", "")), reverse=True)
     return [item for _score, item in scored[:top_k]]
+
+
+def _get_knowledge_item(knowledge_id: str) -> dict[str, Any] | None:
+    for item in api_execution_store.list_knowledge_items(limit=500):
+        if item.get("knowledge_id") == knowledge_id:
+            return item
+    return None
+
+
+def _vector_knowledge_item_is_active(item: dict[str, Any]) -> bool:
+    knowledge_id = item.get("knowledge_id", "")
+    if not knowledge_id:
+        return True
+    local_item = _get_knowledge_item(knowledge_id)
+    return not local_item or _knowledge_status(local_item) == "active"
+
+
+def _knowledge_status(item: dict[str, Any]) -> str:
+    status = str(item.get("status") or "active").strip()
+    return status if status in {"active", "invalid", "revoked"} else "active"
+
+
+def _normalize_knowledge_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **item,
+        "status": _knowledge_status(item),
+        "invalidated_at": item.get("invalidated_at"),
+        "revoked_at": item.get("revoked_at"),
+        "governance_note": item.get("governance_note", ""),
+    }
 
 
 async def _generate_embedding(llm_client: Any, text: str) -> list[float]:
@@ -1467,6 +2321,44 @@ def _append_repair_summary(
         "status_changed": before.get("status") != after.get("status"),
         "failed_delta": int(after.get("failed") or 0) - int(before.get("failed") or 0),
         "risk_level": policy_decision.get("risk_level", patch.get("risk_level", "low")),
+        "repair_effect_score": _repair_outcome_score(before, after, policy_decision.get("risk_level", patch.get("risk_level", "low"))),
+    }
+    repair_history = [*(previous.get("repair_history") or []), summary]
+    return {
+        **updated,
+        "automation_summary": summary,
+        "repair_history": repair_history[-10:],
+    }
+
+
+def _append_applied_repair_summary(
+    previous: dict[str, Any],
+    updated: dict[str, Any],
+    script: APITestCaseDsl,
+    rerun_step_ids: list[str],
+    policy_decision: dict[str, Any],
+) -> dict[str, Any]:
+    before = _run_result_summary(previous)
+    after = _run_result_summary(updated)
+    source_labels = {
+        "low_risk_repair": "低风险 AI 修复项",
+        "full_repair_draft": "完整 AI 修复草稿",
+        "direct_patch": "AI 修复补丁",
+    }
+    summary = {
+        "type": "controlled_repair_rerun",
+        "source": script.ai_repair_source,
+        "source_label": source_labels.get(script.ai_repair_source, script.ai_repair_source),
+        "created_at": _now_iso(),
+        "applied_at": script.ai_repair_applied_at,
+        "before": before,
+        "after": after,
+        "failed_step_ids": rerun_step_ids,
+        "patched_fields": script.ai_repair_applied_operations or [],
+        "status_changed": before.get("status") != after.get("status"),
+        "failed_delta": int(after.get("failed") or 0) - int(before.get("failed") or 0),
+        "risk_level": policy_decision.get("risk_level", "low"),
+        "repair_effect_score": _repair_outcome_score(before, after, policy_decision.get("risk_level", "low")),
     }
     repair_history = [*(previous.get("repair_history") or []), summary]
     return {
@@ -1486,6 +2378,33 @@ def _run_result_summary(report: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": report.get("duration_ms", 0),
         "run_at": report.get("run_at") or report.get("finished_at") or "",
     }
+
+
+def _repair_outcome_score(before: dict[str, Any], after: dict[str, Any], risk_level: str = "low") -> dict[str, Any]:
+    before_failed = int(before.get("failed") or 0)
+    after_failed = int(after.get("failed") or 0)
+    score = 50
+    if after.get("status") == "passed":
+        score += 30
+    if before_failed > after_failed:
+        score += min(20, (before_failed - after_failed) * 10)
+    if after_failed > before_failed:
+        score -= min(25, (after_failed - before_failed) * 10)
+    if risk_level == "high":
+        score -= 15
+    elif risk_level == "medium":
+        score -= 5
+    score = max(0, min(100, score))
+    if score >= 80:
+        level = "good"
+        label = "修复有效"
+    elif score >= 60:
+        level = "medium"
+        label = "部分有效"
+    else:
+        level = "low"
+        label = "需继续排查"
+    return {"score": score, "level": level, "label": label}
 
 
 def _save_automation_task(
@@ -1514,7 +2433,9 @@ def _save_automation_task(
         "resolved_at": None,
         "resolution_note": "",
     }
-    return api_execution_store.save_automation_task(task)
+    saved = api_execution_store.save_automation_task(task)
+    _log_task_event(saved)
+    return saved
 
 
 def _decision_from_run(run: dict[str, Any], *, risk_level: str, reason: str) -> dict[str, Any]:

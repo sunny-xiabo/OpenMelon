@@ -73,6 +73,71 @@ def test_search_repair_knowledge_falls_back_to_local_store(tmp_path, monkeypatch
     assert response["items"][0]["knowledge_id"] == "repair-1"
 
 
+def test_search_repair_knowledge_ignores_invalid_items(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    routers._invalidate_knowledge_index()
+    store.save_knowledge_item(
+        {
+            "knowledge_id": "repair-invalid",
+            "item_type": "api_repair",
+            "source_run_id": "run-1",
+            "project_id": "project-1",
+            "status": "invalid",
+            "created_at": "2026-04-29T00:01:00Z",
+            "summary": "GET /health 状态码 201 扩展到 status_code_in",
+            "payload": {"path": "/health"},
+        }
+    )
+    store.save_knowledge_item(
+        {
+            "knowledge_id": "repair-active",
+            "item_type": "api_repair",
+            "source_run_id": "run-2",
+            "project_id": "project-1",
+            "status": "active",
+            "created_at": "2026-04-29T00:00:00Z",
+            "summary": "GET /health 状态码 201 扩展到 status_code_in",
+            "payload": {"path": "/health"},
+        }
+    )
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(vector_ops=None, llm_client=None)))
+
+    response = asyncio.run(routers.search_repair_knowledge(request, query="health 201", project_id="project-1"))
+
+    assert [item["knowledge_id"] for item in response["items"]] == ["repair-active"]
+
+
+def test_knowledge_review_and_status_update(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    store.save_knowledge_item(
+        {
+            "knowledge_id": "repair-1",
+            "item_type": "api_repair",
+            "source_run_id": "run-1",
+            "project_id": "project-1",
+            "created_at": "2026-04-29T00:00:00Z",
+            "summary": "修复经验",
+            "payload": {"repair_effect_score": {"score": 90}},
+        }
+    )
+
+    review = asyncio.run(routers.list_knowledge_review_items(project_id="project-1", status="active"))
+    assert review["items"][0]["status"] == "active"
+
+    response = asyncio.run(
+        routers.update_knowledge_item_status(
+            "repair-1",
+            routers.KnowledgeStatusUpdateRequest(status="invalid", note="接口已下线"),
+        )
+    )
+
+    assert response["status"] == "invalid"
+    assert response["governance_note"] == "接口已下线"
+    assert store.list_knowledge_items()[0]["invalidated_at"]
+
+
 def test_ingest_runs_indexes_knowledge_when_vector_available(tmp_path, monkeypatch):
     class FakeVectorOps:
         def __init__(self):
@@ -142,6 +207,57 @@ def test_approve_knowledge_candidate_ingests_and_resolves_task(tmp_path, monkeyp
     task = store.get_automation_task("knowledge-candidate:run-1")
     assert task["status"] == "resolved"
     assert task["resolution_note"] == "已确认沉淀到知识库"
+
+
+def test_create_run_knowledge_candidate_for_manual_repair_deposit(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    run = _run(status="passed")
+    run["repair_history"] = [
+        {
+            "type": "controlled_repair_rerun",
+            "created_at": "2026-04-29T00:01:00Z",
+            "patched_fields": [{"step_id": "s1", "field": "assertions"}],
+        }
+    ]
+    store.save_run(run)
+
+    response = asyncio.run(routers.create_run_knowledge_candidate("run-1"))
+
+    assert response["task_id"] == "knowledge-candidate:run-1"
+    assert response["status"] == "pending"
+    assert response["has_repair_history"] is True
+    assert response["candidate_item_count"] >= 2
+    task = store.get_automation_task("knowledge-candidate:run-1")
+    assert task["decision"]["trigger_source"] == "manual_repair_deposit"
+    assert task["summary"]["repair_count"] == 1
+
+
+def test_create_run_knowledge_candidate_keeps_resolved_candidate(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    store.save_run(_run(status="passed"))
+    store.save_automation_task(
+        {
+            "task_id": "knowledge-candidate:run-1",
+            "created_at": "2026-04-29T00:00:00Z",
+            "updated_at": "2026-04-29T00:00:00Z",
+            "task_type": "knowledge_ingest_candidate",
+            "status": "resolved",
+            "run_id": "run-1",
+            "project_id": "project-1",
+            "environment_id": "env-1",
+            "risk_level": "low",
+            "reason": "已确认沉淀",
+            "summary": {"candidate_item_count": 1},
+            "decision": {},
+        }
+    )
+
+    response = asyncio.run(routers.create_run_knowledge_candidate("run-1"))
+
+    assert response["already_resolved"] is True
+    assert store.get_automation_task("knowledge-candidate:run-1")["status"] == "resolved"
 
 
 def _run(status: str) -> dict:

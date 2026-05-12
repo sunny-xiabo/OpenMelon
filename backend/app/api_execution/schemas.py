@@ -136,6 +136,15 @@ class APIEnvironmentListResponse(BaseModel):
     environments: list[APIEnvironmentConfig] = []
 
 
+class DemoBootstrapResponse(BaseModel):
+    spec: APISpecAsset
+    project: APIProjectConfig
+    environment: APIEnvironmentConfig
+    seeded_run_ids: list[str] = []
+    knowledge_item_count: int = 0
+    pending_task_count: int = 0
+
+
 class APIAssertion(BaseModel):
     type: str
     expected: Any | None = None
@@ -191,6 +200,12 @@ class APITestCaseDsl(BaseModel):
     target_project: str = ""
     environment: str = ""
     base_url: str = ""
+    flow_template_id: str = ""
+    flow_template_name: str = ""
+    flow_template_tags: list[str] = []
+    ai_repair_source: str = ""
+    ai_repair_applied_at: str = ""
+    ai_repair_applied_operations: list[dict[str, Any]] = []
     variables: dict[str, Any] = {}
     steps: list[APITestStep] = []
     setup_variables: list[VariableSetup] = []
@@ -223,9 +238,34 @@ class AIPatchOperation(BaseModel):
 class AIPatchResponse(BaseModel):
     patched_script: APITestCaseDsl
     patch_operations: list[AIPatchOperation] = []
+    repair_draft: dict[str, Any] = {}
     summary: str = ""
     automatic_applicable: bool = False
     risk_level: str = "medium"
+    requires_approval: bool = True
+    ai_mode: str = "heuristic"
+    model_name: str = ""
+    fallback_reason: str = ""
+
+
+class AIFlowDraftRequest(BaseModel):
+    spec_id: str
+    business_goal: str
+    operation_ids: list[str] = []
+    project_name: str = ""
+    environment_name: str = ""
+    base_url: str = ""
+    project_policy_snapshot: dict[str, Any] = {}
+
+
+class AIFlowDraftResponse(BaseModel):
+    draft_script: APITestCaseDsl
+    selected_operation_ids: list[str] = []
+    step_summaries: list[dict[str, Any]] = []
+    uncertainties: list[str] = []
+    template_recommendations: list[dict[str, Any]] = []
+    quality_score: dict[str, Any] = {}
+    summary: str = ""
     requires_approval: bool = True
     ai_mode: str = "heuristic"
     model_name: str = ""
@@ -271,6 +311,40 @@ class AutomationTaskListResponse(BaseModel):
     tasks: list[AutomationTaskRecord] = []
 
 
+class AutomationTaskCountItem(BaseModel):
+    label: str
+    count: int = 0
+
+
+class AutomationTaskTypeSummary(BaseModel):
+    task_type: str
+    label: str
+    count: int = 0
+    pending_count: int = 0
+    failed_count: int = 0
+    resolved_count: int = 0
+
+
+class AutomationTaskActionBucket(BaseModel):
+    bucket: str
+    label: str
+    count: int = 0
+    pending_count: int = 0
+    task_types: list[str] = []
+
+
+class AutomationTaskCenterSummaryResponse(BaseModel):
+    total_task_count: int = 0
+    pending_task_count: int = 0
+    failed_task_count: int = 0
+    resolved_task_count: int = 0
+    status_counts: dict[str, int] = {}
+    risk_counts: list[AutomationTaskCountItem] = []
+    type_counts: list[AutomationTaskTypeSummary] = []
+    action_buckets: list[AutomationTaskActionBucket] = []
+    recent_tasks: list[AutomationTaskRecord] = []
+
+
 class ScheduledExecutionItem(BaseModel):
     project_id: str
     project_name: str = ""
@@ -310,6 +384,34 @@ class AutomationDefinition(BaseModel):
     updated_at: str
 
 
+class APIFlowTemplate(BaseModel):
+    template_id: str
+    project_id: str = ""
+    name: str
+    description: str = ""
+    tags: list[str] = []
+    script: dict[str, Any]
+    version: str = "v1"
+    deprecated: bool = False
+    scope: str = ""
+    performance_snapshot: dict[str, Any] = {}
+    created_at: str
+    updated_at: str
+
+
+class APIFlowTemplateUpsertRequest(BaseModel):
+    template_id: Optional[str] = None
+    project_id: str = ""
+    name: str
+    description: str = ""
+    tags: list[str] = []
+    script: APITestCaseDsl
+
+
+class APIFlowTemplateListResponse(BaseModel):
+    templates: list[APIFlowTemplate] = []
+
+
 class AutomationRun(BaseModel):
     automation_run_id: str
     automation_type: str = "api"
@@ -347,6 +449,10 @@ class KnowledgeItem(BaseModel):
     source_run_id: str = ""
     project_id: str = ""
     created_at: str
+    status: str = "active"
+    invalidated_at: Optional[str] = None
+    revoked_at: Optional[str] = None
+    governance_note: str = ""
     summary: str = ""
     payload: dict[str, Any] = {}
 
@@ -367,9 +473,29 @@ class KnowledgeCandidateApproveResponse(KnowledgeIngestResponse):
     run_id: Optional[str] = None
 
 
+class KnowledgeCandidateCreateResponse(BaseModel):
+    task_id: str
+    run_id: str
+    status: str = "pending"
+    risk_level: str = "medium"
+    reason: str = ""
+    candidate_item_count: int = 0
+    has_repair_history: bool = False
+    already_resolved: bool = False
+
+
 class KnowledgeSearchResponse(BaseModel):
     query: str
     items: list[KnowledgeItem] = []
+
+
+class KnowledgeReviewResponse(BaseModel):
+    items: list[KnowledgeItem] = []
+
+
+class KnowledgeStatusUpdateRequest(BaseModel):
+    status: str
+    note: str = ""
 
 
 class RunScriptRequest(BaseModel):
@@ -387,6 +513,9 @@ class RunScriptRequest(BaseModel):
     max_steps: Optional[int] = None
     continue_on_failure: bool = True
     replace_run_id: Optional[str] = None
+    flow_template_id: str = ""
+    flow_template_name: str = ""
+    flow_template_tags: list[str] = []
 
 
 class ExportScriptRequest(BaseModel):

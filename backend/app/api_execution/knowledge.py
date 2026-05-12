@@ -204,9 +204,11 @@ def _run_summary_text(run: dict[str, Any]) -> str:
 def _repair_summary_text(repair: dict[str, Any]) -> str:
     before = repair.get("before") or {}
     after = repair.get("after") or {}
+    effect = repair.get("repair_effect_score") or {}
+    effect_text = f"，评分 {effect.get('score')}/100" if effect.get("score") is not None else ""
     return (
         f"自动修复重跑：失败数 {before.get('failed', 0)} -> {after.get('failed', 0)}，"
-        f"状态 {before.get('status', '')} -> {after.get('status', '')}。"
+        f"状态 {before.get('status', '')} -> {after.get('status', '')}{effect_text}。"
     )
 
 

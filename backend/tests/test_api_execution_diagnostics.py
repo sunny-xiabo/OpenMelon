@@ -82,6 +82,37 @@ def test_enrich_run_report_explains_json_path_mismatch():
     assert "测试数据" in diagnostic["suggestions"][0]
 
 
+def test_enrich_run_report_classifies_variable_reference_errors():
+    script = _script()
+    report = {
+        "status": "failed",
+        "duration_ms": 8,
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "skipped": 0,
+        "results": [
+            {
+                "step_id": "s1",
+                "name": "读取用户",
+                "method": "GET",
+                "url": "http://example.test/users/{{user_id}}",
+                "status": "failed",
+                "status_code": None,
+                "duration_ms": 8,
+                "error": "变量 user_id 未定义，无法替换 {{user_id}}",
+                "assertions": [],
+            }
+        ],
+    }
+
+    enriched = enrich_run_report(report, script)
+
+    diagnostic = enriched["failure_diagnostics"][0]
+    assert diagnostic["category"] == "variable_reference_missing"
+    assert "depends_on" in diagnostic["suggestions"][0]
+
+
 def _script():
     return APITestCaseDsl(
         case_id="case_diagnostics",

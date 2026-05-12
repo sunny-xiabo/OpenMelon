@@ -1,4 +1,4 @@
-import { useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { Box } from '@mui/material';
 import {
   QuestionAnswerRounded,
@@ -14,6 +14,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LoadingOverlay from './components/LoadingOverlay';
 import TopNav from './components/TopNav';
 import lazyWithRetry from './utils/lazyWithRetry';
+import { SWITCH_TAB_EVENT } from './constants/events';
 
 // 懒加载页面组件：只有用户点击到对应的 Tab 时才会去加载 JS 资源，极大地提升首屏加载速度
 const QAPage = lazyWithRetry(() => import('./pages/QAPage'));
@@ -58,6 +59,17 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    const handleSwitchTab = (event) => {
+      const nextIndex = Number(event.detail?.tabIndex);
+      if (Number.isInteger(nextIndex) && nextIndex >= 0 && nextIndex < TABS.length) {
+        handleTabChange(nextIndex);
+      }
+    };
+    window.addEventListener(SWITCH_TAB_EVENT, handleSwitchTab);
+    return () => window.removeEventListener(SWITCH_TAB_EVENT, handleSwitchTab);
+  }, [mountedTabs]);
+
   return (
     <SnackbarProvider>
       <Box 
@@ -88,7 +100,6 @@ function App() {
                 sx={{
                   display: tab === i ? 'flex' : 'none',
                   flex: 1,
-                  overflow: 'hidden',
                   overflow: 'hidden',
                   flexDirection: 'column',
                   position: 'relative',

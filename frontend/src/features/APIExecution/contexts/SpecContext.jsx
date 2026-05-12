@@ -120,6 +120,21 @@ export const SpecProvider = ({ children }) => {
     }
   };
 
+  const loadDemoOpenApi = async () => {
+    setLoadingMessage('正在加载 Demo API 资产...');
+    setLoading(true);
+    try {
+      const data = await apiExecutionAPI.loadDemoOpenApi();
+      resetAfterSpecChange(data);
+      showSnackbar(`Demo 加载成功，共 ${data.operation_count || 0} 个接口`, 'success');
+    } catch (error) {
+      showSnackbar(error.message || 'Demo API 资产加载失败', 'error');
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
   const value = {
     sourceUrl, setSourceUrl,
     selectedFile, setSelectedFile,
@@ -136,6 +151,7 @@ export const SpecProvider = ({ children }) => {
     registerResetCallback,
     parseFile,
     parseUrl,
+    loadDemoOpenApi,
   };
 
   return (

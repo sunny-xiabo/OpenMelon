@@ -48,6 +48,22 @@ def build_failure_diagnostics(report: dict[str, Any], script: APITestCaseDsl) ->
 
 def _diagnose_result(result: dict[str, Any], step_id: str, step_name: str) -> list[dict[str, Any]]:
     if result.get("error"):
+        error_text = str(result.get("error") or "")
+        if "{{" in error_text or "变量" in error_text or "variable" in error_text.lower():
+            return [
+                _diagnostic(
+                    step_id,
+                    step_name,
+                    "variable_reference_missing",
+                    "high",
+                    f"变量引用或变量替换失败：{error_text}",
+                    [
+                        "检查前置步骤是否配置了对应 extraction，并确认 depends_on 顺序正确。",
+                        "在流程图中查看变量传递边，确认引用变量来自已执行步骤。",
+                        "如果变量来自创建接口返回值，确认提取路径是否匹配真实响应。",
+                    ],
+                )
+            ]
         return [
             _diagnostic(
                 step_id,
@@ -201,6 +217,7 @@ def _status_suggestions(status_code: int | None) -> list[str]:
             "检查 query、path 参数和 body 是否满足 OpenAPI schema。",
             "优先查看响应体中的 validation error，按字段修正测试数据。",
             "如果字段来自变量提取，确认前置步骤确实提取到了有效值。",
+            "如果是流程草稿生成的脚本，优先检查 body/path/query 中的 {{变量}} 是否已被前置步骤提取。",
         ]
     if status_code and 400 <= status_code < 500:
         return [

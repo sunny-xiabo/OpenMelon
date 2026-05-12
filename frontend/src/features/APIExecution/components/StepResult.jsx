@@ -3,13 +3,23 @@ import { Stack, Box, Typography, Button, Chip, Paper, Alert, LinearProgress } fr
 import { RefreshOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import EmptyState from '../../../components/EmptyState';
+import { useSnackbar } from '../../../components/SnackbarProvider';
+import { apiExecutionAPI } from '../../../api/execution';
+import { API_EXECUTION_DASHBOARD_REFRESH_EVENT } from '../../../constants/events';
 import {
   getPolicyRiskColor,
   getPolicyRiskLabel,
   getRunStatusMeta,
 } from '../utils';
 import { getAssertionTypeLabel } from '../constants';
+import {
+  applyRepairOperationsToScript,
+  buildRepairApplyConfirmMessage,
+  getLowRiskRepairOperations,
+  markAiRepairSource,
+} from '../utils/repairPatch';
 import StageHeader from './StageHeader';
+import AIFlowDraftDialog from './AIFlowDraftDialog';
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
 
@@ -49,7 +59,19 @@ const formatAssertionValue = (value) => {
   }
 };
 
+const getControlledRepairPolicyBlock = (runReport) => {
+  const policy = runReport?.execution_options?.project_policy_snapshot || {};
+  if (!policy.allow_ai_repair) return '项目未开启 AI 自动修复，请只应用草稿后人工执行。';
+  const maxAutoRepairs = Number(policy.max_auto_repairs || 0);
+  const repairCount = (runReport?.repair_history || []).length;
+  if (maxAutoRepairs > 0 && repairCount >= maxAutoRepairs) {
+    return `自动修复次数已达到项目上限 ${maxAutoRepairs} 次，请人工确认后再执行。`;
+  }
+  return '';
+};
+
 export default function StepResult() {
+  const showSnackbar = useSnackbar();
   const {
     aiPatch,
     applyAiPatch,
@@ -62,12 +84,191 @@ export default function StepResult() {
     loading,
     parsedScript,
     refreshBackgroundRun,
+    requestConfirm,
     rerunFailedSteps,
     runReport,
     runResult,
     setActiveStep,
+    setDslText,
+    setLoading,
+    setRunReport,
+    setRunResult,
     exportRunReport,
   } = useAPIExecution();
+  const [repairDraftOpen, setRepairDraftOpen] = React.useState(false);
+  const [knowledgeCandidate, setKnowledgeCandidate] = React.useState(null);
+  const pendingRepairFocusRef = React.useRef(false);
+
+  const hasPatchOperations = (aiPatch?.patch_operations || []).length > 0;
+  const hasRepairDraft = !!aiPatch?.repair_draft?.draft_script;
+  const canApplyAiPatch = !!aiPatch?.patched_script;
+  const lowRiskRepairOperations = React.useMemo(
+    () => getLowRiskRepairOperations(aiPatch?.repair_draft),
+    [aiPatch?.repair_draft],
+  );
+  const hasRepairExperience = React.useMemo(() => (
+    !!runReport?.run_id
+    && ((runReport.repair_history || []).length > 0
+      || ['auto_repair_rerun', 'controlled_repair_rerun'].includes(runReport.automation_summary?.type))
+  ), [runReport]);
+
+  const applyRepairDraft = async () => {
+    if (!hasRepairDraft) return;
+    const operations = aiPatch?.repair_draft?.patch_operations || aiPatch?.patch_operations || [];
+    const confirmed = await requestConfirm(buildRepairApplyConfirmMessage('确认应用完整 AI 修复草稿？', operations));
+    if (!confirmed) return;
+    const nextScript = markAiRepairSource(aiPatch.repair_draft.draft_script, 'full_repair_draft', operations);
+    setDslText(JSON.stringify(nextScript, null, 2));
+    setActiveStep(2);
+    setRepairDraftOpen(false);
+  };
+
+  const applyLowRiskRepairOperations = async () => {
+    if (!parsedScript || !lowRiskRepairOperations.length) return;
+    const confirmed = await requestConfirm(buildRepairApplyConfirmMessage('确认仅应用低风险 AI 修复项？', lowRiskRepairOperations));
+    if (!confirmed) return;
+    const patched = applyRepairOperationsToScript(parsedScript, lowRiskRepairOperations);
+    const nextScript = markAiRepairSource(patched, 'low_risk_repair', lowRiskRepairOperations);
+    setDslText(JSON.stringify(nextScript, null, 2));
+    setActiveStep(2);
+    setRepairDraftOpen(false);
+  };
+
+  const applyLowRiskAndControlledRerun = async () => {
+    if (!parsedScript || !runReport?.run_id || !lowRiskRepairOperations.length) return;
+    const failedStepIds = (runReport.results || [])
+      .filter((result) => result.status !== 'passed' && result.step_id)
+      .map((result) => result.step_id);
+    const affectedStepIds = Array.from(new Set(lowRiskRepairOperations.map((operation) => operation.step_id).filter(Boolean)));
+    const rerunStepIds = failedStepIds.filter((stepId) => affectedStepIds.includes(stepId));
+    const targetStepIds = rerunStepIds.length ? rerunStepIds : failedStepIds;
+    const policyBlock = getControlledRepairPolicyBlock(runReport);
+    if (policyBlock) {
+      showSnackbar(policyBlock, 'warning');
+      return;
+    }
+    const policy = runReport.execution_options?.project_policy_snapshot || {};
+    const policyLines = [
+      '',
+      '策略判断：',
+      `- AI 自动修复：${policy.allow_ai_repair ? '已开启' : '未开启'}`,
+      `- 最大自动修复次数：${policy.max_auto_repairs || '不限'}`,
+      `- 已记录修复次数：${(runReport.repair_history || []).length}`,
+      `- 本次重跑步骤：${targetStepIds.length ? targetStepIds.join('、') : '全部步骤'}`,
+    ].join('\n');
+    const confirmed = await requestConfirm(`${buildRepairApplyConfirmMessage(
+      `确认应用低风险项并受控重跑${targetStepIds.length ? '受影响失败步骤' : '当前流程'}？`,
+      lowRiskRepairOperations,
+    )}${policyLines}`);
+    if (!confirmed) return;
+
+    const patched = applyRepairOperationsToScript(parsedScript, lowRiskRepairOperations);
+    const nextScript = markAiRepairSource(patched, 'low_risk_repair', lowRiskRepairOperations);
+    const options = runReport.execution_options || {};
+    setLoading(true);
+    try {
+      const data = await apiExecutionAPI.runAllSteps(nextScript, {
+        project_id: options.project_id || '',
+        environment_id: options.environment_id || '',
+        environment_snapshot: options.environment_snapshot || {},
+        project_policy_snapshot: options.project_policy_snapshot || {},
+        base_url: options.base_url || nextScript.base_url,
+        timeout_ms: options.timeout_ms || 30000,
+        run_timeout_ms: options.run_timeout_ms,
+        max_steps: targetStepIds.length || options.max_steps || nextScript.steps?.length,
+        continue_on_failure: options.continue_on_failure ?? true,
+        replace_run_id: runReport.run_id,
+        step_ids: targetStepIds,
+        requestTimeoutMs: 90000,
+      });
+      setDslText(JSON.stringify(data.script || nextScript, null, 2));
+      setRunReport(data);
+      setRunResult(null);
+      setRepairDraftOpen(false);
+      setActiveStep(3);
+      window.dispatchEvent(new CustomEvent(API_EXECUTION_DASHBOARD_REFRESH_EVENT));
+      showSnackbar(
+        data.status === 'passed' ? '低风险修复重跑已通过，并更新原记录' : '低风险修复已重跑，仍需查看剩余失败项',
+        data.status === 'passed' ? 'success' : 'warning',
+      );
+    } catch (error) {
+      showSnackbar(error.message || '低风险修复受控重跑失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyDirectAiPatch = async () => {
+    const operations = aiPatch?.patch_operations || [];
+    if (!canApplyAiPatch || !operations.length) return;
+    const confirmed = await requestConfirm(buildRepairApplyConfirmMessage('确认应用 AI 补丁到脚本？', operations));
+    if (!confirmed) return;
+    if (hasRepairDraft) {
+      const nextScript = markAiRepairSource(aiPatch.repair_draft.draft_script, 'direct_patch', operations);
+      setDslText(JSON.stringify(nextScript, null, 2));
+      setActiveStep(2);
+      setRepairDraftOpen(false);
+      return;
+    }
+    applyAiPatch();
+  };
+
+  const createKnowledgeCandidate = async () => {
+    if (!runReport?.run_id) return;
+    setLoading(true);
+    try {
+      const data = await apiExecutionAPI.createKnowledgeCandidate(runReport.run_id);
+      setKnowledgeCandidate(data);
+      showSnackbar(
+        data.already_resolved ? '该修复经验已沉淀到知识库' : '已生成修复经验候选，请确认后再沉淀',
+        data.already_resolved ? 'info' : 'success',
+      );
+    } catch (error) {
+      showSnackbar(error.message || '生成修复经验候选失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const approveKnowledgeCandidate = async () => {
+    const taskId = knowledgeCandidate?.task_id || (runReport?.run_id ? `knowledge-candidate:${runReport.run_id}` : '');
+    if (!taskId) return;
+    const confirmed = await requestConfirm([
+      '确认将本次修复经验沉淀到知识库？',
+      '',
+      '会写入执行摘要、失败诊断和修复历史，后续相似失败会优先召回这些经验。',
+    ].join('\n'));
+    if (!confirmed) return;
+    setLoading(true);
+    try {
+      const data = await apiExecutionAPI.approveKnowledgeCandidate(taskId);
+      setKnowledgeCandidate((prev) => ({ ...(prev || {}), task_id: taskId, status: 'resolved', already_resolved: true }));
+      showSnackbar(`已确认沉淀：${data.knowledge_count} 条知识，向量写入 ${data.vector_written || 0}`, data.errors?.length ? 'warning' : 'success');
+      window.dispatchEvent(new CustomEvent(API_EXECUTION_DASHBOARD_REFRESH_EVENT));
+    } catch (error) {
+      showSnackbar(error.message || '确认沉淀失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (!runReport || runReport.status !== 'failed' || !parsedScript || loading) return;
+    if (sessionStorage.getItem('openmelon_api_execution_focus_repair_diagnostics') !== '1') return;
+    sessionStorage.removeItem('openmelon_api_execution_focus_repair_diagnostics');
+    pendingRepairFocusRef.current = true;
+    generateAiRepairPatch(runReport);
+  }, [generateAiRepairPatch, loading, parsedScript, runReport]);
+
+  React.useEffect(() => {
+    if (!pendingRepairFocusRef.current || !hasRepairDraft) return;
+    pendingRepairFocusRef.current = false;
+    setRepairDraftOpen(true);
+  }, [hasRepairDraft]);
+
+  React.useEffect(() => {
+    setKnowledgeCandidate(null);
+  }, [runReport?.run_id]);
 
   return (
     <>
@@ -162,14 +363,21 @@ export default function StepResult() {
                        <Button size="small" variant="outlined" onClick={() => exportRunReport(runReport)}>导出报告</Button>
                        {runReport.script && <Button size="small" variant="outlined" onClick={() => loadRunIntoEditor(runReport)}>载入编辑</Button>}
                        {ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="contained" color="warning" disabled={loading} onClick={cancelBackgroundRun}>取消执行</Button>}
-                       {!!runReport.failed && !ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="outlined" color="secondary" disabled={!parsedScript || loading} onClick={generateAiRepairPatch}>AI 修复补丁</Button>}
+                       {!!runReport.failed && !ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="outlined" color="secondary" disabled={!parsedScript || loading} onClick={() => generateAiRepairPatch(runReport)}>AI 修复补丁</Button>}
                        {!!runReport.failed && !ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="contained" color="secondary" disabled={!runReport.run_id || loading} onClick={() => handleAutoRepairRun(runReport.run_id)}>受控自动修复重跑</Button>}
                        {!!runReport.failed && !ACTIVE_RUN_STATUSES.has(runReport.status) && <Button size="small" variant="contained" color="warning" disabled={!parsedScript || loading} onClick={rerunFailedSteps}>重跑失败步骤</Button>}
+                       {hasRepairExperience && !ACTIVE_RUN_STATUSES.has(runReport.status) && (
+                         <Button size="small" variant="outlined" color="success" disabled={loading} onClick={createKnowledgeCandidate}>
+                           生成修复经验候选
+                         </Button>
+                       )}
                      </Stack>
 
-                     {runReport.automation_summary?.type === 'auto_repair_rerun' && (
+                     {['auto_repair_rerun', 'controlled_repair_rerun'].includes(runReport.automation_summary?.type) && (
                        <Alert severity={runReport.automation_summary.after?.status === 'passed' ? 'success' : 'warning'} sx={{ mb: 2 }}>
-                         <Typography variant="body2" fontWeight={700}>自动修复结果对比</Typography>
+                         <Typography variant="body2" fontWeight={700}>
+                           {runReport.automation_summary.type === 'controlled_repair_rerun' ? '受控修复结果对比' : '自动修复结果对比'}
+                         </Typography>
                          <Typography variant="caption" display="block">
                            修复前：{runReport.automation_summary.before?.passed || 0} 通过 / {runReport.automation_summary.before?.failed || 0} 失败；
                            修复后：{runReport.automation_summary.after?.passed || 0} 通过 / {runReport.automation_summary.after?.failed || 0} 失败
@@ -179,23 +387,76 @@ export default function StepResult() {
                              修改：{runReport.automation_summary.patched_fields.map((item) => `${item.step_id}.${item.field}`).join('、')}
                            </Typography>
                          )}
+                         {runReport.automation_summary.repair_effect_score && (
+                           <Typography variant="caption" display="block" color="text.secondary">
+                             修复效果：{runReport.automation_summary.repair_effect_score.label}（{runReport.automation_summary.repair_effect_score.score}/100）
+                           </Typography>
+                         )}
                        </Alert>
                      )}
 
-                     {aiPatch?.patch_operations?.length > 0 && (
+                     {hasRepairExperience && (
+                       <Alert
+                         severity={knowledgeCandidate?.already_resolved ? 'success' : 'info'}
+                         sx={{ mb: 2 }}
+                         action={(
+                           <Stack direction="row" spacing={1}>
+                             <Button size="small" color="inherit" disabled={loading} onClick={createKnowledgeCandidate}>
+                               生成候选
+                             </Button>
+                             <Button
+                               size="small"
+                               color="inherit"
+                               disabled={loading || knowledgeCandidate?.already_resolved}
+                               onClick={approveKnowledgeCandidate}
+                             >
+                               确认沉淀
+                             </Button>
+                           </Stack>
+                         )}
+                       >
+                         <Typography variant="body2" fontWeight={700}>
+                           修复经验沉淀
+                         </Typography>
+                         <Typography variant="caption" display="block">
+                           {knowledgeCandidate?.already_resolved
+                             ? '本次修复经验已写入知识库。'
+                             : knowledgeCandidate?.task_id
+                               ? `候选已生成：${knowledgeCandidate.candidate_item_count || 0} 条知识项，风险等级 ${knowledgeCandidate.risk_level || 'medium'}。`
+                               : '可将本次修复前后对比、失败特征和补丁字段生成候选，确认后再写入知识库。'}
+                         </Typography>
+                       </Alert>
+                     )}
+
+                     {(hasPatchOperations || hasRepairDraft) && (
                        <Alert severity={aiPatch.automatic_applicable ? 'success' : 'warning'} sx={{ mb: 2 }}>
                          <Stack spacing={1}>
-                           <Typography variant="body2" fontWeight={700}>{aiPatch.summary}</Typography>
+                           <Typography variant="body2" fontWeight={700}>
+                             {aiPatch.summary || (hasRepairDraft ? 'AI 已生成修复草稿，请预览后人工确认应用。' : '暂未找到可自动应用的修复补丁。')}
+                           </Typography>
                            <Typography variant="caption" color="text.secondary">
                              AI 来源：{aiPatch.ai_mode === 'llm' ? `已配置模型 ${aiPatch.model_name || ''}` : '启发式规则'}
                              {aiPatch.fallback_reason ? ` · ${aiPatch.fallback_reason}` : ''}
                            </Typography>
-                           {aiPatch.patch_operations.map((operation, index) => (
-                             <Typography key={`${operation.step_id}-${operation.field}-${index}`} variant="caption">
-                               {operation.step_id} · {operation.field}：{operation.reason}
+                           {hasPatchOperations ? (
+                             aiPatch.patch_operations.map((operation, index) => (
+                               <Typography key={`${operation.step_id}-${operation.field}-${index}`} variant="caption">
+                                 {operation.step_id} · {operation.field}：{operation.reason}
+                               </Typography>
+                             ))
+                           ) : (
+                             <Typography variant="caption" color="text.secondary">
+                               当前失败未匹配到可直接套用的字段补丁，可先查看修复草稿中的步骤、断言和变量链路建议。
                              </Typography>
-                           ))}
-                           <Button size="small" variant="contained" sx={{ alignSelf: 'flex-start' }} onClick={applyAiPatch}>应用补丁到脚本</Button>
+                           )}
+                           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                             {hasRepairDraft && (
+                               <Button size="small" variant="contained" onClick={() => setRepairDraftOpen(true)}>预览修复草稿</Button>
+                             )}
+                             {canApplyAiPatch && (
+                               <Button size="small" variant="outlined" onClick={applyDirectAiPatch}>应用补丁到脚本</Button>
+                             )}
+                           </Stack>
                          </Stack>
                        </Alert>
                      )}
@@ -276,6 +537,14 @@ export default function StepResult() {
                 )}
 
               </Stack>
+              <AIFlowDraftDialog
+                open={repairDraftOpen}
+                draft={aiPatch?.repair_draft}
+                onClose={() => setRepairDraftOpen(false)}
+                onApply={applyRepairDraft}
+                onApplyLowRisk={applyLowRiskRepairOperations}
+                onApplyLowRiskAndRerun={runReport?.run_id ? applyLowRiskAndControlledRerun : undefined}
+              />
   </>
   );
 }

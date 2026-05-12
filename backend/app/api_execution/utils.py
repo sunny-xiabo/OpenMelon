@@ -22,4 +22,7 @@ def execution_options(request: RunScriptRequest, policy_decision: dict[str, Any]
         "continue_on_failure": request.continue_on_failure,
         "has_global_headers": bool(request.global_headers),
         "policy_decision": policy_decision or {},
+        "flow_template_id": request.flow_template_id or "",
+        "flow_template_name": request.flow_template_name or "",
+        "flow_template_tags": request.flow_template_tags or [],
     }

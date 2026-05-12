@@ -45,6 +45,13 @@ export const RunHistoryProvider = ({ children }) => {
     fetchHistory();
   }, [runHistoryProjectId, runHistoryStatus]);
 
+  useEffect(() => {
+    const pendingRunId = sessionStorage.getItem('openmelon_api_execution_run_id');
+    if (pendingRunId) {
+      setRunHistoryKeyword(pendingRunId);
+    }
+  }, []);
+
   const handleDeleteRun = async (runId) => {
     try {
       await apiExecutionAPI.deleteRun(runId);

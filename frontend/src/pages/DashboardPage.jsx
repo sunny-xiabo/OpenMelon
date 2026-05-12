@@ -4,6 +4,7 @@ import { PieChartRounded, AutoGraphRounded, AssignmentTurnedInRounded } from '@m
 import PageHeader from '../components/PageHeader';
 import NavMenuButton from '../components/NavMenuButton';
 import CoveragePage from './CoveragePage';
+import APIExecutionDashboard from '../features/APIExecutionDashboard/components/APIExecutionDashboard';
 
 const SECTIONS = [
   {
@@ -81,11 +82,7 @@ export default function DashboardPage() {
 
           <Box sx={{ flex: 1, minWidth: 0, background: 'transparent', display: 'flex', flexDirection: 'column', p: { xs: 2, md: 3 }, overflow: 'auto' }}>
             {activeSection === 'coverage' && <CoveragePage embedded />}
-            {activeSection === 'api-results' && (
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary' }}>
-                API 执行概览功能开发中...
-              </Box>
-            )}
+            {activeSection === 'api-results' && <APIExecutionDashboard />}
             {activeSection === 'ui-results' && (
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary' }}>
                 UI 自动化概览功能开发中...

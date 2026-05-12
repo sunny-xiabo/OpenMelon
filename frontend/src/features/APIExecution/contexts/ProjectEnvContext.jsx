@@ -253,6 +253,9 @@ export const ProjectEnvProvider = ({ children }) => {
       global_headers: globalHeaders,
       continue_on_failure: continueOnFailure,
       timeout_ms: normalizeTimeoutMs(environmentTimeoutMs),
+      flow_template_id: script.flow_template_id || '',
+      flow_template_name: script.flow_template_name || '',
+      flow_template_tags: script.flow_template_tags || [],
       ...restOptions,
     };
   };
