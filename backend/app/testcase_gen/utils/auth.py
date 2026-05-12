@@ -3,8 +3,8 @@ API认证中间件
 支持API Key认证和可选的JWT Token认证
 """
 
-import os
 import secrets
+import os
 from typing import Optional, Dict, Any, Callable
 from functools import wraps
 from datetime import datetime, timedelta
@@ -14,6 +14,7 @@ from fastapi.security import APIKeyHeader
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+from app.api.errors import InternalError, UnauthorizedError
 from app.testcase_gen.utils.logger import logger
 
 
@@ -142,11 +143,7 @@ async def get_current_user(
             return {"authenticated": True, "method": "jwt", "user": payload.get("sub")}
 
     # 3. 认证失败
-    raise HTTPException(
-        status_code=401,
-        detail="未提供有效的认证凭据",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    raise UnauthorizedError(message="未提供有效的认证凭据")
 
 
 async def optional_auth(
@@ -169,7 +166,7 @@ async def optional_auth(
     # 尝试认证
     try:
         return await get_current_user(request, api_key)
-    except HTTPException:
+    except (HTTPException, UnauthorizedError):
         return {"authenticated": False, "mode": "anonymous"}
 
 
@@ -199,7 +196,7 @@ def require_auth(func: Callable) -> Callable:
                     break
 
         if not request:
-            raise HTTPException(status_code=500, detail="无法获取请求对象")
+            raise InternalError(details="无法获取请求对象")
 
         # 检查是否禁用认证
         if not VALID_API_KEYS:

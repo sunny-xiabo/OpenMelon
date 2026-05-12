@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from fastapi import HTTPException
+from app.api.errors import InvalidRequestError
 
 from app.api_execution import routers
 from app.api_execution.storage import APIExecutionStore
@@ -63,7 +63,7 @@ def test_auto_repair_rerun_blocked_creates_pending_task(tmp_path, monkeypatch):
     run["execution_options"]["project_policy_snapshot"]["allow_ai_repair"] = False
     store.save_run(run)
 
-    with pytest.raises(HTTPException, match="项目未开启 AI 自动修复"):
+    with pytest.raises(InvalidRequestError, match="项目未开启 AI 自动修复"):
         asyncio.run(routers.auto_repair_and_rerun("run-1"))
 
     tasks = store.list_automation_tasks()

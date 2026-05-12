@@ -3,8 +3,8 @@
 基于IP地址和用户的请求频率限制
 """
 
-import time
 import os
+import time
 from typing import Dict, Tuple, Optional
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -14,6 +14,7 @@ from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from app.api.errors import InvalidRequestError
 from app.testcase_gen.utils.logger import logger
 
 
@@ -240,10 +241,7 @@ def rate_limit(requests_per_minute: int = 30):
             # 目前使用全局限制
             allowed, info = rate_limiter.check_rate_limit(request)
             if not allowed:
-                raise HTTPException(
-                    status_code=429,
-                    detail=f"请求频率超过限制，请在 {info.get('retry_after', 60)} 秒后重试",
-                )
+                raise InvalidRequestError(message=f"请求频率超过限制，请在 {info.get('retry_after', 60)} 秒后重试")
             return await func(request, *args, **kwargs)
 
         return wrapper
