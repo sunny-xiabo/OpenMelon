@@ -1,5 +1,5 @@
 import React from 'react';
-import { Stack, Box, Typography, Button, Alert, CircularProgress } from '@mui/material';
+import { Stack, Box, Typography, Button, Alert, CircularProgress, Paper } from '@mui/material';
 import { AutoAwesomeOutlined, ContentCopyOutlined, DataObjectOutlined, FormatAlignLeftOutlined, PlayCircleOutlineOutlined } from '@mui/icons-material';
 import { autocompletion } from '@codemirror/autocomplete';
 import { EditorView } from '@codemirror/view';
@@ -210,89 +210,183 @@ export default function StepOrchestrate() {
 
   return (
     <>
-    <Stack spacing={3}>
+    <Stack spacing={4}>
                 <StageHeader
                   title="步骤 3: 编排与执行"
                   action={(
                     <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                      <Button variant="outlined" startIcon={<PlayCircleOutlineOutlined />} disabled={!dslText || executionDisabled} onClick={handleRunSelectedStep}>
+                      <Button 
+                        variant="outlined" 
+                        startIcon={<PlayCircleOutlineOutlined />} 
+                        disabled={!dslText || executionDisabled} 
+                        onClick={handleRunSelectedStep}
+                        sx={{ borderRadius: 2, fontWeight: 700, px: 3, bgcolor: '#ffffff' }}
+                      >
                         单步执行选中步骤
                       </Button>
-                      <Button variant="contained" color="success" disabled={!dslText || executionDisabled} onClick={handleRunAllSteps}>
-                        执行全部步骤
+                      <Button 
+                        variant="contained" 
+                        disabled={!dslText || executionDisabled} 
+                        onClick={handleRunAllSteps}
+                        sx={{ 
+                          borderRadius: 2, 
+                          fontWeight: 800, 
+                          px: 4,
+                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)',
+                          '&:hover': {
+                            background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                          }
+                        }}
+                      >
+                        全量链路执行
                       </Button>
                     </Stack>
                   )}
                 />
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <DataObjectOutlined color="primary" fontSize="small" />
+
+                <Box sx={{ 
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap',
+                  p: 2.5, bgcolor: '#f8fafc', borderRadius: 4, border: '1px solid', borderColor: 'rgba(0,0,0,0.04)',
+                  boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.5)'
+                }}>
+                  <Stack direction="row" spacing={2} alignItems="center">
+                    <Box sx={{ width: 44, height: 44, borderRadius: '12px', bgcolor: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', boxShadow: '0 2px 8px rgba(79, 70, 229, 0.15)' }}>
+                      <DataObjectOutlined />
+                    </Box>
                     <Box>
-                      <Typography variant="subtitle1" fontWeight={700}>流程 DSL</Typography>
-                      <Typography variant="caption" color={jsonValidation.valid ? 'success.main' : 'error.main'}>
-                        {jsonValidation.valid ? `格式有效 · ${jsonValidation.message}` : jsonValidation.message}
-                      </Typography>
+                      <Typography variant="subtitle2" fontWeight={800} color="text.primary" sx={{ mb: 0.5 }}>流程核心 (DSL)</Typography>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: jsonValidation.valid ? 'success.main' : 'error.main', boxShadow: jsonValidation.valid ? '0 0 8px rgba(34, 197, 94, 0.6)' : 'none' }} />
+                        <Typography variant="caption" color={jsonValidation.valid ? 'text.secondary' : 'error.main'} fontWeight={600}>
+                          {jsonValidation.valid ? `语法就绪 · ${jsonValidation.message}` : jsonValidation.message}
+                        </Typography>
+                      </Stack>
                     </Box>
                   </Stack>
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Button size="small" variant="outlined" startIcon={<FormatAlignLeftOutlined />} disabled={!dslText || !jsonValidation.valid} onClick={beautifyDslJson}>一键美化</Button>
-                    <Button size="small" variant="outlined" startIcon={<ContentCopyOutlined />} disabled={!dslText} onClick={copyDslJson}>复制</Button>
+                  
+                  <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Button size="small" variant="outlined" startIcon={<FormatAlignLeftOutlined />} disabled={!dslText || !jsonValidation.valid} onClick={beautifyDslJson} sx={{ borderRadius: 2, bgcolor: '#fff' }}>一键美化</Button>
+                    <Button size="small" variant="outlined" startIcon={<ContentCopyOutlined />} disabled={!dslText} onClick={copyDslJson} sx={{ borderRadius: 2, bgcolor: '#fff' }}>复制</Button>
+                    <Button size="small" variant="outlined" onClick={exportPytestScript} sx={{ borderRadius: 2, bgcolor: '#fff' }}>导出 Pytest</Button>
+                    <Button size="small" variant="outlined" onClick={exportPostmanCollection} sx={{ borderRadius: 2, bgcolor: '#fff' }}>导出 Postman</Button>
                     <Button
                       size="small"
                       variant="contained"
-                      color="secondary"
                       disabled={!parsedScript || loading}
                       onClick={enhanceDslWithAi}
                       startIcon={aiEnhancing ? <CircularProgress size={14} color="inherit" thickness={5} /> : <AutoAwesomeOutlined fontSize="small" />}
+                      sx={{
+                        borderRadius: 2,
+                        background: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)',
+                        color: '#fff',
+                        fontWeight: 800,
+                        boxShadow: '0 4px 12px rgba(217, 70, 239, 0.3)',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #7c3aed 0%, #c026d3 100%)',
+                          boxShadow: '0 6px 16px rgba(217, 70, 239, 0.4)',
+                        }
+                      }}
                     >
-                      {aiEnhancing ? 'AI 编排中...' : 'AI 编排建议'}
+                      {aiEnhancing ? 'AI 深度编排中...' : '智能补全编排'}
                     </Button>
-                    <Button size="small" variant="outlined" onClick={exportPytestScript}>导出 Pytest</Button>
-                    <Button size="small" variant="outlined" onClick={exportPostmanCollection}>导出 Postman</Button>
                   </Stack>
                 </Box>
 
-                <FlowWorkbench
-                  dslText={dslText}
-                  setDslText={setDslText}
-                  parsedScript={parsedScript}
-                  runStepId={runStepId}
-                  setRunStepId={setRunStepId}
-                  baseUrl={baseUrl}
-                  setBaseUrl={setBaseUrl}
-                  bearerToken={bearerToken}
-                  setBearerToken={setBearerToken}
-                  globalHeadersText={globalHeadersText}
-                  setGlobalHeadersText={setGlobalHeadersText}
-                  runReport={runReport}
-                  disabledStepIds={disabledFlowStepIds}
-                  setDisabledStepIds={setDisabledFlowStepIds}
-                  onDirtyChange={setFlowDirty}
-                  requestConfirm={requestConfirm}
-                  selectedProjectId={selectedProjectId}
-                  projectName={projectName}
-                  editorTheme={apiJsonEditorTheme}
-                  editorHighlightStyle={syntaxHighlighting(apiJsonHighlightStyle)}
-                  completionSource={dslCompletionSource}
-                />
+                <Paper 
+                  elevation={0} 
+                  sx={{ 
+                    borderRadius: 4, 
+                    border: '1px solid',
+                    borderColor: 'rgba(0,0,0,0.06)', 
+                    overflow: 'hidden',
+                    boxShadow: '0 12px 40px -12px rgba(0,0,0,0.08)'
+                  }}
+                >
+                  <FlowWorkbench
+                    dslText={dslText}
+                    setDslText={setDslText}
+                    parsedScript={parsedScript}
+                    runStepId={runStepId}
+                    setRunStepId={setRunStepId}
+                    baseUrl={baseUrl}
+                    setBaseUrl={setBaseUrl}
+                    bearerToken={bearerToken}
+                    setBearerToken={setBearerToken}
+                    globalHeadersText={globalHeadersText}
+                    setGlobalHeadersText={setGlobalHeadersText}
+                    runReport={runReport}
+                    disabledStepIds={disabledFlowStepIds}
+                    setDisabledStepIds={setDisabledFlowStepIds}
+                    onDirtyChange={setFlowDirty}
+                    requestConfirm={requestConfirm}
+                    selectedProjectId={selectedProjectId}
+                    projectName={projectName}
+                    editorTheme={apiJsonEditorTheme}
+                    editorHighlightStyle={syntaxHighlighting(apiJsonHighlightStyle)}
+                    completionSource={dslCompletionSource}
+                  />
+                </Paper>
 
                 {aiPatch?.patch_operations?.length > 0 && (
-                  <Alert severity={aiPatch.automatic_applicable ? 'success' : 'warning'}>
-                    <Stack spacing={1}>
-                      <Typography variant="body2" fontWeight={700}>{aiPatch.summary}</Typography>
-                      {aiPatch.patch_operations.map((operation, index) => (
-                        <Typography key={`${operation.step_id}-${operation.field}-${index}`} variant="caption">
-                          {operation.step_id} · {operation.field}：{operation.reason}
+                  <Paper 
+                    elevation={0} 
+                    sx={{ 
+                      p: 3, 
+                      borderRadius: 4, 
+                      border: '1px solid',
+                      borderColor: aiPatch.automatic_applicable ? 'success.light' : 'warning.light',
+                      bgcolor: aiPatch.automatic_applicable ? '#f0fdf4' : '#fffbeb',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      boxShadow: '0 8px 24px -8px rgba(0,0,0,0.05)'
+                    }}
+                  >
+                    <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, bgcolor: aiPatch.automatic_applicable ? 'success.main' : 'warning.main' }} />
+                    <Stack spacing={2}>
+                      <Stack direction="row" spacing={1.5} alignItems="center">
+                        <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: aiPatch.automatic_applicable ? 'success.100' : 'warning.100', display: 'flex', alignItems: 'center', justifyContent: 'center', color: aiPatch.automatic_applicable ? 'success.main' : 'warning.main' }}>
+                          <AutoAwesomeOutlined fontSize="small" />
+                        </Box>
+                        <Typography variant="subtitle1" fontWeight={800} sx={{ color: aiPatch.automatic_applicable ? 'success.dark' : 'warning.dark' }}>
+                          {aiPatch.summary}
                         </Typography>
-                      ))}
-                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      </Stack>
+                      <Stack spacing={1.5} sx={{ pl: 5.5 }}>
+                        {aiPatch.patch_operations.map((operation, index) => (
+                          <Box key={`${operation.step_id}-${operation.field}-${index}`} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+                            <Box sx={{ mt: 1, width: 5, height: 5, borderRadius: '50%', bgcolor: aiPatch.automatic_applicable ? 'success.main' : 'warning.main', opacity: 0.5 }} />
+                            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                              <Typography component="span" fontWeight={800} color="text.primary" sx={{ fontFamily: 'monospace', bgcolor: 'rgba(0,0,0,0.04)', px: 0.5, py: 0.2, borderRadius: 1 }}>{operation.step_id}</Typography>
+                              <Typography component="span" fontWeight={700} sx={{ ml: 1, color: 'primary.main' }}>[{operation.field}]</Typography>
+                              {' '}{operation.reason}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Stack>
+                      <Stack direction="row" spacing={2} sx={{ pl: 5.5, pt: 1.5 }}>
                         {!!aiPatch.repair_draft?.draft_script && (
-                          <Button size="small" variant="contained" onClick={() => setRepairDraftOpen(true)}>预览修复草稿</Button>
+                          <Button 
+                            size="small" 
+                            variant="contained" 
+                            color={aiPatch.automatic_applicable ? 'success' : 'warning'} 
+                            onClick={() => setRepairDraftOpen(true)} 
+                            sx={{ borderRadius: 2, fontWeight: 800, boxShadow: 'none' }}
+                          >
+                            预览修复编排
+                          </Button>
                         )}
-                        <Button size="small" variant="outlined" onClick={applyDirectAiPatch}>直接应用补丁</Button>
+                        <Button 
+                          size="small" 
+                          variant="outlined" 
+                          onClick={applyDirectAiPatch} 
+                          sx={{ borderRadius: 2, fontWeight: 700, bgcolor: '#ffffff', borderColor: aiPatch.automatic_applicable ? 'success.light' : 'warning.light', color: aiPatch.automatic_applicable ? 'success.dark' : 'warning.dark' }}
+                        >
+                          直接应用修复
+                        </Button>
                       </Stack>
                     </Stack>
-                  </Alert>
+                  </Paper>
                 )}
               </Stack>
               <AIFlowDraftDialog

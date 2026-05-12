@@ -1,6 +1,6 @@
 import React from 'react';
 import { Paper, Box, Typography, TextField, Stack, List, ListItemButton, Chip, Button, Divider, Collapse, IconButton, Tooltip } from '@mui/material';
-import { RouteOutlined, ExpandMore, ExpandLess, ChevronLeft, ChevronRight } from '@mui/icons-material';
+import { RouteOutlined, ExpandMore, ExpandLess, ChevronLeft, ChevronRight, Menu, MenuOpen } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import EmptyState from '../../../components/EmptyState';
 import { METHOD_COLORS } from '../constants';
@@ -71,7 +71,7 @@ export default function Sidebar() {
                 '&:hover': { bgcolor: 'primary.100' }
               }}
             >
-              {isSidebarCollapsed ? <RouteOutlined fontSize="small" /> : <RouteOutlined fontSize="small" />}
+              {isSidebarCollapsed ? <Menu fontSize="small" /> : <MenuOpen fontSize="small" />}
             </Box>
           </Tooltip>
           <Box sx={{ minWidth: 0, flex: 1, opacity: isSidebarCollapsed ? 0 : 1, transition: 'opacity 0.2s' }}>
