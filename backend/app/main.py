@@ -179,6 +179,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.api.errors import setup_exception_handlers
+setup_exception_handlers(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -219,12 +222,7 @@ app.include_router(router)
 app.include_router(testcase_router)
 
 # Ensure upload and result directories exist for testcase generator
-import os as _os  # noqa: E402
-
-uploads_dir = _os.path.join(_os.path.dirname(__file__), "uploads")
-results_dir = _os.path.join(_os.path.dirname(__file__), "results")
-_os.makedirs(uploads_dir, exist_ok=True)
-_os.makedirs(results_dir, exist_ok=True)
+from app.runtime_paths import UPLOAD_TEMP_DIR, RESULTS_DIR  # noqa: E402
 
 # Mount React frontend build
 frontend_dir = os.path.join(

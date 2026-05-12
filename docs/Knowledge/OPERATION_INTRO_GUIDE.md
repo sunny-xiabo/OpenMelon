@@ -73,7 +73,22 @@ flowchart TD
 
 ## 2. 启动与访问
 
-### 2.1 本机开发模式
+### 2.1 Docker 一键启动
+
+适合首次体验、完整功能验证和接近部署环境的本机运行。
+
+```bash
+cp .env.example .env
+# 至少填写：
+# LLM_PROVIDER=qwen
+# API_KEY=你的大模型密钥
+
+docker compose up -d --build
+```
+
+该命令会构建并启动前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
+
+### 2.2 本机开发模式
 
 适合日常开发、前端调试和快速体验。
 
@@ -83,7 +98,8 @@ cp .env.example .env
 # LLM_PROVIDER=qwen
 # API_KEY=你的大模型密钥
 
-docker compose up -d neo4j
+# 如只调试主后端，可只启动 neo4j qdrant；Reranker 可在 .env 中关闭或改为 local
+docker compose up -d neo4j qdrant
 
 cd backend
 uv sync
@@ -94,36 +110,15 @@ npm install
 npm run dev
 ```
 
-### 2.2 Docker 开发模式
-
-适合后端容器化调试。
-
-```bash
-cp .env.example .env
-# 至少填写：
-# LLM_PROVIDER=qwen
-# API_KEY=你的大模型密钥
-
-docker compose build app
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-docker compose logs -f app
-```
-
-前端仍建议本机启动：
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
 ### 2.3 访问地址
 
 | 地址 | 说明 |
 |------|------|
-| `http://localhost:3000` | 前端页面 |
+| `http://localhost` | Docker 一键启动的前端页面 |
+| `http://localhost:3000` | 本机开发模式前端页面 |
 | `http://localhost:8000/docs` | 后端 API 文档 |
 | `http://localhost:7474` | Neo4j 管理页面 |
+| `http://localhost:6333/dashboard` | Qdrant 管理页面 |
 
 ### 2.4 启动成功检查
 

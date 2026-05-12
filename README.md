@@ -44,10 +44,18 @@ cp .env.example .env
 
 ### 2. 启动服务（两种方式任选）
 
-#### 方式 A：本机开发模式（推荐前端或快速调试）
+#### 方式 A：Docker 一键启动（推荐完整体验）
 ```bash
-# 启动依赖服务（图谱数据库）
-docker compose up -d neo4j
+docker compose up -d --build
+```
+
+该命令会构建并启动前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
+
+#### 方式 B：本机开发模式（推荐前端或快速调试）
+```bash
+# 启动依赖服务
+# 如只调试主后端，可只启动 neo4j qdrant；Reranker 可在 .env 中关闭或改为 local
+docker compose up -d neo4j qdrant
 
 # 启动后端
 cd backend
@@ -60,15 +68,7 @@ npm install
 npm run dev
 ```
 
-#### 方式 B：Docker 容器模式（推荐纯后端迭代）
-```bash
-docker compose build app
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-docker compose logs -f app
-
-# 前端同样在本地启动
-cd frontend && npm install && npm run dev
-```
+本机模式默认前端地址为 `http://localhost:3000`；Docker 一键启动默认前端地址为 `http://localhost`。
 
 ### 3. 访问系统
 - **前端页面**: [http://localhost:3000](http://localhost:3000)
@@ -134,7 +134,7 @@ OpenMelon/
 └── docker-compose.yml   # 容器编排文件
 ```
 
-后端自有结构化运行态数据统一写入共享 SQLite `backend/app/data/openmelon.db`；旧 JSON 文件仅作为空库初始化或迁移兼容源保留，文件上传、日志、Neo4j 与 Qdrant 数据仍使用各自适合的存储介质。
+后端所有的运行态产物（数据库、日志、导出文件、上传文件及旧 JSON 数据）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
 
 ---
 
@@ -146,4 +146,7 @@ OpenMelon/
 |------|---------|---------|
 | **[MANUAL.md](MANUAL.md)** | 开发者、运维 | 完整操作手册：架构详解、环境配置、API 参考、运维排查与 Prompt Hub 指南 |
 | **[CHANGELOG.md](CHANGELOG.md)** | 开发者 | 项目版本的变更记录与架构优化历史归档 |
-| **[docs/FRONTEND_DEPLOYMENT.md](docs/FRONTEND_DEPLOYMENT.md)** | 运维 | 前端独立部署 Nginx 配置示例与环境变量说明 |
+| **[docs/Knowledge/FRONTEND_DEPLOYMENT.md](docs/Knowledge/FRONTEND_DEPLOYMENT.md)** | 运维 | 前端独立部署 Nginx 配置示例与环境变量说明 |
+| **[docs/Knowledge/OPERATION_INTRO_GUIDE.md](docs/Knowledge/OPERATION_INTRO_GUIDE.md)** | 新用户、测试、产品 | 页面入口、操作路径和常见使用流程 |
+| **[docs/Knowledge/PROMPT_HUB_GUIDE.md](docs/Knowledge/PROMPT_HUB_GUIDE.md)** | 测试、管理员 | Prompt Hub 模板、技能和分类管理说明 |
+| **[docs/planning/UI_EXECUTION_PLAN.md](docs/planning/UI_EXECUTION_PLAN.md)** | 开发者、测试负责人 | UI 自动化执行能力规划与落地路径 |

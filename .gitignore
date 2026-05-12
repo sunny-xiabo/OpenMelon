@@ -43,15 +43,8 @@ test-results/
 # =============================================================
 # 项目运行时产物
 # =============================================================
-uploads/
-results/
-logs/
-*.log
-backend/app/data/*.db
-backend/app/data/*.db-shm
-backend/app/data/*.db-wal
-# Legacy JSON store files (migrated to SQLite, kept as migration seeds only)
-backend/app/data/api_execution/*.json
+backend/runtime/
+backend/app/testcase_gen/logs/
 
 # =============================================================
 # 前端

@@ -76,22 +76,18 @@ class MultiChannelRetriever:
             test_case_results = await self.vector_ops.search_similar_test_cases(embedding, top_k=max(2, top_k // 2))
 
         # Apply reranking first if available
-        if (
-            use_reranker
-            and results
-            and reranker.is_available()
-            and settings.USE_RERANKER
-        ):
+        if use_reranker and results and settings.USE_RERANKER:
             doc_contents = [r.get("content", "") for r in results]
             rerank_top_k = min(settings.RERANKER_TOP_K, len(results))
-            rerank_results = reranker.rerank(
+            rerank_results = await reranker.rerank(
                 question,
                 doc_contents,
                 top_k=rerank_top_k,
                 score_threshold=settings.RERANKER_SCORE_THRESHOLD,
             )
-            reranked_indices = [idx for idx, _ in rerank_results]
-            results = [results[i] for i in reranked_indices]
+            if rerank_results:
+                reranked_indices = [idx for idx, _ in rerank_results]
+                results = [results[i] for i in reranked_indices]
 
         # Build context text from (possibly reranked) results
         context_parts = []

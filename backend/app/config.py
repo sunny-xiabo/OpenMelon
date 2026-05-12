@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     INTENT_CONFIDENCE_THRESHOLD: float = 0.5
 
     USE_RERANKER: bool = True
+    RERANKER_BACKEND: str = "local"
+    RERANKER_URL: str = "http://localhost:8010"
+    RERANKER_TIMEOUT_SECONDS: float = 5.0
     RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-v2-m3"
     RERANKER_DEVICE: str = "cpu"
 

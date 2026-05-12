@@ -1,5 +1,4 @@
 name: openmlon
-version: "3.8"
 services:
   neo4j:
     image: neo4j:5.15.0
@@ -27,7 +26,6 @@ services:
       - openmlon-network
 
   app:
-    profiles: ["full"]  # 仅在 --profile full 时启动（生产部署用）
     build:
       context: ./backend
       dockerfile: docker/Dockerfile
@@ -47,10 +45,15 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-0}
       USE_EXTERNAL_VECTOR: ${USE_EXTERNAL_VECTOR:-false}
+      USE_RERANKER: ${USE_RERANKER:-true}
+      RERANKER_BACKEND: ${RERANKER_BACKEND:-sidecar}
+      RERANKER_URL: ${RERANKER_URL:-http://reranker:8010}
+      RERANKER_MODEL_NAME: ${RERANKER_MODEL_NAME:-BAAI/bge-reranker-v2-m3}
+      RERANKER_DEVICE: ${RERANKER_DEVICE:-cpu}
       QDRANT_HOST: qdrant            # 容器内固定使用服务名，覆盖 .env 中的 localhost
       QDRANT_PORT: ${QDRANT_PORT:-6333}
-      NO_PROXY: localhost,127.0.0.1,qdrant,neo4j
-      no_proxy: localhost,127.0.0.1,qdrant,neo4j
+      NO_PROXY: localhost,127.0.0.1,qdrant,neo4j,reranker
+      no_proxy: localhost,127.0.0.1,qdrant,neo4j,reranker
       UV_SYSTEM_PYTHON: 1
     depends_on:
       neo4j:
@@ -61,7 +64,6 @@ services:
       - openmlon-network
 
   web:
-    profiles: ["full"]  # 同样仅在 full profile 下启动
     build:
       context: ./frontend
       dockerfile: docker/Dockerfile
@@ -75,6 +77,25 @@ services:
     networks:
       - openmlon-network
 
+  reranker:
+    build:
+      context: ./backend
+      dockerfile: docker/Dockerfile
+      args:
+        INSTALL_RERANKER: "true"
+        APP_MODULE: app.reranker_service:app
+        APP_PORT: "8010"
+    container_name: openmlon-reranker
+    expose:
+      - "8010"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      RERANKER_MODEL_NAME: ${RERANKER_MODEL_NAME:-BAAI/bge-reranker-v2-m3}
+      RERANKER_DEVICE: ${RERANKER_DEVICE:-cpu}
+      UV_SYSTEM_PYTHON: 1
+    networks:
+      - openmlon-network
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: openmlon-qdrant
@@ -84,7 +105,7 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6333/readyz || exit 1"]
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 5

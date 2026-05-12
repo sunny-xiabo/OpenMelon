@@ -13,7 +13,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_DB_DIR = Path(__file__).resolve().parent.parent / "data"
+from app.runtime_paths import DB_DIR as _DEFAULT_DB_DIR
 _shared_connections: dict[Path, sqlite3.Connection] = {}
 _shared_locks: dict[Path, Lock] = {}
 _shared_lock = Lock()

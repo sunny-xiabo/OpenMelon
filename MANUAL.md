@@ -44,7 +44,7 @@ npm run dev
 - API 文档：`http://localhost:8000/docs`
 - Neo4j：`http://localhost:7474`
 
-### 0.2 最短上手路径（Docker 开发模式）
+### 0.2 最短上手路径（Docker 一键启动）
 
 ```bash
 cp .env.example .env
@@ -52,13 +52,11 @@ cp .env.example .env
 # LLM_PROVIDER=qwen
 # API_KEY=你的大模型密钥
 
-docker compose build app
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+docker compose up -d --build
 docker compose logs -f app
 ```
 
-开发模式会把本地 `backend/app`、`backend/config` 挂载进容器，并启用后端热更新。
-前端仍建议在本机执行 `npm run dev`，这样热更新和调试体验更好。
+该命令会构建并启动前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载重依赖，耗时较长；后续会复用缓存。
 
 ### 0.3 第一次进入系统先做什么
 
@@ -309,52 +307,53 @@ flowchart TD
 
 ### 2.1 Docker 方式
 
-#### 2.1.1 Docker 开发模式（推荐后端开发）
+#### 2.1.1 Docker 一键启动（推荐完整体验）
 
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
 # 编辑 .env，设置 LLM_PROVIDER 和 API_KEY
 
-# 2. 首次构建应用镜像
-docker compose build app
-
-# 3. 使用开发覆盖配置启动
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-
-# 4. 查看应用日志
-docker compose logs -f app
-```
-
-> 开发模式会挂载本地 `backend/app`、`backend/config`，并在容器内使用 `uvicorn --reload` 启动。
-> 日常修改后端代码时通常不需要 rebuild；只有 `backend/pyproject.toml` 或 `uv.lock` 变更时，才需要重新执行 `docker compose build app`。
-> 如果你要启用外部向量库，请同时启动 `qdrant`，并在 `.env` 中设置 `USE_EXTERNAL_VECTOR=true`。
->
-> ```bash
-> docker compose up -d qdrant
-> ```
-
-#### 2.1.2 Docker 生产模式
-
-```bash
-# 1. 配置环境变量
-cp .env.example .env
-
-# 2. 全量启动
-docker compose up -d
+# 2. 构建并启动完整服务
+# 包含前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant
+docker compose up -d --build
 
 # 3. 查看应用日志
 docker compose logs -f app
 ```
 
-> 生产模式不挂载本地源码，容器运行的是后端镜像内代码。
-> 当前 Docker 镜像不再包含前端静态资源，前端需要独立开发或独立部署。
-> 修改了 `backend/app`、`backend/config` 或 `backend/pyproject.toml` 后，需要重新 build 并在开发态重建后端容器。
->
-> ```bash
-> docker compose build app
-> docker compose up -d --force-recreate app
-> ```
+> 首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding`、`sentence-transformers` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
+> 如果只需要启动基础依赖给本机后端使用，可以执行 `docker compose up -d neo4j qdrant`。
+
+#### 2.1.2 Docker 后端开发模式
+
+```bash
+# 1. 配置环境变量
+cp .env.example .env
+# 编辑 .env，设置 LLM_PROVIDER 和 API_KEY
+
+# 2. 使用开发覆盖配置启动后端相关服务
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+# 3. 查看应用日志
+docker compose logs -f app
+```
+
+> 开发模式会挂载本地 `backend/app`、`backend/config`，并在容器内使用 `uvicorn --reload` 启动。
+> 日常修改后端代码时通常不需要 rebuild；只有 `backend/pyproject.toml` 或 `uv.lock` 变更时，才需要重新执行 `docker compose up -d --build --force-recreate app`。
+
+#### 2.1.3 重新构建指定服务
+
+```bash
+# 只重建主后端
+docker compose up -d --build --force-recreate app
+
+# 只重建 Reranker Sidecar
+docker compose up -d --build --force-recreate reranker
+
+# 只重建前端
+docker compose up -d --build --force-recreate web
+```
 
 **Neo4j 容器配置**：
 
@@ -419,7 +418,7 @@ npm run build
 
 > 前端构建产物默认在 `frontend/dist/`，建议单独交给静态站点或 Nginx 部署。
 > 如果你是在本机联调，也可以继续直接执行 `npm run dev`。
-> 如果前端需要连接独立域名的后端，请在 `frontend/.env.production` 中设置 `VITE_API_BASE_URL`。完整示例见 [docs/FRONTEND_DEPLOYMENT.md](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/docs/FRONTEND_DEPLOYMENT.md)。
+> 如果前端需要连接独立域名的后端，请在 `frontend/.env.production` 中设置 `VITE_API_BASE_URL`。完整示例见 [docs/Knowledge/FRONTEND_DEPLOYMENT.md](docs/Knowledge/FRONTEND_DEPLOYMENT.md)。
 > Nginx 可直接参考 [deploy/nginx/openmelon-frontend.conf](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/deploy/nginx/openmelon-frontend.conf)。
 
 ### 2.4 停止服务
@@ -537,13 +536,39 @@ docker compose down
 
 ### 3.6 BGE Reranker
 
+Reranker 用于在向量检索后对候选文档块二次排序。当前支持三种模式：
+
+| 模式 | 配置 | 适用场景 |
+|------|------|------|
+| 关闭 | `USE_RERANKER=false` 或 `RERANKER_BACKEND=disabled` | 最快启动，完全跳过重排 |
+| 本地进程 | `RERANKER_BACKEND=local` | 后端进程内直接加载 BGE/FlagEmbedding，适合已安装 reranker extra 的本机调试 |
+| Sidecar | `RERANKER_BACKEND=sidecar` | 主后端保持轻量，通过独立 `reranker` 服务执行本地 BGE 重排，推荐 Docker 场景 |
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `USE_RERANKER` | `true` | 设为 `false` 可禁用 |
+| `USE_RERANKER` | `true` | 是否启用重排能力 |
+| `RERANKER_BACKEND` | `local` | 可选 `local` / `sidecar` / `disabled` |
+| `RERANKER_URL` | `http://localhost:8010` | Sidecar 模式下的 reranker 服务地址；Docker Compose 中主后端默认使用 `http://reranker:8010` |
+| `RERANKER_TIMEOUT_SECONDS` | `5.0` | Sidecar 请求超时时间 |
 | `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-v2-m3` | 支持中英文 |
 | `RERANKER_DEVICE` | `cpu` | 可选 `cuda`（需 GPU） |
 
-> Reranker 仅影响 `vector_query` 和 `hybrid_query` 两种意图。加载失败时自动降级为无重排模式。
+> Reranker 仅影响 `vector_query` 和 `hybrid_query` 两种意图。Sidecar 或本地模型不可用时会自动保留原始向量检索顺序，不阻断问答主流程。
+
+**本机 local 模式安装：**
+
+```bash
+cd backend
+uv sync --extra reranker
+```
+
+**Docker sidecar 模式启动：**
+
+```bash
+docker compose up -d --build
+```
+
+主后端仍对外暴露 `8000`，`reranker` 只在 Docker 内网提供 `8010`。如只重启 sidecar，可执行 `docker compose up -d --force-recreate reranker`。
 
 ### 3.7 testcase_gen 独立 LLM 配置
 
@@ -1496,12 +1521,10 @@ docker compose up -d neo4j
 
 ```bash
 # 开发模式
-docker compose build app
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate app
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --force-recreate app
 
-# 生产模式
-docker compose build app
-docker compose up -d --force-recreate app
+# 默认 Docker 模式
+docker compose up -d --build --force-recreate app
 ```
 
 然后检查容器内文件是否存在：
