@@ -22,9 +22,8 @@ class PromptHubTracker(BaseSQLiteStore):
         data_file: Path | None = None,
         db_path: Path | None = None,
     ) -> None:
-        self._data_file = data_file or (
-            Path(__file__).resolve().parent.parent / "data" / "prompt_hub.json"
-        )
+        from app.runtime_paths import LEGACY_JSON_DIR
+        self._data_file = data_file or (LEGACY_JSON_DIR / "prompt_hub.json")
         super().__init__(db_path)
 
     def _init_schema(self) -> None:

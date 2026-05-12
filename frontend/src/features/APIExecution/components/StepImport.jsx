@@ -1,8 +1,9 @@
 import React from 'react';
 import { Stack, Typography, Paper, Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, Checkbox, Alert } from '@mui/material';
-import { CloudUploadOutlined, ContentPasteOutlined } from '@mui/icons-material';
+import { CloudUploadOutlined, ContentPasteOutlined, AutoAwesome, RocketLaunch } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import { useSnackbar } from '../../../components/SnackbarProvider';
+import { apiExecutionAPI } from '../../../api/execution';
 import { NEW_PROJECT_VALUE, NEW_ENVIRONMENT_VALUE } from '../constants';
 import StageHeader from './StageHeader';
 
@@ -49,17 +50,39 @@ const AI_BOUNDARY_OPTIONS = [
 export default function StepImport() {
   const {
     fileInputRef, setSelectedFile, selectedFile, parseFile, sourceUrl, setSourceUrl, parseUrl,
-    projects, selectedProjectId, applyProjectValues, loadEnvironments,
-    environments, selectedEnvironmentId, applyEnvironmentValues,
+    projects, setProjects, selectedProjectId, applyProjectValues, loadEnvironments, loadDemoOpenApi, resetAfterSpecChange,
+    environments, setEnvironments, selectedEnvironmentId, applyEnvironmentValues,
     baseUrl, setBaseUrl, environmentVariablesText, setEnvironmentVariablesText,
     allowAiGenerateDsl, setAllowAiGenerateDsl, allowAiExecution, setAllowAiExecution,
     allowAiRepair, setAllowAiRepair, allowScheduledExecution, setAllowScheduledExecution,
     allowOverwriteHistory, setAllowOverwriteHistory, maxAutoRepairs, setMaxAutoRepairs,
     maxReruns, setMaxReruns, maxRequestsPerRun, setMaxRequestsPerRun,
     operationAllowlistText, setOperationAllowlistText, operationBlocklistText, setOperationBlocklistText,
-    riskOverridesText, setRiskOverridesText,
+    riskOverridesText, setRiskOverridesText, setLoading, setLoadingMessage,
   } = useAPIExecution();
   const showSnackbar = useSnackbar();
+
+  const bootstrapDemoProject = async () => {
+    setLoadingMessage('正在初始化 Demo 项目...');
+    setLoading(true);
+    try {
+      const data = await apiExecutionAPI.bootstrapDemoProject();
+      resetAfterSpecChange(data.spec);
+      setProjects((prev) => [data.project, ...prev.filter((item) => item.project_id !== data.project.project_id)]);
+      setEnvironments([data.environment]);
+      applyProjectValues(data.project);
+      applyEnvironmentValues(data.environment);
+      showSnackbar(
+        `Demo 项目已初始化：${data.seeded_run_ids?.length || 0} 条执行样例，${data.knowledge_item_count || 0} 条知识`,
+        'success',
+      );
+    } catch (error) {
+      showSnackbar(error.message || 'Demo 项目初始化失败', 'error');
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
+    }
+  };
 
   return (
     <>
@@ -68,10 +91,77 @@ export default function StepImport() {
                 
                 <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                   <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>拖拽上传 OpenAPI/Swagger 文件</Typography>
-                  <Box sx={{ border: '2px dashed rgba(99, 102, 241, 0.3)', borderRadius: 3, p: 4, textAlign: 'center', mb: 3, '&:hover': { borderColor: 'primary.main', bgcolor: 'rgba(99, 102, 241, 0.04)' }, cursor: 'pointer', transition: 'all 0.2s' }} onClick={() => fileInputRef.current?.click()}>
-                    <CloudUploadOutlined color="primary" sx={{ fontSize: 48, mb: 1 }} />
-                    <Typography variant="body1">将文件拖拽至此处，或 <Typography component="span" color="primary">浏览文件</Typography></Typography>
+                  <Box
+                    sx={{
+                      border: '2px dashed rgba(99, 102, 241, 0.4)',
+                      borderRadius: 4,
+                      p: 6,
+                      textAlign: 'center',
+                      mb: 4,
+                      background: 'linear-gradient(145deg, rgba(238, 242, 255, 0.3) 0%, rgba(224, 231, 255, 0.6) 100%)',
+                      backdropFilter: 'blur(10px)',
+                      '&:hover': {
+                        borderColor: 'primary.main',
+                        background: 'linear-gradient(145deg, rgba(238, 242, 255, 0.5) 0%, rgba(224, 231, 255, 0.8) 100%)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: '0 12px 40px -12px rgba(99, 102, 241, 0.2)'
+                      },
+                      cursor: 'pointer',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Box sx={{ 
+                      width: 80, height: 80, borderRadius: '50%', bgcolor: 'rgba(99, 102, 241, 0.1)', 
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                      mx: 'auto', mb: 3, color: 'primary.main',
+                      boxShadow: '0 0 0 10px rgba(99, 102, 241, 0.05)'
+                    }}>
+                      <CloudUploadOutlined sx={{ fontSize: 40 }} />
+                    </Box>
+                    <Typography variant="h6" fontWeight={700} color="text.primary" gutterBottom>
+                      将规范文件拖拽至此处，或 <Typography component="span" color="primary.main" fontWeight={700} sx={{ textDecoration: 'underline', textUnderlineOffset: 4 }}>点击浏览</Typography>
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      支持 OpenAPI/Swagger (JSON, YAML) 以及 Markdown, XMind 等需求文档格式
+                    </Typography>
                     <input ref={fileInputRef} type="file" accept=".json,.yaml,.yml,.har,.md,.txt,.csv,.html,.htm,.docx,.xlsx,.xls" hidden onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
+                  </Box>
+
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, fontWeight: 600 }}>或选择快速开始</Typography>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3, mb: 4 }}>
+                    <Paper 
+                      elevation={0}
+                      onClick={loadDemoOpenApi}
+                      sx={{ 
+                        p: 3, borderRadius: 4, cursor: 'pointer',
+                        border: '1px solid rgba(255, 255, 255, 0.8)',
+                        background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(248, 250, 252, 0.6) 100%)',
+                        transition: 'all 0.2s',
+                        '&:hover': { borderColor: 'primary.main', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.05)', transform: 'translateY(-2px)' }
+                      }}
+                    >
+                      <Typography variant="subtitle1" fontWeight={800} color="primary.main" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <AutoAwesome fontSize="small" /> 仅加载演示接口资产
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">一键填入预设的演示级 API 规范，快速跳过导入步骤体验后续的智能编排流程。</Typography>
+                    </Paper>
+                    <Paper 
+                      elevation={0}
+                      onClick={bootstrapDemoProject}
+                      sx={{ 
+                        p: 3, borderRadius: 4, cursor: 'pointer',
+                        border: '1px solid rgba(255, 255, 255, 0.8)',
+                        background: 'linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, rgba(248, 250, 252, 0.6) 100%)',
+                        transition: 'all 0.2s',
+                        '&:hover': { borderColor: 'secondary.main', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.05)', transform: 'translateY(-2px)' }
+                      }}
+                    >
+                      <Typography variant="subtitle1" fontWeight={800} color="secondary.main" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <RocketLaunch fontSize="small" /> 初始化完整演示项目
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">在后台自动构建包含前置依赖的沙盒环境及初始用例，体验无缝的自动执行闭环。</Typography>
+                    </Paper>
                   </Box>
 
                   {selectedFile && (

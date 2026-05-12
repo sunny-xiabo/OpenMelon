@@ -1,8 +1,14 @@
 import json
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
+from app.api.logging_service import safe_log_event
 from app.api.deps import get_enterprise_integration, get_intent_router, get_generator
 
 router = APIRouter(prefix="/webhook", tags=["webhooks"])
+
+
+def _log_webhook_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
+    return safe_log_event(level, "webhook", event_type, title, message, **kwargs)
 
 @router.post("/{platform}")
 async def webhook_platform(
@@ -16,15 +22,40 @@ async def webhook_platform(
         question = data.get("question", "")
         configured = enterprise_integration.is_platform_configured(platform)
         if not configured:
-            raise HTTPException(
-                status_code=400, detail=f"Platform '{platform}' not configured"
+            _log_webhook_event(
+                "warning",
+                "webhook_send_rejected",
+                "Webhook 发送未执行",
+                f"平台未配置: {platform}",
+                source_id=platform,
+                refs=[platform],
+                data={"platform": platform},
             )
+            raise InvalidRequestError(message=str(f"Platform '{platform}' not configured"))
         ok = await enterprise_integration.send_answer(platform, answer, question)
+        _log_webhook_event(
+            "info" if ok else "warning",
+            "webhook_send_completed",
+            "Webhook 发送完成",
+            f"{platform} sent={ok}",
+            source_id=platform,
+            refs=[platform],
+            data={"platform": platform, "sent": ok, "question_chars": len(question), "answer_chars": len(answer)},
+        )
         return {"platform": platform, "sent": ok}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_webhook_event(
+            "error",
+            "webhook_send_failed",
+            "Webhook 发送失败",
+            str(e),
+            source_id=platform,
+            refs=[platform],
+            data={"platform": platform, "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 
 @router.get("/wecom")
@@ -33,7 +64,8 @@ async def wecom_verify_get(
     enterprise_integration = Depends(get_enterprise_integration)
 ):
     if not enterprise_integration.is_wecom_callback_configured():
-        raise HTTPException(status_code=400, detail="Wecom callback not configured")
+        _log_webhook_event("warning", "webhook_callback_rejected", "企业微信回调未配置", "Wecom callback not configured", source_id="wecom", refs=["wecom"])
+        raise InvalidRequestError(message="Wecom callback not configured")
 
     params = req.query_params
     msg_signature = params.get("msg_signature", "")
@@ -45,7 +77,8 @@ async def wecom_verify_get(
     decrypted = callback.verify_url(msg_signature, timestamp, nonce, echostr)
 
     if not decrypted:
-        raise HTTPException(status_code=403, detail="Verify failed")
+        _log_webhook_event("warning", "webhook_verify_failed", "企业微信回调验证失败", "Verify failed", source_id="wecom", refs=["wecom"])
+        raise UnauthorizedError(message="Verify failed")
 
     return Response(content=decrypted, media_type="text/plain")
 
@@ -58,7 +91,8 @@ async def wecom_callback(
     generator = Depends(get_generator)
 ):
     if not enterprise_integration.is_wecom_callback_configured():
-        raise HTTPException(status_code=400, detail="Wecom callback not configured")
+        _log_webhook_event("warning", "webhook_callback_rejected", "企业微信回调未配置", "Wecom callback not configured", source_id="wecom", refs=["wecom"])
+        raise InvalidRequestError(message="Wecom callback not configured")
 
     params = req.query_params
     msg_signature = params.get("msg_signature", "")
@@ -100,10 +134,28 @@ async def wecom_callback(
         answer = answer_result["answer"]
 
         await enterprise_integration.send_wecom_reply(user_id, answer, agent_id)
+        _log_webhook_event(
+            "info",
+            "webhook_callback_answered",
+            "企业微信回调已回复",
+            "企业微信问题处理完成",
+            source_id=user_id,
+            refs=["wecom", user_id, agent_id],
+            data={"platform": "wecom", "user_id": user_id, "agent_id": agent_id, "intent": intent_result.get("intent", "")},
+        )
 
     except Exception as e:
         await enterprise_integration.send_wecom_reply(
             user_id, f"处理出错: {str(e)}", agent_id
+        )
+        _log_webhook_event(
+            "error",
+            "webhook_callback_failed",
+            "企业微信回调处理失败",
+            str(e),
+            source_id=user_id,
+            refs=["wecom", user_id, agent_id],
+            data={"platform": "wecom", "user_id": user_id, "agent_id": agent_id, "error": str(e)},
         )
 
     return "success"
@@ -115,7 +167,8 @@ async def dingtalk_verify_get(
     enterprise_integration = Depends(get_enterprise_integration)
 ):
     if not enterprise_integration.is_dingtalk_callback_configured():
-        raise HTTPException(status_code=400, detail="DingTalk callback not configured")
+        _log_webhook_event("warning", "webhook_callback_rejected", "钉钉回调未配置", "DingTalk callback not configured", source_id="dingtalk", refs=["dingtalk"])
+        raise InvalidRequestError(message="DingTalk callback not configured")
 
     params = req.query_params
     signature = params.get("signature", "")
@@ -126,7 +179,8 @@ async def dingtalk_verify_get(
     callback = enterprise_integration.dingtalk_callback
     if callback.verify_url(signature, timestamp, nonce, echostr):
         return Response(content=echostr, media_type="text/plain")
-    raise HTTPException(status_code=403, detail="Verify failed")
+    _log_webhook_event("warning", "webhook_verify_failed", "钉钉回调验证失败", "Verify failed", source_id="dingtalk", refs=["dingtalk"])
+    raise UnauthorizedError(message="Verify failed")
 
 
 @router.post("/dingtalk")
@@ -137,7 +191,8 @@ async def dingtalk_callback(
     generator = Depends(get_generator)
 ):
     if not enterprise_integration.is_dingtalk_callback_configured():
-        raise HTTPException(status_code=400, detail="DingTalk callback not configured")
+        _log_webhook_event("warning", "webhook_callback_rejected", "钉钉回调未配置", "DingTalk callback not configured", source_id="dingtalk", refs=["dingtalk"])
+        raise InvalidRequestError(message="DingTalk callback not configured")
 
     params = req.query_params
     signature = params.get("signature", "")
@@ -149,7 +204,8 @@ async def dingtalk_callback(
 
     callback = enterprise_integration.dingtalk_callback
     if not callback.verify_callback(signature, timestamp, nonce, post_str):
-        raise HTTPException(status_code=403, detail="Verify failed")
+        _log_webhook_event("warning", "webhook_verify_failed", "钉钉回调验证失败", "Verify failed", source_id="dingtalk", refs=["dingtalk"])
+        raise UnauthorizedError(message="Verify failed")
 
     message = callback.parse_message(post_str)
     if not message or message.get("msgtype") != "text":
@@ -178,9 +234,27 @@ async def dingtalk_callback(
         answer = answer_result["answer"]
 
         await enterprise_integration.send_dingtalk_reply(user_id, answer)
+        _log_webhook_event(
+            "info",
+            "webhook_callback_answered",
+            "钉钉回调已回复",
+            "钉钉问题处理完成",
+            source_id=user_id,
+            refs=["dingtalk", user_id],
+            data={"platform": "dingtalk", "user_id": user_id, "intent": intent_result.get("intent", "")},
+        )
 
     except Exception as e:
         await enterprise_integration.send_dingtalk_reply(user_id, f"处理出错: {str(e)}")
+        _log_webhook_event(
+            "error",
+            "webhook_callback_failed",
+            "钉钉回调处理失败",
+            str(e),
+            source_id=user_id,
+            refs=["dingtalk", user_id],
+            data={"platform": "dingtalk", "user_id": user_id, "error": str(e)},
+        )
 
     return "success"
 
@@ -191,7 +265,8 @@ async def feishu_verify_get(
     enterprise_integration = Depends(get_enterprise_integration)
 ):
     if not enterprise_integration.is_feishu_callback_configured():
-        raise HTTPException(status_code=400, detail="Feishu callback not configured")
+        _log_webhook_event("warning", "webhook_callback_rejected", "飞书回调未配置", "Feishu callback not configured", source_id="feishu", refs=["feishu"])
+        raise InvalidRequestError(message="Feishu callback not configured")
 
     params = req.query_params
     verification_token = params.get("verification_token", "")
@@ -200,7 +275,8 @@ async def feishu_verify_get(
     if callback.verify_url(verification_token):
         challenge = params.get("challenge", "")
         return Response(content=challenge, media_type="text/plain")
-    raise HTTPException(status_code=403, detail="Verify failed")
+    _log_webhook_event("warning", "webhook_verify_failed", "飞书回调验证失败", "Verify failed", source_id="feishu", refs=["feishu"])
+    raise UnauthorizedError(message="Verify failed")
 
 
 @router.post("/feishu")
@@ -211,7 +287,8 @@ async def feishu_callback(
     generator = Depends(get_generator)
 ):
     if not enterprise_integration.is_feishu_callback_configured():
-        raise HTTPException(status_code=400, detail="Feishu callback not configured")
+        _log_webhook_event("warning", "webhook_callback_rejected", "飞书回调未配置", "Feishu callback not configured", source_id="feishu", refs=["feishu"])
+        raise InvalidRequestError(message="Feishu callback not configured")
 
     data = await req.json()
     callback = enterprise_integration.feishu_callback
@@ -243,8 +320,26 @@ async def feishu_callback(
         answer = answer_result["answer"]
 
         await enterprise_integration.send_feishu_reply(user_id, answer)
+        _log_webhook_event(
+            "info",
+            "webhook_callback_answered",
+            "飞书回调已回复",
+            "飞书问题处理完成",
+            source_id=user_id,
+            refs=["feishu", user_id],
+            data={"platform": "feishu", "user_id": user_id, "intent": intent_result.get("intent", "")},
+        )
 
     except Exception as e:
         await enterprise_integration.send_feishu_reply(user_id, f"处理出错: {str(e)}")
+        _log_webhook_event(
+            "error",
+            "webhook_callback_failed",
+            "飞书回调处理失败",
+            str(e),
+            source_id=user_id,
+            refs=["feishu", user_id],
+            data={"platform": "feishu", "user_id": user_id, "error": str(e)},
+        )
 
     return {"msg_type": "success"}

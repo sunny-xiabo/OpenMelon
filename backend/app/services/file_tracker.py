@@ -5,13 +5,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.runtime_paths import LEGACY_JSON_DIR
 from app.storage.sqlite_store import BaseSQLiteStore
 
 logger = logging.getLogger(__name__)
 
 
 class FileTracker(BaseSQLiteStore):
-    _JSON_FILE = Path(__file__).resolve().parent.parent / "data" / "file_tracker.json"
+    _JSON_FILE = LEGACY_JSON_DIR / "file_tracker.json"
 
     def __init__(
         self,

@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import Request
 import os
 
+from app.api.logging_service import safe_log_event
 from app.api.schemas import (
     FileListResponse,
     FileRecord,
@@ -10,6 +12,10 @@ from app.api.schemas import (
 )
 
 router = APIRouter(prefix="/manage", tags=["manage"])
+
+
+def _log_manage_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
+    return safe_log_event(level, "management", event_type, title, message, **kwargs)
 
 
 @router.get("/files", response_model=FileListResponse)
@@ -22,7 +28,7 @@ async def list_files(req: Request):
             total=len(records),
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 
 @router.delete("/files/{record_id}", response_model=DeleteResponse)
@@ -31,6 +37,15 @@ async def delete_file(record_id: str, req: Request):
         tracker = req.app.state.file_tracker
         record = tracker.get_record(record_id)
         if not record:
+            _log_manage_event(
+                "warning",
+                "managed_file_delete_rejected",
+                "文件删除未执行",
+                f"记录不存在: {record_id}",
+                source_id=record_id,
+                refs=[record_id],
+                data={"record_id": record_id},
+            )
             return DeleteResponse(
                 success=False,
                 deleted_count=0,
@@ -56,6 +71,15 @@ async def delete_file(record_id: str, req: Request):
                 except Exception as e:
                     print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
 
+            _log_manage_event(
+                "info",
+                "managed_file_deleted",
+                "文件索引已删除",
+                f"已删除 {record_id} 及相关向量数据",
+                source_id=record_id,
+                refs=[record_id, filename],
+                data={"record_id": record_id, "filename": filename or "", "file_path": file_path or ""},
+            )
             return DeleteResponse(
                 success=True,
                 deleted_count=1,
@@ -67,7 +91,16 @@ async def delete_file(record_id: str, req: Request):
             message=f"Failed to delete record: {record_id}",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_manage_event(
+            "error",
+            "managed_file_delete_failed",
+            "文件删除失败",
+            str(e),
+            source_id=record_id,
+            refs=[record_id],
+            data={"record_id": record_id, "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 
 @router.delete("/files", response_model=DeleteResponse)
@@ -95,13 +128,31 @@ async def delete_file_by_name(
             except Exception as e:
                 print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
 
+        _log_manage_event(
+            "info" if count > 0 else "warning",
+            "managed_file_deleted_by_name",
+            "按文件名删除索引完成",
+            f"删除 {count} 条记录: {filename}",
+            source_id=filename,
+            refs=[filename],
+            data={"filename": filename, "deleted_count": count},
+        )
         return DeleteResponse(
             success=count > 0,
             deleted_count=count,
             message=f"Deleted {count} record(s), physical files, and vector chunks for {filename}",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_manage_event(
+            "error",
+            "managed_file_delete_failed",
+            "按文件名删除索引失败",
+            str(e),
+            source_id=filename,
+            refs=[filename],
+            data={"filename": filename, "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 
 @router.post("/files/{record_id}/reindex", response_model=ReindexResponse)
@@ -110,6 +161,15 @@ async def reindex_file(record_id: str, req: Request):
         tracker = req.app.state.file_tracker
         record = tracker.get_record(record_id)
         if not record:
+            _log_manage_event(
+                "warning",
+                "managed_file_reindex_rejected",
+                "文件重建索引未执行",
+                f"记录不存在: {record_id}",
+                source_id=record_id,
+                refs=[record_id],
+                data={"record_id": record_id},
+            )
             return ReindexResponse(
                 success=False,
                 message=f"Record not found: {record_id}",
@@ -117,6 +177,15 @@ async def reindex_file(record_id: str, req: Request):
 
         file_path = record.get("file_path")
         if not file_path or not os.path.isfile(file_path):
+            _log_manage_event(
+                "warning",
+                "managed_file_reindex_rejected",
+                "文件重建索引未执行",
+                f"原文件不存在: {record['filename']}",
+                source_id=record_id,
+                refs=[record_id, record.get("filename")],
+                data={"record_id": record_id, "filename": record.get("filename", ""), "file_path": file_path or ""},
+            )
             return ReindexResponse(
                 success=False,
                 message=f"Original file not found for {record['filename']}",
@@ -160,6 +229,21 @@ async def reindex_file(record_id: str, req: Request):
 
         # 重新索引跑完后，精确地把当前这条记录的状态改成"已索引"，并更新最新切出来的区块数
         tracker.update_record(record_id, status="indexed", chunk_count=chunks)
+        _log_manage_event(
+            "info",
+            "managed_file_reindexed",
+            "文件重建索引完成",
+            f"{record['filename']} 重建 {chunks} 个 chunk",
+            source_id=record_id,
+            refs=[record_id, record.get("filename"), record.get("module")],
+            data={
+                "record_id": record_id,
+                "filename": record.get("filename", ""),
+                "doc_type": record.get("doc_type", ""),
+                "module": record.get("module", ""),
+                "chunks": chunks,
+            },
+        )
         return ReindexResponse(
             success=True,
             message=f"Re-indexed {record['filename']}, {chunks} chunks",
@@ -168,6 +252,13 @@ async def reindex_file(record_id: str, req: Request):
         import traceback
 
         tracker.update_record(record_id, status="failed")
-        raise HTTPException(
-            status_code=500, detail=str(e) + "\n" + traceback.format_exc()
+        _log_manage_event(
+            "error",
+            "managed_file_reindex_failed",
+            "文件重建索引失败",
+            str(e),
+            source_id=record_id,
+            refs=[record_id],
+            data={"record_id": record_id, "error": str(e)},
         )
+        raise InternalError(details=str(e) + "\n" + traceback.format_exc())

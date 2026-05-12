@@ -33,6 +33,35 @@ function CrossDomainWire() {
     return unregister;
   }, []);
 
+  useEffect(() => {
+    const pendingRunId = sessionStorage.getItem('openmelon_api_execution_run_id');
+    if (!pendingRunId) return;
+    let cancelled = false;
+    import('../../../api/execution').then(({ apiExecutionAPI }) => (
+      apiExecutionAPI.getRun(pendingRunId)
+    )).then((run) => {
+      if (cancelled || !run?.script) return;
+      const options = run.execution_options || {};
+      const environmentSnapshot = options.environment_snapshot || {};
+      const projectSnapshot = options.project_policy_snapshot || {};
+      if (options.project_id) setSelectedProjectId(options.project_id);
+      if (options.environment_id) setSelectedEnvironmentId(options.environment_id);
+      restoreProjectSnapshot(projectSnapshot);
+      restoreEnvironmentSnapshot(environmentSnapshot);
+      setBaseUrl(options.base_url || environmentSnapshot.base_url || run.script.base_url || '');
+      setDslText(JSON.stringify(run.script, null, 2));
+      setRunReport(run);
+      setRunResult(null);
+      setAssertionStepId(run.script.steps?.[0]?.id || '');
+      setRunStepId(run.script.steps?.[0]?.id || '');
+      setActiveStep(3);
+      sessionStorage.removeItem('openmelon_api_execution_run_id');
+    }).catch(() => {
+      sessionStorage.removeItem('openmelon_api_execution_run_id');
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   return null;
 }
 

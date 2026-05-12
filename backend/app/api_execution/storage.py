@@ -39,7 +39,8 @@ def _sqlite_has_api_execution_data(store: SQLiteStore) -> bool:
             (SELECT COUNT(*) FROM automation_runs) +
             (SELECT COUNT(*) FROM run_stage_events) +
             (SELECT COUNT(*) FROM artifact_meta) +
-            (SELECT COUNT(*) FROM knowledge_items) AS count
+            (SELECT COUNT(*) FROM knowledge_items) +
+            (SELECT COUNT(*) FROM event_logs) AS count
         """
     )
     return bool(row and row["count"] > 0)

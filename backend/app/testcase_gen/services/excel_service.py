@@ -6,8 +6,8 @@ from app.testcase_gen.models.test_case import TestCase
 
 class ExcelService:
     def __init__(self):
-        self.results_dir = "results"
-        os.makedirs(self.results_dir, exist_ok=True)
+        from app.runtime_paths import RESULTS_DIR
+        self.results_dir = str(RESULTS_DIR)
 
     def generate_excel(self, test_cases: List[Union[TestCase, Dict[str, Any]]], filename_prefix: str = "test_cases") -> str:
         """

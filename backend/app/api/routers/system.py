@@ -1,4 +1,5 @@
 import os
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from app.api.deps import get_metrics_collector, get_session_manager
 
@@ -15,7 +16,7 @@ async def get_metrics(collector = Depends(get_metrics_collector)):
             return collector.get_all_metrics()
         return {"metrics": "not_configured"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.post("/metrics/reset")
 async def reset_metrics(collector = Depends(get_metrics_collector)):
@@ -25,7 +26,7 @@ async def reset_metrics(collector = Depends(get_metrics_collector)):
             return {"reset": True}
         return {"reset": False, "reason": "not_configured"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/sessions")
 async def list_sessions(session_manager = Depends(get_session_manager)):
@@ -37,10 +38,10 @@ async def rename_session(session_id: str, req: Request, session_manager = Depend
     body = await req.json()
     title = body.get("title", "")
     if not title:
-        raise HTTPException(status_code=400, detail="Title is required")
+        raise InvalidRequestError(message="Title is required")
     ok = session_manager.rename_session(session_id, title)
     if not ok:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise NotFoundError(message="Session not found")
     return {"session_id": session_id, "title": title}
 
 @router.get("/history/{session_id}")
@@ -49,7 +50,7 @@ async def history(session_id: str, session_manager = Depends(get_session_manager
         history = session_manager.get_history(session_id)
         return {"session_id": session_id, "history": history}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.delete("/history/{session_id}")
 async def delete_session_history(session_id: str, session_manager = Depends(get_session_manager)):
@@ -57,11 +58,9 @@ async def delete_session_history(session_id: str, session_manager = Depends(get_
         deleted = session_manager.delete_session(session_id)
         return {"session_id": session_id, "deleted": deleted}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
-LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "logs"
-)
+from app.utils.logger import LOG_DIR
 
 LOG_FILES = {
     "openmelon.log": LOG_DIR,
@@ -74,7 +73,7 @@ async def get_logs(
     lines: int = Query(default=200, ge=1, le=5000),
 ):
     if filename not in LOG_FILES:
-        raise HTTPException(status_code=400, detail=f"Unknown log file: {filename}")
+        raise InvalidRequestError(message=f"Unknown log file: {filename}")
     log_path = os.path.join(LOG_FILES[filename], filename)
     if not os.path.isfile(log_path):
         return {"filename": filename, "lines": [], "total_lines": 0}
@@ -88,7 +87,7 @@ async def get_logs(
             "total_lines": len(all_lines),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/logs/list")
 async def list_logs():

@@ -4,6 +4,29 @@ export const apiExecutionAPI = {
   listProjects: () =>
     fetchJSON(`${API_BASE}/api-execution/projects`),
 
+  getDashboardSummary: ({ projectId = '', limit = 50 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (projectId) params.set('project_id', projectId);
+    return fetchJSON(`${API_BASE}/api-execution/dashboard/summary?${params.toString()}`);
+  },
+
+  listFlowTemplates: ({ projectId = '', limit = 100 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (projectId) params.set('project_id', projectId);
+    return fetchJSON(`${API_BASE}/api-execution/flow-templates?${params.toString()}`);
+  },
+
+  saveFlowTemplate: (template) =>
+    fetchJSON(`${API_BASE}/api-execution/flow-templates`, {
+      method: 'POST',
+      body: JSON.stringify(template),
+    }),
+
+  deleteFlowTemplate: (templateId) =>
+    fetchJSON(`${API_BASE}/api-execution/flow-templates/${encodeURIComponent(templateId)}`, {
+      method: 'DELETE',
+    }),
+
   listPolicyAudits: ({ limit = 20, projectId = '', action = '' } = {}) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (projectId) params.set('project_id', projectId);
@@ -11,11 +34,57 @@ export const apiExecutionAPI = {
     return fetchJSON(`${API_BASE}/api-execution/policy/audits?${params.toString()}`);
   },
 
+  listEventLogs: ({
+    limit = 50,
+    offset = 0,
+    projectId = '',
+    module = '',
+    level = '',
+    eventType = '',
+    traceId = '',
+    keyword = '',
+    startAt = '',
+    endAt = '',
+  } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (projectId) params.set('project_id', projectId);
+    if (module) params.set('module', module);
+    if (level) params.set('level', level);
+    if (eventType) params.set('event_type', eventType);
+    if (traceId) params.set('trace_id', traceId);
+    if (keyword) params.set('keyword', keyword);
+    if (startAt) params.set('start_at', startAt);
+    if (endAt) params.set('end_at', endAt);
+    return fetchJSON(`${API_BASE}/logs/events?${params.toString()}`);
+  },
+
+  getEventLogSummary: ({ projectId = '', module = '', level = '', eventType = '', traceId = '', keyword = '', startAt = '', endAt = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('project_id', projectId);
+    if (module) params.set('module', module);
+    if (level) params.set('level', level);
+    if (eventType) params.set('event_type', eventType);
+    if (traceId) params.set('trace_id', traceId);
+    if (keyword) params.set('keyword', keyword);
+    if (startAt) params.set('start_at', startAt);
+    if (endAt) params.set('end_at', endAt);
+    return fetchJSON(`${API_BASE}/logs/summary?${params.toString()}`);
+  },
+
+  listRelatedEventLogs: (eventId, { limit = 20 } = {}) =>
+    fetchJSON(`${API_BASE}/logs/events/${encodeURIComponent(eventId)}/related?limit=${encodeURIComponent(limit)}`),
+
   listAutomationTasks: ({ limit = 20, status = '', projectId = '' } = {}) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (status) params.set('status', status);
     if (projectId) params.set('project_id', projectId);
     return fetchJSON(`${API_BASE}/api-execution/automation/tasks?${params.toString()}`);
+  },
+
+  getTaskCenterSummary: ({ limit = 50, projectId = '' } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (projectId) params.set('project_id', projectId);
+    return fetchJSON(`${API_BASE}/api-execution/automation/task-center/summary?${params.toString()}`);
   },
 
   resolveAutomationTask: (taskId) =>
@@ -47,6 +116,25 @@ export const apiExecutionAPI = {
   approveKnowledgeCandidate: (taskId) =>
     fetchJSON(`${API_BASE}/api-execution/knowledge/candidates/${encodeURIComponent(taskId)}/approve`, {
       method: 'POST',
+    }),
+
+  createKnowledgeCandidate: (runId) =>
+    fetchJSON(`${API_BASE}/api-execution/knowledge/runs/${encodeURIComponent(runId)}/candidate`, {
+      method: 'POST',
+    }),
+
+  listKnowledgeReviewItems: ({ limit = 50, projectId = '', status = '', itemType = '' } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (projectId) params.set('project_id', projectId);
+    if (status) params.set('status', status);
+    if (itemType) params.set('item_type', itemType);
+    return fetchJSON(`${API_BASE}/api-execution/knowledge/review?${params.toString()}`);
+  },
+
+  updateKnowledgeStatus: (knowledgeId, { status, note = '' }) =>
+    fetchJSON(`${API_BASE}/api-execution/knowledge/items/${encodeURIComponent(knowledgeId)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, note }),
     }),
 
   saveProject: (project) =>
@@ -98,6 +186,14 @@ export const apiExecutionAPI = {
       body: JSON.stringify({ url, force_refresh: forceRefresh }),
     }, OPENAPI_PARSE_TIMEOUT_MS),
 
+  loadDemoOpenApi: () =>
+    fetchJSON(`${API_BASE}/api-execution/demo/openapi`),
+
+  bootstrapDemoProject: () =>
+    fetchJSON(`${API_BASE}/api-execution/demo/bootstrap`, {
+      method: 'POST',
+    }),
+
   getOperations: (specId) =>
     fetchJSON(`${API_BASE}/api-execution/specs/${encodeURIComponent(specId)}/operations`),
 
@@ -117,6 +213,28 @@ export const apiExecutionAPI = {
     fetchJSON(`${API_BASE}/api-execution/ai/dsl/enhance`, {
       method: 'POST',
       body: JSON.stringify({ script, project_policy_snapshot: projectPolicySnapshot }),
+    }),
+
+  generateFlowDraft: ({
+    specId,
+    businessGoal,
+    operationIds = [],
+    projectName = '',
+    environmentName = '',
+    baseUrl = '',
+    projectPolicySnapshot = {},
+  }) =>
+    fetchJSON(`${API_BASE}/api-execution/ai/flow-draft`, {
+      method: 'POST',
+      body: JSON.stringify({
+        spec_id: specId,
+        business_goal: businessGoal,
+        operation_ids: operationIds,
+        project_name: projectName,
+        environment_name: environmentName,
+        base_url: baseUrl,
+        project_policy_snapshot: projectPolicySnapshot,
+      }),
     }),
 
   generateRepairPatch: (script, report, projectPolicySnapshot = {}) =>
@@ -174,6 +292,17 @@ export const apiExecutionAPI = {
       method: 'DELETE',
     }),
 
+  batchDeleteRuns: (runIds) =>
+    fetchJSON(`${API_BASE}/api-execution/runs/batch-delete`, {
+      method: 'POST',
+      body: JSON.stringify(runIds),
+    }),
+
+  clearAllRuns: () =>
+    fetchJSON(`${API_BASE}/api-execution/runs/clear-all`, {
+      method: 'DELETE',
+    }),
+
   exportPytest: (script) =>
     fetchBlob(`${API_BASE}/api-execution/export/pytest`, {
       method: 'POST',
@@ -186,4 +315,3 @@ export const apiExecutionAPI = {
       body: JSON.stringify({ script }),
     }),
 };
-

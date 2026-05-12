@@ -45,6 +45,13 @@ export const RunHistoryProvider = ({ children }) => {
     fetchHistory();
   }, [runHistoryProjectId, runHistoryStatus]);
 
+  useEffect(() => {
+    const pendingRunId = sessionStorage.getItem('openmelon_api_execution_run_id');
+    if (pendingRunId) {
+      setRunHistoryKeyword(pendingRunId);
+    }
+  }, []);
+
   const handleDeleteRun = async (runId) => {
     try {
       await apiExecutionAPI.deleteRun(runId);
@@ -52,6 +59,27 @@ export const RunHistoryProvider = ({ children }) => {
       fetchHistory();
     } catch (error) {
       showSnackbar('删除失败', 'error');
+    }
+  };
+
+  const handleBatchDeleteRuns = async (runIds) => {
+    if (!runIds || runIds.length === 0) return;
+    try {
+      const res = await apiExecutionAPI.batchDeleteRuns(runIds);
+      showSnackbar(`已成功删除 ${res.deleted_count} 条执行记录`, 'success');
+      fetchHistory();
+    } catch (error) {
+      showSnackbar(error.message || '批量删除失败', 'error');
+    }
+  };
+
+  const handleClearAllRuns = async () => {
+    try {
+      const res = await apiExecutionAPI.clearAllRuns();
+      showSnackbar(`已成功清空所有执行记录（共 ${res.deleted_count} 条）`, 'success');
+      fetchHistory();
+    } catch (error) {
+      showSnackbar(error.message || '清空历史失败', 'error');
     }
   };
 
@@ -184,6 +212,8 @@ export const RunHistoryProvider = ({ children }) => {
     runHistoryKeyword, setRunHistoryKeyword,
     fetchHistory,
     handleDeleteRun,
+    handleBatchDeleteRuns,
+    handleClearAllRuns,
     replayRun,
     handleAutoRepairRun,
     handleResolveAutomationTask,

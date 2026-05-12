@@ -37,6 +37,7 @@ export const DSLProvider = ({ children }) => {
   const [assertionExpected, setAssertionExpected] = useState('200');
   const [aiPatch, setAiPatch] = useState(null);
   const [aiEnhancing, setAiEnhancing] = useState(false);
+  const [disabledFlowStepIds, setDisabledFlowStepIds] = useState([]);
 
   const parsedScript = useMemo(() => {
     if (!dslText) return null;
@@ -125,9 +126,9 @@ export const DSLProvider = ({ children }) => {
       const data = await apiExecutionAPI.enhanceDsl(parsedScript, buildProjectPolicySnapshot());
       setAiPatch(data);
       if (data.patch_operations?.length) {
-        showSnackbar(`AI 已生成 ${data.patch_operations.length} 条补全建议，可查看后应用`, 'success');
+        showSnackbar(`AI 已生成 ${data.patch_operations.length} 条编排建议，可查看后应用`, 'success');
       } else {
-        showSnackbar('当前脚本暂无可补全项', 'info');
+        showSnackbar('当前脚本暂无可补全的编排项', 'info');
       }
     } catch (error) {
       showSnackbar(error.message || 'AI DSL 补全失败', 'error');
@@ -197,6 +198,7 @@ export const DSLProvider = ({ children }) => {
     assertionExpected, setAssertionExpected,
     aiPatch, setAiPatch,
     aiEnhancing,
+    disabledFlowStepIds, setDisabledFlowStepIds,
     parsedScript,
     generateDsl,
     insertAssertion,

@@ -5,10 +5,130 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
-## [Unreleased]
+## [0.2.8.2] - 2026-05-12
+
+### 新增 (Added)
+- **API 流程模板复制/另存**: 模板弹窗新增复制模板和另存为新模板能力，保存/另存后会同步模板来源到当前 DSL，便于后续执行进入模板维度统计。
+- **API 执行模板维度统计**: API 执行概览新增流程模板执行表现表格，按模板聚合执行数、通过率、失败率、失败数、平均耗时和最近执行时间。
+- **API 流程图缩放平移**: 流程图视图新增缩放、重置和拖拽平移能力，节点点击继续联动步骤选择。
+- **失败后 AI 修复建议**: API 自动化执行失败后自动生成 AI 修复补丁建议，仍需用户确认后手动应用，避免静默修改脚本。
+- **API 流程 P2 草稿生成**: 新增 `POST /api/api-execution/ai/flow-draft`，支持基于业务目标和 OpenAPI operations 生成流程 DSL 草稿。
+- **AI 流程草稿预览**: API 自动化步骤 2 新增业务目标输入和 AI 草稿预览弹窗，展示步骤链路、依赖、变量提取、断言数量和不确定项，用户确认后才应用到工作台。
+- **API 流程变量链路增强**: AI 流程草稿可注册多个资源 ID，自动串联 token、path/query/body/header 中的变量引用，并在预览中展示变量引用位置。
+- **API 流程断言推荐**: AI 流程草稿基于响应状态码和响应 schema 自动推荐 `status_code_in`、`json_path_exists` 与 `response_time_lt` 基础断言，并在预览中展示摘要。
+- **API 流程模板智能推荐**: AI 流程草稿接口返回 `template_recommendations`，按业务目标、模板名称/说明/标签和步骤数推荐可复用流程模板。
+- **API 编排质量评分**: AI 流程草稿新增 `quality_score`，从变量、鉴权、断言、高风险操作和待确认项评估草稿可用度，并在预览弹窗展示。
+- **推荐模板套用/合并**: AI 流程草稿预览中的推荐模板支持“套用”和“合并片段”，合并时会重排模板步骤 ID 并继续要求人工确认。
+- **失败诊断修复草稿**: AI 修复补丁响应新增 `repair_draft`，失败后可预览修复后的流程草稿、变更步骤和质量评分，再人工确认应用。
+- **API Flow 验收资产**: 新增 `docs/samples/api-flow-demo-openapi.json` 和 `docs/Knowledge/api-flow-orchestration-acceptance.md`，用于真实场景验收登录、创建订单、查询订单和失败修复链路。
+- **API 流程编排 P2 文档**: 新增 `docs/Knowledge/api-flow-orchestration-p2-plan.md`，沉淀 P2 优先级、接口约定、已完成范围和后续增强项。
 
 ### 变更 (Changed)
+- **API 流程模板来源追踪**: `APITestCaseDsl` 新增 `flow_template_id`、`flow_template_name`、`flow_template_tags`，流程模板保存接口会写回模板来源，执行参数会携带模板来源用于概览聚合。
+- **API 自动化 AI 入口命名**: API 自动化第 3 步的 AI 按钮从“AI 补全”调整为“AI 编排建议”，与流程编排语义保持一致。
+- **API 流程编排路线图更新**: `docs/Knowledge/api-flow-orchestration-mvp-plan.md` 标记 P1 收口完成，并补充模板复制/另存、流程图缩放平移和失败后 AI 建议说明。
+- **API 执行概览计划更新**: `docs/Knowledge/api-execution-dashboard-plan.md` 补充模板维度通过率/失败率统计口径。
+- **AI 流程草稿安全边界**: AI 草稿只进入预览，不自动执行、不静默覆盖当前 DSL；应用后进入步骤 3 编排工作台继续人工确认。
+- **失败诊断分类增强**: 变量引用或变量替换失败会归类为 `variable_reference_missing`，422 参数校验建议补充检查 body/path/query 中的 `{{变量}}` 与前置 extraction。
+- **AI 草稿预览 UI 打磨**: 草稿/修复草稿预览改为折叠分区展示，变量链路从密集 chips 调整为“提取来源 / 引用位置”分组。
+- **结果页修复草稿入口补齐**: API 自动化步骤 4 的“AI 修复补丁”会携带当前执行报告生成修复建议；当响应只有 `repair_draft`、没有可直接应用的 `patch_operations` 时，也会展示“预览修复草稿”，避免修复建议被隐藏。
+- **流程健康检查增强**: API 流程编排工作台新增依赖顺序、循环依赖、自依赖、后置变量引用、重复变量提取和变量来源冲突提示，拖拽排序后能更早暴露流程风险。
+- **修复草稿对比视图**: AI 修复草稿预览新增字段级修复对比，展示调整前、调整后、原因和低风险标记；无自动补丁时明确提示需人工检查环境、数据或鉴权。
+- **修复建议分级诊断台**: AI 修复草稿新增 `repair_suggestion_groups`，将建议拆为低风险可应用、需要人工确认、只作为排查建议三类，前端预览按三栏诊断台展示。
+- **低风险修复独立应用**: AI 修复草稿预览新增“仅应用低风险项”，只将 `low_risk_apply` 对应字段写回当前 DSL，保留完整草稿应用给人工确认场景。
+- **阶段 C/D/E 计划打标**: `docs/Knowledge/api-flow-orchestration-p2-plan.md` 新增阶段 C/D/E 任务清单，已完成项用 `[x]` 标记，后续增强项保留 `[ ]` 追踪。
+- **AI 修复应用确认与来源标记**: 应用低风险项、完整修复草稿或直接补丁前会展示字段清单确认；应用后 DSL 写入 `ai_repair_source` 等来源信息，编排工作台提示用户确认后再执行。
+- **执行概览诊断台联动**: API 执行概览失败记录抽屉新增修复建议分级摘要和“打开修复诊断台”入口，跳转 API 自动化后自动载入 run 并聚焦修复草稿预览。
+- **阶段 D 受控修复重跑**: 修复草稿诊断台新增“应用低风险并受控重跑”，会只写入低风险补丁并重跑失败步骤，后端将修复前后通过/失败变化和修改字段固化到执行报告。
+- **受控重跑策略收口**: 低风险修复重跑前展示 AI 修复策略、最大修复次数、已修复次数和本次重跑步骤；达到项目修复次数上限时阻止重跑，并优先只重跑受影响失败步骤。
+- **修复经验手动沉淀**: 运行结果页新增“修复经验沉淀”入口，受控修复后可生成知识候选并由用户确认写入知识库、向量库和图谱，不做静默沉淀。
+- **阶段 E 知识沉淀基础闭环**: 新增 `POST /api/api-execution/knowledge/runs/{run_id}/candidate`，支持按执行记录生成知识沉淀候选，并避免已确认候选被重复改回待处理。
+- **相似失败历史方案召回**: AI 修复草稿会展示相似失败召回出的历史已验证修复方案，并按历史修复效果评分排序。
+- **AI 多方案修复**: 修复诊断台新增低风险直接应用、保守人工确认、激进调整排查三类方案，用户仍需手动选择和确认。
+- **修复效果评分**: 修复草稿和受控修复重跑报告新增 `repair_effect_score`，综合低风险项、需确认项、历史验证方案和重跑结果评估修复可信度。
+- **模板推荐历史表现加权**: AI 流程草稿模板推荐开始结合模板历史执行次数、通过率和失败率，并在推荐卡片展示历史表现理由。
+- **Demo OpenAPI 一键加载**: API 自动化步骤 1 新增“加载 Demo 资产”，可以直接载入验收样例 OpenAPI，不再手工上传文件。
+- **Demo Project 一键初始化**: API 自动化步骤 1 新增“初始化 Demo 项目”，自动创建 Demo 项目、环境、执行样例、失败诊断样例和知识样本。
+- **项目优化路线图**: 新增 `docs/Knowledge/openmelon-project-optimization-roadmap.md`，把整体项目优化项分成 P0-P3，便于后续逐项落地和回归。
+- **项目优化执行顺序调整**: Playwright/UI smoke 后置到 UI 验收阶段，当前优先继续沉淀验收脚本、任务中心和知识治理能力。
+- **任务中心轻量聚合接口**: 新增 `GET /api/api-execution/automation/task-center/summary`，按项目聚合待处理任务状态、风险、任务类型、处理队列和最近任务，为后续任务中心页面提供只读数据契约。
+- **发版验收 Smoke 脚本**: 新增 `docs/Knowledge/release-acceptance-smoke.md`，沉淀 Demo 初始化、执行概览、任务中心聚合、后端 pytest、前端 lint/build 和人工页面验收步骤。
+- **P1 治理与追踪计划**: 新增 `docs/Knowledge/openmelon-project-p1-governance-plan.md`，沉淀任务中心、知识治理、模板治理和验收标准。
+- **知识治理接口**: 新增 `GET /api/api-execution/knowledge/review` 与 `PATCH /api/api-execution/knowledge/items/{knowledge_id}/status`，支持已沉淀知识按项目、类型、状态审核，并可标记失效、撤回或恢复有效。
+- **设置页治理中心**: 设置页新增“治理中心”，集中处理知识治理、任务中心、模板治理和数据资产状态；API 自动化页底部收敛为执行历史，并提供治理中心跳转入口。
+- **设置页日志中心**: 设置页新增“日志中心”只读视图，聚合 API 执行记录、策略审计、自动化任务和知识状态事件，支持项目、模块、等级、关键词筛选和详情抽屉。
+- **日志中心分页**: 日志中心支持过滤后分页展示、每页条数切换和当前页统计，并将聚合加载范围提升到最近更多事件。
+- **日志中心诊断增强**: 日志中心新增时间范围筛选、Error/Warning/API 失败/待处理任务统计，以及按 run/task/knowledge/project 关联的相关事件抽屉。
+- **统一日志接口计划**: 新增 `docs/Knowledge/unified-log-interface-plan.md`，明确统一日志表、查询接口、统计接口、关联事件接口、写入规范和前端迁移路径。
+- **统一业务事件日志接口**: 新增 `event_logs` 存储与 `GET /api/logs/events`、`GET /api/logs/summary`、`GET /api/logs/events/{event_id}/related`，支持分页、等级、模块、项目、关键词、trace 和时间范围查询。
+- **统一日志写入服务**: 新增 `log_event(...)` 业务事件写入 helper，API 执行、策略审计、自动化任务和知识沉淀状态变化开始写入统一事件日志。
+- **全项目核心日志写入补齐**: 测试用例生成、向量入库、文档索引/上传、异步上传任务、RAG 查询、图谱节点类型治理、Prompt Hub 配置变更、文件管理删除/重建索引、企业 webhook 和 API 自动化 AI 助手接入统一业务事件日志。
+- **P0/P1 收口与变更分批归档**: 新增 `docs/Knowledge/openmelon-p0-p1-closeout.md` 与 `docs/Knowledge/openmelon-0.2.8.2-change-batches.md`，明确 P0/P1 已收口、P2 暂不扩大，并将当前脏工作区按功能域拆成 5 个可独立验收批次。
+- **模板治理元信息**: 流程模板列表补充 `version`、`deprecated`、`scope` 和 `performance_snapshot`，用于展示模板版本、废弃状态、适用范围和历史执行表现。
+
+### 验证 (Verified)
+- **API 流程 P1 收口回归**: `uv run pytest backend/tests/test_api_execution_dashboard.py backend/tests/test_api_execution_project_environment.py`、`npm run lint` 与 `npm run build` 通过，确认模板维度统计、模板复制/另存、流程图缩放平移和失败后 AI 修复建议可正常构建。
+- **API 流程 P2 草稿回归**: `uv run pytest backend/tests/test_api_execution_flow_draft.py backend/tests/test_api_execution_dashboard.py backend/tests/test_api_execution_project_environment.py`、`npm run lint` 与 `npm run build` 通过。
+- **API 流程变量链路回归**: `backend/tests/test_api_execution_flow_draft.py` 新增多资源 ID 与 body/path 变量引用覆盖。
+- **API 流程 P2 剩余项回归**: `backend/tests/test_api_execution_flow_draft.py` 覆盖断言推荐与模板推荐，`backend/tests/test_api_execution_diagnostics.py` 覆盖变量引用失败分类。
+- **API 流程 P2.1 深化回归**: `backend/tests/test_api_execution_flow_draft.py` 覆盖编排质量评分返回结构，`npm run lint` 与 `npm run build` 验证模板套用/合并入口可正常打包。
+- **失败诊断修复草稿回归**: `backend/tests/test_api_execution_ai_assistant.py` 覆盖 `repair_draft`、变更步骤标记和无自动补丁时的人工确认提示。
+- **API Flow 验收打磨回归**: `npm run lint` 与 `npm run build` 通过，确认草稿预览折叠分区和验收资产不影响前端构建。
+- **API Flow 页面验收**: 通过 demo OpenAPI 跑通导入、AI 草稿生成、草稿应用、流程图查看、完整执行失败诊断链路，并补齐步骤 4 修复草稿预览入口。
+- **任务中心聚合回归**: `uv run pytest backend/tests/test_api_execution_dashboard.py backend/tests/test_api_execution_project_environment.py backend/tests/test_api_execution_knowledge.py`、`npm run lint` 与 `npm run build` 通过。
+- **P0 验收脚本沉淀**: `docs/Knowledge/openmelon-project-optimization-roadmap.md` 已将“验收脚本沉淀到 docs/Knowledge”标记完成。
+- **P1 治理与追踪回归**: `uv run pytest backend/tests/test_api_execution_knowledge.py backend/tests/test_api_execution_dashboard.py backend/tests/test_api_execution_project_environment.py`、`npm run lint` 与 `npm run build` 通过。
+- **治理/日志中心迁移回归**: 设置页新增治理中心和日志中心后，`npm run lint`、`npm run build` 与 API 执行相关后端 pytest 通过。
+- **统一日志接口回归**: `uv run pytest backend/tests/test_event_logs.py backend/tests/test_api_execution_project_environment.py backend/tests/test_api_execution_knowledge.py`、`npm run lint` 与 `npm run build` 通过。
+- **全项目日志写入回归**: `uv run pytest backend/tests/test_event_logs.py backend/tests/test_api_execution_project_environment.py backend/tests/test_api_execution_knowledge.py backend/tests/test_api_execution_dashboard.py backend/tests/test_prompt_hub_tracker.py backend/tests/test_graph_node_type_sqlite.py backend/tests/test_api_execution_ai_assistant.py backend/tests/test_api_execution_flow_draft.py`、`npm run lint` 与 `npm run build` 通过。
+
+---
+
+## [0.2.8.1] - 2026-05-11
+
+### 新增 (Added)
+- **Reranker Sidecar 服务**: 新增 `app.reranker_service:app` 轻量 FastAPI 服务，提供 `/health` 与 `/rerank` 接口，用于将本地 BGE/FlagEmbedding 重排能力从主后端拆出为独立 sidecar。
+- **API 执行概览仪表盘**: 「数据仪表盘」新增 API 执行概览，基于真实 API 自动化执行历史展示执行总数、通过率、失败数、待处理项、平均耗时、状态分布、失败原因 Top 5、失败步骤 Top 5 和最近执行记录。
+- **API 执行概览后端接口**: 新增 `GET /api/api-execution/dashboard/summary` 只读聚合接口，复用 SQLite 中的 `runs` 与 `automation_tasks` 数据，支持按项目过滤和 `limit` 限制，不新增数据表。
+- **执行详情/失败诊断抽屉**: API 执行概览中的最近执行记录支持打开右侧抽屉；通过记录显示执行详情，失败记录显示诊断信息，排队/执行中记录显示进度语义，取消记录显示中断原因。
+- **API 自动化联动入口**: 执行详情抽屉新增「跳转 API 自动化」入口，通过 `sessionStorage` 携带 `run_id`，切换到 API 自动化页后自动载入对应脚本与执行报告。
+- **实现计划文档**: 新增 `docs/Knowledge/api-execution-dashboard-plan.md`，沉淀 API 执行概览仪表盘、失败诊断入口、接口约定、测试清单与后续增强方向。
+- **API 流程编排工作台**: API 自动化第 3 步新增列表式流程编排工作台，支持步骤选择、上移/下移排序、步骤配置、变量流转摘要和高级 DSL JSON 折叠编辑。
+- **API 流程编排 P0 增强**: 流程编排工作台新增未保存切换提醒、步骤启用/禁用、执行结果状态回填、变量 chip 插入，以及断言/变量提取快速编辑表单。
+- **API 流程编排 P0 收尾**: 流程编排工作台补齐执行前未保存确认、变量插入目标选择、失败重试快速编辑表单，以及断言 expected 类型归一化。
+- **API 流程图视图**: 流程编排工作台新增只读流程图视图，支持“列表 / 图”切换，展示步骤顺序、显式依赖和变量传递关系。
+- **API 流程模板**: 新增流程模板保存/载入能力，编排工作台可将当前 DSL 保存为模板，并从模板列表载入复用。
+- **API 流程模板接口**: 新增 `GET/POST/DELETE /api/api-execution/flow-templates`，复用 `automation_definitions` 存储并通过 `definition_type=flow_template` 区分模板记录。
+- **API 流程模板管理增强**: 模板弹窗新增关键词搜索、标签筛选、编辑元信息和用当前 DSL 覆盖保存模板。
+- **API 流程拖拽排序**: 流程步骤列表新增基于 `@dnd-kit` 的拖拽排序，保留上/下移按钮作为精确操作。
+- **API 流程编排文档**: 新增 `docs/Knowledge/api-flow-orchestration-mvp-plan.md`，沉淀流程编排 MVP 的范围、交互、校验规则、验收清单与后续增强方向。
+
+### 变更 (Changed)
+- **Reranker 依赖拆分**: `FlagEmbedding` 与 `sentence-transformers` 从默认后端依赖移至 `reranker` optional extra；主后端镜像默认不再安装 Torch/Transformers 等重依赖，显著降低普通 Docker build 成本。
+- **Reranker 后端可配置**: 新增 `RERANKER_BACKEND`、`RERANKER_URL`、`RERANKER_TIMEOUT_SECONDS` 配置，支持 `local`、`sidecar`、`disabled` 三种模式；sidecar 不可用时自动降级为原始向量检索顺序。
+- **Docker 一键启动**: `docker-compose.yml` 去除 `app`、`web`、`reranker` 的 profile 限制，完整服务栈可直接通过 `docker compose up -d --build` 构建并启动；如仅需基础依赖，可继续显式执行 `docker compose up -d neo4j qdrant`。
+- **Qdrant 健康检查**: 修复 `qdrant/qdrant:latest` 镜像内无 `wget` 导致健康检查误判 unhealthy 的问题，改为基于 bash TCP 探测 `6333` 端口。
+- **文档目录归档**: 将前端部署、操作介绍、Prompt Hub 和 UI 执行计划文档迁移至 `docs/Knowledge/` 与 `docs/planning/`，让根级 docs 目录按知识文档、规划文档和截图资源分层。
 - **CI 配置暂时下线**: 暂时移除 GitHub Actions 配置 `.github/workflows/ci.yml` 和 GitLab CI 配置 `.gitlab-ci.yml`，避免远端仓库展示和文档导航混杂；后续如需恢复自动化检查，可从历史提交中恢复对应配置。
+- **API 自动化与仪表盘联动增强**: API 自动化执行、取消、后台运行和失败步骤重跑后会触发仪表盘刷新事件；API 执行概览可作为 API 自动化执行历史的观察面板，而不是静态占位页。
+- **API 执行记录入口统一**: 最近执行记录从“仅失败可诊断”升级为所有状态均可查看详情，操作文案按状态区分为「详情 / 诊断 / 进度 / 原因」。
+- **API 自动化编排体验升级**: `StepOrchestrate` 从断言/运行参数/JSON 编辑堆叠界面调整为流程工作台容器，保留原执行、AI 补全、导出和高级 JSON 编辑能力。
+- **API 流程禁用步骤策略**: 禁用步骤仅作为前端执行前过滤能力，不写入 `APITestStep` schema，避免污染后端 DSL 与历史记录结构。
+- **API 流程拖拽依赖策略**: 拖拽排序只调整 DSL `steps` 顺序，不自动改写 `depends_on`，依赖顺序异常继续由工作台 warning 提醒。
+- **API 流程编排组件拆分**: 将 1200 行级别的 `FlowWorkbench` 拆分为运行配置、步骤列表、变量面板、步骤编辑器、流程图、模板弹窗、高级 JSON 和工具函数模块，降低后续维护成本。
+- **API 流程编排路线图完善**: `docs/Knowledge/api-flow-orchestration-mvp-plan.md` 从 MVP 计划扩展为分阶段路线图，补充 P0、只读流程图与 P1 模板完成情况、后续 backlog、模板接口、校验规则、验收清单和风险约束。
+
+### 验证 (Verified)
+- **API 执行概览聚合测试**: 新增 `backend/tests/test_api_execution_dashboard.py`，覆盖混合状态统计、项目过滤、空历史、失败原因 TopN 与失败步骤 TopN 聚合。
+- **API 执行概览回归**: `uv run pytest tests/test_api_execution_dashboard.py` 通过，`npm run build` 通过。
+- **前端工程规范回归**: 新增 `.eslintignore` 排除 `dist/` 构建产物，`npm run lint` 与 `npm run build` 均通过。
+- **API 流程编排回归**: `npm run lint` 与 `npm run build` 通过，确认流程编排工作台新增组件符合当前前端 lint 与打包要求。
+- **API 流程编排 P0 回归**: `npm run lint` 通过，确认 P0 收尾交互符合当前前端 ESLint 规则。
+- **API 流程图回归**: `npm run lint` 与 `npm run build` 通过，确认只读流程图视图不影响前端打包。
+- **API 流程模板回归**: `uv run pytest tests/test_api_execution_project_environment.py tests/test_api_execution_dashboard.py`、`npm run lint` 与 `npm run build` 通过。
+- **API 流程拖拽排序回归**: `npm run lint` 与 `npm run build` 通过，确认 `@dnd-kit` 拖拽排序可正常打包。
+- **API 流程组件拆分回归**: `npm run lint` 与 `npm run build` 通过，确认拆分后编排工作台仍可正常打包。
+- **API 流程模板管理回归**: `npm run lint` 与 `npm run build` 通过，确认模板搜索筛选和覆盖保存入口可正常打包。
 
 ---
 

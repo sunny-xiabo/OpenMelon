@@ -44,7 +44,7 @@ npm run dev
 - API 文档：`http://localhost:8000/docs`
 - Neo4j：`http://localhost:7474`
 
-### 0.2 最短上手路径（Docker 开发模式）
+### 0.2 最短上手路径（Docker 一键启动）
 
 ```bash
 cp .env.example .env
@@ -52,13 +52,11 @@ cp .env.example .env
 # LLM_PROVIDER=qwen
 # API_KEY=你的大模型密钥
 
-docker compose build app
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+docker compose up -d --build
 docker compose logs -f app
 ```
 
-开发模式会把本地 `backend/app`、`backend/config` 挂载进容器，并启用后端热更新。
-前端仍建议在本机执行 `npm run dev`，这样热更新和调试体验更好。
+该命令会构建并启动前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载重依赖，耗时较长；后续会复用缓存。
 
 ### 0.3 第一次进入系统先做什么
 
@@ -207,7 +205,7 @@ flowchart TD
     Qdrant[(Qdrant 向量库)] -->|"向量检索\ndoc_chunks"| QD
     Neo4j[(Neo4j 图数据库)] -->|"图谱检索\n节点与关系"| KG
     Neo4j --> Tracker["文件追踪记录\nSQLite file_records"]
-    Neo4j --> Save["原始文件保存\nbackend/app/data/uploads/"]
+    Neo4j --> Save["原始文件保存\nbackend/runtime/data/uploads/"]
 
     style Neo4j fill:#f9d0c4
     style Upload fill:#d4edda
@@ -309,52 +307,53 @@ flowchart TD
 
 ### 2.1 Docker 方式
 
-#### 2.1.1 Docker 开发模式（推荐后端开发）
+#### 2.1.1 Docker 一键启动（推荐完整体验）
 
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
 # 编辑 .env，设置 LLM_PROVIDER 和 API_KEY
 
-# 2. 首次构建应用镜像
-docker compose build app
-
-# 3. 使用开发覆盖配置启动
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-
-# 4. 查看应用日志
-docker compose logs -f app
-```
-
-> 开发模式会挂载本地 `backend/app`、`backend/config`，并在容器内使用 `uvicorn --reload` 启动。
-> 日常修改后端代码时通常不需要 rebuild；只有 `backend/pyproject.toml` 或 `uv.lock` 变更时，才需要重新执行 `docker compose build app`。
-> 如果你要启用外部向量库，请同时启动 `qdrant`，并在 `.env` 中设置 `USE_EXTERNAL_VECTOR=true`。
->
-> ```bash
-> docker compose up -d qdrant
-> ```
-
-#### 2.1.2 Docker 生产模式
-
-```bash
-# 1. 配置环境变量
-cp .env.example .env
-
-# 2. 全量启动
-docker compose up -d
+# 2. 构建并启动完整服务
+# 包含前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant
+docker compose up -d --build
 
 # 3. 查看应用日志
 docker compose logs -f app
 ```
 
-> 生产模式不挂载本地源码，容器运行的是后端镜像内代码。
-> 当前 Docker 镜像不再包含前端静态资源，前端需要独立开发或独立部署。
-> 修改了 `backend/app`、`backend/config` 或 `backend/pyproject.toml` 后，需要重新 build 并在开发态重建后端容器。
->
-> ```bash
-> docker compose build app
-> docker compose up -d --force-recreate app
-> ```
+> 首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding`、`sentence-transformers` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
+> 如果只需要启动基础依赖给本机后端使用，可以执行 `docker compose up -d neo4j qdrant`。
+
+#### 2.1.2 Docker 后端开发模式
+
+```bash
+# 1. 配置环境变量
+cp .env.example .env
+# 编辑 .env，设置 LLM_PROVIDER 和 API_KEY
+
+# 2. 使用开发覆盖配置启动后端相关服务
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+# 3. 查看应用日志
+docker compose logs -f app
+```
+
+> 开发模式会挂载本地 `backend/app`、`backend/config`，并在容器内使用 `uvicorn --reload` 启动。
+> 日常修改后端代码时通常不需要 rebuild；只有 `backend/pyproject.toml` 或 `uv.lock` 变更时，才需要重新执行 `docker compose up -d --build --force-recreate app`。
+
+#### 2.1.3 重新构建指定服务
+
+```bash
+# 只重建主后端
+docker compose up -d --build --force-recreate app
+
+# 只重建 Reranker Sidecar
+docker compose up -d --build --force-recreate reranker
+
+# 只重建前端
+docker compose up -d --build --force-recreate web
+```
 
 **Neo4j 容器配置**：
 
@@ -419,7 +418,7 @@ npm run build
 
 > 前端构建产物默认在 `frontend/dist/`，建议单独交给静态站点或 Nginx 部署。
 > 如果你是在本机联调，也可以继续直接执行 `npm run dev`。
-> 如果前端需要连接独立域名的后端，请在 `frontend/.env.production` 中设置 `VITE_API_BASE_URL`。完整示例见 [docs/FRONTEND_DEPLOYMENT.md](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/docs/FRONTEND_DEPLOYMENT.md)。
+> 如果前端需要连接独立域名的后端，请在 `frontend/.env.production` 中设置 `VITE_API_BASE_URL`。完整示例见 [docs/Knowledge/FRONTEND_DEPLOYMENT.md](docs/Knowledge/FRONTEND_DEPLOYMENT.md)。
 > Nginx 可直接参考 [deploy/nginx/openmelon-frontend.conf](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/deploy/nginx/openmelon-frontend.conf)。
 
 ### 2.4 停止服务
@@ -537,13 +536,39 @@ docker compose down
 
 ### 3.6 BGE Reranker
 
+Reranker 用于在向量检索后对候选文档块二次排序。当前支持三种模式：
+
+| 模式 | 配置 | 适用场景 |
+|------|------|------|
+| 关闭 | `USE_RERANKER=false` 或 `RERANKER_BACKEND=disabled` | 最快启动，完全跳过重排 |
+| 本地进程 | `RERANKER_BACKEND=local` | 后端进程内直接加载 BGE/FlagEmbedding，适合已安装 reranker extra 的本机调试 |
+| Sidecar | `RERANKER_BACKEND=sidecar` | 主后端保持轻量，通过独立 `reranker` 服务执行本地 BGE 重排，推荐 Docker 场景 |
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `USE_RERANKER` | `true` | 设为 `false` 可禁用 |
+| `USE_RERANKER` | `true` | 是否启用重排能力 |
+| `RERANKER_BACKEND` | `local` | 可选 `local` / `sidecar` / `disabled` |
+| `RERANKER_URL` | `http://localhost:8010` | Sidecar 模式下的 reranker 服务地址；Docker Compose 中主后端默认使用 `http://reranker:8010` |
+| `RERANKER_TIMEOUT_SECONDS` | `5.0` | Sidecar 请求超时时间 |
 | `RERANKER_MODEL_NAME` | `BAAI/bge-reranker-v2-m3` | 支持中英文 |
 | `RERANKER_DEVICE` | `cpu` | 可选 `cuda`（需 GPU） |
 
-> Reranker 仅影响 `vector_query` 和 `hybrid_query` 两种意图。加载失败时自动降级为无重排模式。
+> Reranker 仅影响 `vector_query` 和 `hybrid_query` 两种意图。Sidecar 或本地模型不可用时会自动保留原始向量检索顺序，不阻断问答主流程。
+
+**本机 local 模式安装：**
+
+```bash
+cd backend
+uv sync --extra reranker
+```
+
+**Docker sidecar 模式启动：**
+
+```bash
+docker compose up -d --build
+```
+
+主后端仍对外暴露 `8000`，`reranker` 只在 Docker 内网提供 `8010`。如只重启 sidecar，可执行 `docker compose up -d --force-recreate reranker`。
 
 ### 3.7 testcase_gen 独立 LLM 配置
 
@@ -698,7 +723,7 @@ curl "http://localhost:8000/api/upload/formats"
 
 ### 4.3 重新索引
 
-在「导入管理」中点击文件行的「重新索引」按钮，系统从 `backend/app/data/uploads/` 读取原始文件重新执行完整索引流程。旧数据通过 MERGE 方式更新。
+在「导入管理」中点击文件行的「重新索引」按钮，系统从 `backend/runtime/data/uploads/` 读取原始文件重新执行完整索引流程。旧数据通过 MERGE 方式更新。
 
 ### 4.4 删除文件
 
@@ -902,8 +927,8 @@ curl -X POST "http://localhost:8000/api/test-cases/generate-mindmap" \
 
 相关存储与接口：
 
-- 持久化配置：共享 SQLite `backend/app/data/openmelon.db` 中的 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表
-- 迁移兼容源：[backend/app/data/prompt_hub.json](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/data/prompt_hub.json) 仅在空库初始化时读取，不再作为正常写入目标
+- 持久化配置：共享 SQLite `backend/runtime/data/openmelon.db` 中的 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表
+- 迁移兼容源：[backend/runtime/data/prompt_hub.json](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/runtime/data/prompt_hub.json) 仅在空库初始化时读取，不再作为正常写入目标
 - 后端读取与校验：[backend/app/services/prompt_hub_tracker.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/services/prompt_hub_tracker.py)
 - 管理接口：[backend/app/api/routers/prompt_hub.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/api/routers/prompt_hub.py)
 
@@ -1111,32 +1136,30 @@ flowchart TD
     Knowledge --> FutureRepair["后续 AI 修复复用"]
 ```
 
-### 8.3 页面结构
+### 8.3 阶段三：编排与执行 (IDE 级工作台)
+
+进入核心的「编排与执行」阶段后，系统提供了一个专业的三栏式（Split Pane）无缝工作台：
 
 | 区域 | 作用 |
 |------|------|
-| 导入区 | 输入 API 文档 URL 或上传文件，解析接口资产 |
-| 接口选择区 | 搜索、筛选和勾选需要生成用例的接口 |
-| DSL 编排区 | 查看和编辑 API DSL，补充断言、变量提取和请求参数 |
-| 项目与环境区（设置 > 项目与环境） | 配置项目策略、环境类型、Base URL、Header、变量和超时 |
-| 执行区 | 单步执行、批量执行、后台执行、失败步骤重跑 |
-| 报告区 | 展示请求、响应、断言、失败原因、修复建议和策略判断 |
-| 历史区 | 查看历史执行、载入编辑、重跑、删除和知识沉淀候选 |
+| 顶部全局配置带 | 配置 Base URL、当前单步执行目标、Bearer Token、全局请求头及流程模板保存 |
+| 抽屉式蓝图 | 点击“展开蓝图”，可查看基于依赖关系自动生成的全局拓扑视图（支持拖拽和平移缩放） |
+| 左侧大纲与流程 | 展现加入当前批次的接口列表，支持选中查看明细，支持拖拽卡片上下调整全局执行顺序 |
+| 中部步骤精细配置 | 核心编辑区。配置当前选中接口的 Headers、Query、Body，并支持追加“断言模板”与“提取模板” |
+| 右侧上下文变量池 | 自动侦测并展示前置步骤提取出的可用变量。选择下拉框的“插入位置”后，点击变量方块即可一键注入至当前步骤 |
+| 底部 AI 修复卡片 | 仅在接口执行失败时弹出，展示 AI 诊断原因并提供可一键应用的修复补丁 |
 
 ### 8.4 推荐操作路径
 
-1. 在「API 自动化」页面导入接口文档。
-2. 等待系统解析出接口资产列表。
-3. 搜索或筛选接口，勾选需要执行的接口。
-4. 点击生成 API DSL。
-5. 配置项目和环境。
-6. 设置 Base URL、Header、变量、超时和失败策略。
-7. 先执行单个接口确认环境可用。
-8. 再批量执行接口用例。
-9. 查看执行报告和失败诊断。
-10. 如执行失败，生成 AI 修复补丁。
-11. 确认补丁后应用并重跑。
-12. 确认执行结果可信后，在待处理队列点击“确认沉淀”。
+1. 在「API 自动化」页面左侧目录树挑选并勾选你的目标接口。
+2. 若系统提示或已知有前置依赖（如登录鉴权），一并勾选依赖接口。
+3. 进入「阶段三：编排与执行」，在左侧 **大纲与流程** 面板拖拽调整正确的业务执行顺序。
+4. 选中前置接口（如登录），在中部 **步骤精细配置** 区域的“提取模板”中，设置提取目标（如提取响应体中的 `token`）。
+5. 选中业务接口（如创建订单），目光移至右侧 **上下文变量池**，选择所需的“插入位置”（如 Body 或 Headers），点击上一步提取出的 `{{token}}`，将其极速注入。
+6. 在顶部栏填入测试环境的 Base URL。
+7. 点击右侧工具栏的「一键美化」校验格式后，点击醒目的渐变色按钮「全量链路执行」。
+8. 若执行受阻，查看页面底部弹出的 **AI 智能修复补丁**，确认后点击应用，系统将自动修复脚本，随后可再次点击执行。
+9. 确认跑通后，进入待处理队列点击「确认沉淀」，将成功的自动化链路经验写入大模型知识库。
 
 ### 8.5 API DSL 是什么
 
@@ -1252,6 +1275,47 @@ flowchart TD
 | 覆盖率没有 API 数据 | 需要先确认执行结果可信并点击“确认沉淀”写入图谱关系 |
 | 向量经验没有被复用 | 确认知识候选已沉淀，且向量库或本地知识检索中存在相似失败/修复记录 |
 
+### 8.11 执行历史管理
+
+执行历史位于「API 自动化」页面底部的「执行历史」区域，存储在 `backend/runtime/data/openmelon.db` 的 `runs` 表中。
+
+**搜索与筛选**
+
+| 控件 | 说明 |
+|------|------|
+| 项目下拉框 | 按项目过滤历史记录 |
+| 执行状态下拉框 | 按状态筛选（通过/失败/执行中/排队中/已取消） |
+| 搜索框 | 按 run_id、用例名称模糊搜索，回车或点击刷新生效 |
+| 刷新按钮 | 重新拉取最新历史列表 |
+
+**单条操作**
+
+| 操作 | 说明 |
+|------|------|
+| 载入到编辑器 | 将该记录的 DSL 脚本载入阶段三编排工作台，可修改后重新执行 |
+| 重跑 | 用原始执行参数重新执行该记录，结果覆盖原记录 |
+| 受控修复 | 仅对失败记录可用，触发 AI 修复并重跑（受项目策略约束） |
+| 删除记录 | 点击垃圾桶图标，弹出确认对话框后删除单条记录 |
+
+**批量操作**
+
+表格最左列为复选框，勾选后可进行批量操作：
+
+1. 勾选一条或多条记录，或点击表头复选框全选当前页所有记录。
+2. 表格上方出现红色操作栏，显示已选中数量。
+3. 点击「批量删除」，弹出确认对话框，确认后一次性删除所有选中记录。
+
+**清空全部历史**
+
+搜索栏右侧有「清空全部」按钮：
+
+1. 点击「清空全部」。
+2. 弹出带红色警告标题的确认对话框。
+3. 确认后，系统调用后端接口将 `runs` 表全部记录删除，并自动取消正在排队或执行中的任务。
+4. 操作完成后页面自动刷新，显示清空条数。
+
+> 执行历史删除不可撤销，且不影响已确认沉淀至知识库的内容。
+
 ## 9. 覆盖率分析
 
 ### 9.1 数据来源
@@ -1303,7 +1367,7 @@ curl http://localhost:8000/api/graph/coverage
 
 | 操作 | 说明 |
 |------|------|
-| 重新索引 | 从 `backend/app/data/uploads/` 读取原始文件重新处理 |
+| 重新索引 | 从 `backend/runtime/data/uploads/` 读取原始文件重新处理 |
 | 删除 | 同步清理文件追踪记录、本地物理文件以及向量库（Qdrant）中的文档碎片。注意：出于知识沉淀与防止关系网断裂的考虑，该操作**不会**删除 Neo4j 中的关联图谱节点。 |
 | 批量删除 | 勾选多个文件后一次性删除 |
 | 生成用例 | 从已索引文件直接跳转到用例生成页面 |
@@ -1355,7 +1419,7 @@ GET    /api/history/{session_id}             # 获取会话聊天记录
 
 ### 12.2 配置管理
 
-**服务端配置**：共享 SQLite `backend/app/data/openmelon.db` 中的 `graph_node_types` 表，通过「设置 > 节点类型配置」页面管理。
+**服务端配置**：共享 SQLite `backend/runtime/data/openmelon.db` 中的 `graph_node_types` 表，通过「设置 > 节点类型配置」页面管理。
 
 **初始化种子**：`backend/config/node_types.json` 仅在空库初始化时读取，不再作为页面 CRUD 的写入目标。
 
@@ -1441,9 +1505,9 @@ OpenMelon 的本地运行期数据统一使用共享 SQLite 数据库：
 
 | 文件 | 说明 |
 |------|------|
-| `backend/app/data/openmelon.db` | 本地运行期主库 |
-| `backend/app/data/openmelon.db-wal` | SQLite WAL 日志文件 |
-| `backend/app/data/openmelon.db-shm` | SQLite 共享内存辅助文件 |
+| `backend/runtime/data/openmelon.db` | 本地运行期主库 |
+| `backend/runtime/data/openmelon.db-wal` | SQLite WAL 日志文件 |
+| `backend/runtime/data/openmelon.db-shm` | SQLite 共享内存辅助文件 |
 
 当前写入共享 SQLite 的数据包括：
 
@@ -1452,7 +1516,7 @@ OpenMelon 的本地运行期数据统一使用共享 SQLite 数据库：
 - Prompt Hub 模板、技能、技能分类和版本元信息
 - 图谱节点类型配置（`graph_node_types` 表）
 
-旧 JSON 文件如 `backend/app/data/file_tracker.json`、`backend/app/data/prompt_hub.json`、`backend/app/data/api_execution/*.json` 以及 `backend/config/node_types.json` 只作为空库初始化和迁移兼容源保留，正常写入不再回写 JSON。
+旧 JSON 文件如 `backend/runtime/data/file_tracker.json`、`backend/runtime/data/prompt_hub.json` 等只作为空库初始化和迁移兼容源保留，正常写入不再回写 JSON。
 
 > SQLite 主库和 WAL/SHM 文件属于运行期产物，已通过 `.gitignore` 排除，不应提交到代码仓库。
 
@@ -1496,12 +1560,10 @@ docker compose up -d neo4j
 
 ```bash
 # 开发模式
-docker compose build app
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --force-recreate app
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --force-recreate app
 
-# 生产模式
-docker compose build app
-docker compose up -d --force-recreate app
+# 默认 Docker 模式
+docker compose up -d --build --force-recreate app
 ```
 
 然后检查容器内文件是否存在：
@@ -1518,7 +1580,7 @@ docker compose exec app ls -l /app/config
 
 ### 14.6 重新索引失败
 
-确保原始文件存在于 `backend/app/data/uploads/` 目录中。上传时自动保存，手动删除后无法重新索引。
+确保原始文件存在于 `backend/runtime/data/uploads/` 目录中。上传时自动保存，手动删除后无法重新索引。
 
 ### 14.7 BGE Reranker 加载失败
 

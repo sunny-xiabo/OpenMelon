@@ -5,9 +5,9 @@ import glob
 import time
 from logging.handlers import TimedRotatingFileHandler
 
-LOG_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs"
-)
+from app.runtime_paths import LOG_DIR as _LOG_DIR_PATH
+
+LOG_DIR = str(_LOG_DIR_PATH)
 LOG_RETENTION_DAYS = 30
 
 

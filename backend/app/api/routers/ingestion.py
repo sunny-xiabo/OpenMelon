@@ -1,4 +1,5 @@
 import os
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 import uuid
 import asyncio
 import aiofiles
@@ -6,6 +7,7 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from concurrent.futures import ThreadPoolExecutor
 
+from app.api.logging_service import safe_log_event
 from app.api.schemas import (
     IndexFileRequest,
     IndexDirectoryRequest,
@@ -23,17 +25,16 @@ from app.services.upload_task_manager import upload_task_manager
 
 router = APIRouter(tags=["ingestion"])
 
-UPLOAD_TEMP_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "uploads"
-)
-os.makedirs(UPLOAD_TEMP_DIR, exist_ok=True)
+from app.runtime_paths import UPLOAD_TEMP_DIR as _UPLOAD_TEMP, UPLOAD_STORE_DIR as _UPLOAD_STORE
 
-UPLOAD_STORE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "uploads"
-)
-os.makedirs(UPLOAD_STORE_DIR, exist_ok=True)
+UPLOAD_TEMP_DIR = str(_UPLOAD_TEMP)
+UPLOAD_STORE_DIR = str(_UPLOAD_STORE)
 
 _parse_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="parse-worker")
+
+
+def _log_ingestion_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
+    return safe_log_event(level, "ingestion", event_type, title, message, **kwargs)
 
 def _parse_file_sync(content_bytes: bytes, filename: str):
     from app.services.file_parser import parse_file
@@ -51,6 +52,7 @@ def _parse_file_sync(content_bytes: bytes, filename: str):
 
 @router.post("/index/file", response_model=IndexResponse)
 async def index_file(request: IndexFileRequest, indexer = Depends(get_indexer)):
+    trace_id = f"index_file_{uuid.uuid4().hex}"
     try:
         chunks_indexed = await indexer.index_file(
             file_content=request.file_content,
@@ -59,18 +61,52 @@ async def index_file(request: IndexFileRequest, indexer = Depends(get_indexer)):
             filename=request.filename,
         )
 
+        _log_ingestion_event(
+            "info",
+            "document_index_completed",
+            "文档索引完成",
+            f"{request.filename} 索引 {chunks_indexed} 个 chunk",
+            trace_id=trace_id,
+            refs=[request.filename, request.doc_type, request.module],
+            data={
+                "filename": request.filename,
+                "doc_type": request.doc_type,
+                "module": request.module,
+                "chunks_indexed": chunks_indexed,
+                "source": "index_file",
+            },
+        )
         return IndexResponse(
             success=True,
             chunks_indexed=chunks_indexed,
             message=f"Indexed {chunks_indexed} chunks from {request.filename}",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_ingestion_event(
+            "error",
+            "document_index_failed",
+            "文档索引失败",
+            str(e),
+            trace_id=trace_id,
+            refs=[request.filename, request.doc_type, request.module],
+            data={"filename": request.filename, "error": str(e), "source": "index_file"},
+        )
+        raise InternalError(details=str(e))
 
 @router.post("/index/directory", response_model=IndexResponse)
 async def index_directory(request: IndexDirectoryRequest, indexer = Depends(get_indexer)):
+    trace_id = f"index_dir_{uuid.uuid4().hex}"
     try:
         if not os.path.isdir(request.directory_path):
+            _log_ingestion_event(
+                "warning",
+                "directory_index_rejected",
+                "目录索引未执行",
+                f"目录不存在: {request.directory_path}",
+                trace_id=trace_id,
+                refs=[request.directory_path, request.doc_type, request.module],
+                data={"directory_path": request.directory_path, "source": "index_directory"},
+            )
             return IndexResponse(
                 success=False,
                 chunks_indexed=0,
@@ -83,13 +119,36 @@ async def index_directory(request: IndexDirectoryRequest, indexer = Depends(get_
             module=request.module,
         )
 
+        _log_ingestion_event(
+            "info",
+            "directory_index_completed",
+            "目录索引完成",
+            f"{request.directory_path} 索引 {chunks_indexed} 个 chunk",
+            trace_id=trace_id,
+            refs=[request.directory_path, request.doc_type, request.module],
+            data={
+                "directory_path": request.directory_path,
+                "doc_type": request.doc_type,
+                "module": request.module,
+                "chunks_indexed": chunks_indexed,
+            },
+        )
         return IndexResponse(
             success=True,
             chunks_indexed=chunks_indexed,
             message=f"Indexed {chunks_indexed} chunks from {request.directory_path}",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_ingestion_event(
+            "error",
+            "directory_index_failed",
+            "目录索引失败",
+            str(e),
+            trace_id=trace_id,
+            refs=[request.directory_path, request.doc_type, request.module],
+            data={"directory_path": request.directory_path, "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_files(
@@ -98,6 +157,7 @@ async def upload_files(
     module: Optional[str] = Form(None),
     indexer = Depends(get_indexer)
 ):
+    trace_id = f"upload_{uuid.uuid4().hex}"
     try:
         details = []
         total_chunks = 0
@@ -175,6 +235,22 @@ async def upload_files(
                 )
 
         files_indexed = sum(1 for d in details if d["success"])
+        _log_ingestion_event(
+            "info" if files_indexed > 0 else "warning",
+            "document_upload_index_completed",
+            "上传文档索引完成",
+            f"索引 {files_indexed}/{len(files)} 个文件，{total_chunks} 个 chunk",
+            trace_id=trace_id,
+            refs=[doc_type, module],
+            data={
+                "doc_type": doc_type or "",
+                "module": module or "",
+                "files_total": len(files),
+                "files_indexed": files_indexed,
+                "total_chunks": total_chunks,
+                "details": details,
+            },
+        )
 
         return UploadResponse(
             success=files_indexed > 0,
@@ -185,7 +261,16 @@ async def upload_files(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_ingestion_event(
+            "error",
+            "document_upload_index_failed",
+            "上传文档索引失败",
+            str(e),
+            trace_id=trace_id,
+            refs=[doc_type, module],
+            data={"doc_type": doc_type or "", "module": module or "", "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 @router.post("/upload/directory", response_model=UploadResponse)
 async def upload_directory(
@@ -194,6 +279,7 @@ async def upload_directory(
     module: Optional[str] = Form(None),
     indexer = Depends(get_indexer)
 ):
+    trace_id = f"upload_dir_{uuid.uuid4().hex}"
     try:
         details = []
         total_chunks = 0
@@ -271,6 +357,22 @@ async def upload_directory(
                 )
 
         files_indexed = sum(1 for d in details if d["success"])
+        _log_ingestion_event(
+            "info" if files_indexed > 0 else "warning",
+            "directory_upload_index_completed",
+            "上传目录索引完成",
+            f"索引 {files_indexed}/{len(files)} 个文件，{total_chunks} 个 chunk",
+            trace_id=trace_id,
+            refs=[doc_type, module],
+            data={
+                "doc_type": doc_type or "",
+                "module": module or "",
+                "files_total": len(files),
+                "files_indexed": files_indexed,
+                "total_chunks": total_chunks,
+                "details": details,
+            },
+        )
 
         return UploadResponse(
             success=files_indexed > 0,
@@ -281,7 +383,16 @@ async def upload_directory(
         )
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_ingestion_event(
+            "error",
+            "directory_upload_index_failed",
+            "上传目录索引失败",
+            str(e),
+            trace_id=trace_id,
+            refs=[doc_type, module],
+            data={"doc_type": doc_type or "", "module": module or "", "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 async def _process_upload_task(
     task,
@@ -300,6 +411,16 @@ async def _process_upload_task(
         _sys.stdout.flush()
 
     task.status = "processing"
+    _log_ingestion_event(
+        "info",
+        "async_upload_index_started",
+        "异步上传索引开始",
+        f"任务 {task.task_id} 开始处理 {len(saved_files)} 个文件",
+        trace_id=task.task_id,
+        source_id=task.task_id,
+        refs=[task.task_id, doc_type, module],
+        data={"task_id": task.task_id, "files_total": len(saved_files), "doc_type": doc_type or "", "module": module or ""},
+    )
     try:
         details = []
         total_chunks = 0
@@ -411,6 +532,22 @@ async def _process_upload_task(
         task.message = f"Indexed {files_indexed}/{len(saved_files)} files, {total_chunks} chunks total"
         task.details = details
         task.total_chunks = total_chunks
+        _log_ingestion_event(
+            "info" if files_indexed > 0 else "warning",
+            "async_upload_index_completed",
+            "异步上传索引完成",
+            task.message,
+            trace_id=task.task_id,
+            source_id=task.task_id,
+            refs=[task.task_id, doc_type, module],
+            data={
+                "task_id": task.task_id,
+                "files_total": len(saved_files),
+                "files_indexed": files_indexed,
+                "total_chunks": total_chunks,
+                "details": details,
+            },
+        )
 
     except Exception as e:
         _log(f"task error: {e}")
@@ -419,6 +556,16 @@ async def _process_upload_task(
         task.status = "failed"
         task.error = str(e)
         task.message = f"Upload failed: {str(e)}"
+        _log_ingestion_event(
+            "error",
+            "async_upload_index_failed",
+            "异步上传索引失败",
+            task.message,
+            trace_id=task.task_id,
+            source_id=task.task_id,
+            refs=[task.task_id, doc_type, module],
+            data={"task_id": task.task_id, "error": str(e)},
+        )
 
 @router.post("/upload/async")
 async def upload_files_async(
@@ -443,11 +590,21 @@ async def upload_files_async(
             saved_files.append((save_path, upload_file.filename))
 
         if not saved_files:
-            raise HTTPException(status_code=400, detail="No valid files provided")
+            raise InvalidRequestError(message="No valid files provided")
 
         task = upload_task_manager.create(
             filename=", ".join(f[1] for f in saved_files),
             total_files=len(saved_files),
+        )
+        _log_ingestion_event(
+            "info",
+            "async_upload_index_queued",
+            "异步上传索引已入队",
+            f"{len(saved_files)} 个文件等待索引",
+            trace_id=task.task_id,
+            source_id=task.task_id,
+            refs=[task.task_id, doc_type, module],
+            data={"task_id": task.task_id, "files_total": len(saved_files), "doc_type": doc_type or "", "module": module or ""},
         )
 
         asyncio.create_task(
@@ -468,13 +625,13 @@ async def upload_files_async(
                 os.unlink(file_path)
             except Exception:
                 pass
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/upload/status/{task_id}")
 async def upload_status(task_id: str):
     task = upload_task_manager.get(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+        raise NotFoundError(message=f"Task not found: {task_id}")
     return task.to_dict()
 
 @router.get("/upload/tasks")

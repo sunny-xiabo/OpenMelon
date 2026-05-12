@@ -15,6 +15,7 @@ import {
   normalizeTimeoutMs,
 } from '../utils';
 import { useUIContext } from './UIContext';
+import { API_EXECUTION_DASHBOARD_REFRESH_EVENT } from '../../../constants/events';
 
 const ExecutionContext = createContext();
 
@@ -26,6 +27,10 @@ export const useExecutionContext = () => {
 
 const RUN_POLL_INTERVAL_MS = 1800;
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
+
+const notifyDashboardRefresh = () => {
+  window.dispatchEvent(new CustomEvent(API_EXECUTION_DASHBOARD_REFRESH_EVENT));
+};
 
 const estimateBatchRequestTimeoutMs = (stepCount, stepTimeoutMs) => Math.min(
   BATCH_REQUEST_TIMEOUT_CEILING_MS,
@@ -92,6 +97,7 @@ export const ExecutionProvider = ({ children }) => {
         setRunReport(data);
         if (!ACTIVE_RUN_STATUSES.has(data.status)) {
           fetchHistoryRef.current?.();
+          notifyDashboardRefresh();
         }
         // 排队超时提醒
         if (data.status === 'queued' && !queuedWarned && Date.now() - startedAt > QUEUED_TIMEOUT_MS) {
@@ -113,12 +119,17 @@ export const ExecutionProvider = ({ children }) => {
   }, [backgroundRunId, backgroundRunStatus]);
 
   // buildRunOptions comes from ProjectEnvContext, passed as param
-  const runSelectedStep = async (parsedScript, runStepId, buildRunOptions) => {
+  const runSelectedStep = async (parsedScript, runStepId, buildRunOptions, disabledStepIds = []) => {
     if (!parsedScript) {
       showSnackbar('请先生成或修复测试脚本 JSON', 'warning');
       return;
     }
-    const runOptions = buildRunOptions(parsedScript, { step_id: runStepId || parsedScript.steps?.[0]?.id });
+    const targetStepId = runStepId || parsedScript.steps?.[0]?.id;
+    if (disabledStepIds.includes(targetStepId)) {
+      showSnackbar('当前步骤已禁用，请先启用后再单步执行', 'warning');
+      return;
+    }
+    const runOptions = buildRunOptions(parsedScript, { step_id: targetStepId });
     if (!runOptions) return;
     setLoadingMessage('正在执行接口...');
     setLoading(true);
@@ -132,6 +143,7 @@ export const ExecutionProvider = ({ children }) => {
       setRunReport(buildSingleStepRunReport(executableScript, data, runOptions));
       showSnackbar(data.status === 'passed' ? '接口执行通过' : '接口执行失败', data.status === 'passed' ? 'success' : 'error');
       fetchHistoryRef.current?.();
+      notifyDashboardRefresh();
     } catch (error) {
       showSnackbar(error.message || '接口执行失败', 'error');
     } finally {
@@ -164,6 +176,7 @@ export const ExecutionProvider = ({ children }) => {
       setRunResult(null);
       showSnackbar('执行已提交，正在后台运行', 'success');
       fetchHistoryRef.current?.();
+      notifyDashboardRefresh();
     } catch (error) {
       showSnackbar(error.message || '执行提交失败', 'error');
     } finally {
@@ -178,6 +191,7 @@ export const ExecutionProvider = ({ children }) => {
       setBackgroundRunStatus(data.status);
       setRunReport(data);
       fetchHistoryRef.current?.();
+      notifyDashboardRefresh();
     } catch (error) {
       showSnackbar(error.message || '后台执行状态查询失败', 'error');
     }
@@ -190,6 +204,7 @@ export const ExecutionProvider = ({ children }) => {
       setBackgroundRunStatus(data.status);
       setRunReport(data);
       fetchHistoryRef.current?.();
+      notifyDashboardRefresh();
       showSnackbar(data.status === 'cancelled' ? '后台执行已取消' : '后台执行已结束', data.status === 'cancelled' ? 'info' : 'warning');
     } catch (error) {
       showSnackbar(error.message || '取消后台执行失败', 'error');
@@ -222,6 +237,7 @@ export const ExecutionProvider = ({ children }) => {
       setRunReport(data);
       setRunResult(null);
       fetchHistoryRef.current?.();
+      notifyDashboardRefresh();
       showSnackbar(`失败步骤重跑完成：${data.passed} 通过 / ${data.failed} 失败`, data.status === 'passed' ? 'success' : 'error');
     } catch (error) {
       showSnackbar(error.message || '失败步骤重跑失败', 'error');

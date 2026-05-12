@@ -1,12 +1,11 @@
-from fastapi import HTTPException, Request
+from fastapi import Request
+
+from app.api.errors import InvalidRequestError
 
 
 def _require_service(service, name: str):
     if service is None:
-        raise HTTPException(
-            status_code=503,
-            detail=f"{name} 当前不可用，请先启动 Neo4j 后重启后端服务。",
-        )
+        raise InvalidRequestError(message=f"{name} 当前不可用，请先启动 Neo4j 后重启后端服务。")
     return service
 
 def get_graph_ops(request: Request):

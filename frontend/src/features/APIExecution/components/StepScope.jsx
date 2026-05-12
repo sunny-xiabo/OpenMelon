@@ -20,11 +20,14 @@ import {
   MenuItem,
   Alert,
 } from '@mui/material';
+import { AutoAwesome } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
+import { apiExecutionAPI } from '../../../api/execution';
 import EmptyState from '../../../components/EmptyState';
 import ConfirmDialog from '../../../components/ConfirmDialog';
 import { METHOD_COLORS } from '../constants';
 import StageHeader from './StageHeader';
+import AIFlowDraftDialog from './AIFlowDraftDialog';
 
 const getOperationKey = (operation) => operation.id || `${operation.method}-${operation.path}-${operation.operation_id}`;
 
@@ -61,11 +64,23 @@ export default function StepScope() {
     searchText,
     setSearchText,
     tagOptions,
+    setDslText,
+    setRunStepId,
+    setActiveStep,
+    projectName,
+    environmentName,
+    baseUrl,
+    buildProjectPolicySnapshot,
+    loading,
+    setLoading,
   } = useAPIExecution();
 
   const [tagFilter, setTagFilter] = React.useState('all');
   const [methodFilter, setMethodFilter] = React.useState('all');
   const [riskFilter, setRiskFilter] = React.useState('all');
+  const [businessGoal, setBusinessGoal] = React.useState('');
+  const [flowDraft, setFlowDraft] = React.useState(null);
+  const [draftDialogOpen, setDraftDialogOpen] = React.useState(false);
   const [confirmDialog, setConfirmDialog] = React.useState({ open: false, message: '', onConfirm: null });
 
   const scopedOperations = React.useMemo(() => (
@@ -91,6 +106,51 @@ export default function StepScope() {
     });
     return summary;
   }, [spec, selectedOperations]);
+
+  const dynamicSuggestions = React.useMemo(() => {
+    if (!spec?.operations || spec.operations.length === 0) {
+      return ['测试主要接口的鉴权拦截机制', '构建核心链路流转', '批量查询数据的基本验证'];
+    }
+    
+    const ops = spec.operations;
+    const paths = ops.map(op => op.path.toLowerCase());
+    const suggestions = [];
+
+    // Rule 1: Auth / Login
+    if (paths.some(p => p.includes('/login') || p.includes('/auth') || p.includes('/token'))) {
+      suggestions.push('测试用户登录鉴权及 Token 刷新机制');
+    }
+
+    // Rule 2: Core Business Entities (e.g., Orders, Payments, Users)
+    const entities = ['order', 'payment', 'user', 'product', 'cart'];
+    let foundEntity = null;
+    for (const entity of entities) {
+      if (paths.some(p => p.includes(`/${entity}`))) {
+        foundEntity = entity === 'user' ? '用户' : 
+                      entity === 'order' ? '订单' : 
+                      entity === 'payment' ? '支付' : 
+                      entity === 'product' ? '商品' : '购物车';
+        break;
+      }
+    }
+    if (foundEntity) {
+      suggestions.push(`构建${foundEntity}业务的完整创建与查询链路`);
+    }
+
+    // Rule 3: CRUD Lifecycle Detection
+    const hasPost = ops.some(op => op.method.toUpperCase() === 'POST');
+    const hasGet = ops.some(op => op.method.toUpperCase() === 'GET');
+    const hasDelete = ops.some(op => op.method.toUpperCase() === 'DELETE');
+    if (hasPost && hasGet && hasDelete) {
+      suggestions.push('测试核心资源的新增、查询、修改与删除全生命周期');
+    }
+
+    // Rule 4: Validation boundary
+    suggestions.push('遍历并测试主要接口的必填字段与边界异常');
+
+    // Return top 3 unique suggestions
+    return Array.from(new Set(suggestions)).slice(0, 3);
+  }, [spec?.operations]);
 
   const currentOperationIds = scopedOperations.map(getOperationKey);
   const selectedInCurrent = currentOperationIds.filter((id) => selectedOperationIds.has(id)).length;
@@ -129,6 +189,88 @@ export default function StepScope() {
       return;
     }
     generateDsl();
+  };
+
+  const handleGenerateFlowDraft = async () => {
+    if (!spec?.spec_id) return;
+    const goal = businessGoal.trim();
+    if (!goal) return;
+    setLoading(true);
+    try {
+      const data = await apiExecutionAPI.generateFlowDraft({
+        specId: spec.spec_id,
+        businessGoal: goal,
+        operationIds: Array.from(selectedOperationIds),
+        projectName,
+        environmentName,
+        baseUrl,
+        projectPolicySnapshot: buildProjectPolicySnapshot(),
+      });
+      setFlowDraft(data);
+      setDraftDialogOpen(true);
+    } catch (error) {
+      setConfirmDialog({
+        open: true,
+        message: error.message || 'AI 流程草稿生成失败，请调整业务目标或接口范围后重试。',
+        onConfirm: () => setConfirmDialog({ open: false, message: '', onConfirm: null }),
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyFlowDraft = () => {
+    if (!flowDraft?.draft_script) return;
+    setDslText(JSON.stringify(flowDraft.draft_script, null, 2));
+    setRunStepId(flowDraft.draft_script.steps?.[0]?.id || '');
+    setDraftDialogOpen(false);
+    setActiveStep(2);
+  };
+
+  const applyTemplateRecommendation = (template) => {
+    if (!template?.script?.steps?.length) return;
+    setDslText(JSON.stringify(template.script, null, 2));
+    setRunStepId(template.script.steps?.[0]?.id || '');
+    setDraftDialogOpen(false);
+    setActiveStep(2);
+  };
+
+  const mergeTemplateRecommendation = (template) => {
+    if (!flowDraft?.draft_script || !template?.script?.steps?.length) return;
+    const draftSteps = flowDraft.draft_script.steps || [];
+    const idMap = new Map((template.script.steps || []).map((step, index) => [step.id, `tpl_${index + 1}_${step.id || index + 1}`]));
+    const remappedSteps = (template.script.steps || []).map((step, index) => {
+      const remappedDeps = (step.depends_on || []).map((dep) => idMap.get(dep)).filter(Boolean);
+      return {
+        ...step,
+        id: idMap.get(step.id) || `tpl_${index + 1}`,
+        depends_on: index === 0 && draftSteps.length ? [draftSteps[draftSteps.length - 1].id] : remappedDeps,
+      };
+    });
+    const mergedScript = {
+      ...flowDraft.draft_script,
+      name: `${flowDraft.draft_script.name || 'AI 流程草稿'} + ${template.name || '模板片段'}`,
+      steps: [...draftSteps, ...remappedSteps],
+    };
+    setFlowDraft((prev) => ({
+      ...prev,
+      draft_script: mergedScript,
+      step_summaries: [
+        ...(prev?.step_summaries || []),
+        ...remappedSteps.map((step) => ({
+          step_id: step.id,
+          name: step.name,
+          method: step.method,
+          path: step.path,
+          depends_on: step.depends_on || [],
+          extractions: step.extractions || [],
+          variable_references: [],
+          assertion_recommendations: step.assertions || [],
+          assertion_count: (step.assertions || []).length,
+        })),
+      ],
+      summary: `已合并推荐模板「${template.name || template.template_id}」，请确认步骤顺序、变量引用和断言。`,
+    }));
   };
 
   return (
@@ -173,6 +315,86 @@ export default function StepScope() {
                         已选范围包含 DELETE 或高风险接口，生成脚本前请确认目标环境和数据隔离策略。
                       </Alert>
                     )}
+
+                    <Box sx={{ 
+                      p: 3, borderRadius: 4, 
+                      bgcolor: 'rgba(255, 255, 255, 0.7)',
+                      border: '1px solid',
+                      borderColor: 'primary.light',
+                      boxShadow: '0 4px 20px -4px rgba(99, 102, 241, 0.15)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      mb: 2
+                    }}>
+                      <Box sx={{ 
+                        position: 'absolute', top: 0, left: 0, right: 0, height: '4px',
+                        background: 'linear-gradient(90deg, #6366f1, #a855f7, #ec4899)'
+                      }} />
+                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'flex-start' }}>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight={800} color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <AutoAwesome fontSize="small" /> AI 智能编排
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                            输入您的测试目标或业务场景，AI 将基于当前分析的接口资产，自动为您推演出完整的流转步骤与断言逻辑。
+                          </Typography>
+                          
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 1 }}>
+                            <TextField
+                              size="medium"
+                              fullWidth
+                              value={businessGoal}
+                              onChange={(event) => setBusinessGoal(event.target.value)}
+                              placeholder="例如：模拟一个新用户注册、登录、下单并最终支付成功的完整链路..."
+                              sx={{ 
+                                '& .MuiOutlinedInput-root': {
+                                  bgcolor: '#fff',
+                                  borderRadius: 2,
+                                  height: '56px', // Explicit height matching default medium TextField
+                                  transition: 'all 0.3s',
+                                  '&:hover fieldset': { borderColor: 'primary.main' },
+                                  '&.Mui-focused fieldset': {
+                                    borderColor: 'secondary.main',
+                                    borderWidth: '2px',
+                                  }
+                                }
+                              }}
+                            />
+                            <Button
+                              variant="contained"
+                              sx={{ 
+                                borderRadius: 2, px: 4, fontWeight: 800, whiteSpace: 'nowrap',
+                                height: '56px', // Explicitly match TextField height for perfect symmetry
+                                background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)',
+                                '&:hover': { background: 'linear-gradient(135deg, #4f46e5 0%, #9333ea 100%)', boxShadow: '0 4px 12px rgba(168, 85, 247, 0.4)' }
+                              }}
+                              disabled={!spec?.spec_id || !businessGoal.trim() || loading}
+                              onClick={handleGenerateFlowDraft}
+                            >
+                              <AutoAwesome fontSize="small" sx={{ mr: 1 }} /> 生成流程草稿
+                            </Button>
+                          </Stack>
+                          
+                          <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
+                            <Typography variant="caption" color="text.secondary" sx={{ py: 0.5, mr: 1 }}>灵感推荐:</Typography>
+                            {dynamicSuggestions.map(tip => (
+                              <Chip 
+                                key={tip} 
+                                label={tip} 
+                                size="small" 
+                                variant="outlined" 
+                                onClick={() => setBusinessGoal(tip)}
+                                sx={{ 
+                                  bgcolor: 'rgba(255,255,255,0.5)', 
+                                  cursor: 'pointer',
+                                  '&:hover': { bgcolor: 'primary.50', borderColor: 'primary.main', color: 'primary.main' }
+                                }} 
+                              />
+                            ))}
+                          </Stack>
+                        </Box>
+                      </Stack>
+                    </Box>
 
                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr 1fr 1fr' }, gap: 1.5 }}>
                       <TextField fullWidth size="small" placeholder="搜索接口 / 路径 / 方法 / operationId" value={searchText} onChange={e => setSearchText(e.target.value)} />
@@ -276,6 +498,14 @@ export default function StepScope() {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog({ open: false, message: '', onConfirm: null })}
         danger
+      />
+      <AIFlowDraftDialog
+        open={draftDialogOpen}
+        draft={flowDraft}
+        onClose={() => setDraftDialogOpen(false)}
+        onApply={applyFlowDraft}
+        onApplyTemplate={applyTemplateRecommendation}
+        onMergeTemplate={mergeTemplateRecommendation}
       />
   </>
   );

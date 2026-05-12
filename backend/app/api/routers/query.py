@@ -1,6 +1,9 @@
 import time
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 import logging
+import uuid
 from fastapi import APIRouter, HTTPException, Depends, Request
+from app.api.logging_service import safe_log_event
 from app.api.schemas import (
     QueryRequest,
     QueryResponse,
@@ -23,6 +26,10 @@ from app.api.deps import (
 logger = logging.getLogger("app")
 router = APIRouter(tags=["query"])
 
+
+def _log_query_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
+    return safe_log_event(level, "rag_query", event_type, title, message, **kwargs)
+
 @router.post("/query", response_model=QueryResponse)
 async def query(
     request: QueryRequest,
@@ -36,24 +43,55 @@ async def query(
 ):
     use_agentic = req.query_params.get("use_agentic", "false").lower() == "true"
     session_id = req.query_params.get("session_id") or None
+    trace_id = session_id or f"query_{uuid.uuid4().hex}"
 
     if use_agentic and agentic_rag:
-        agentic_result = await agentic_rag.query(request.question)
-        citations = []
-        for c in agentic_result.get("sources", []) or []:
-            try:
-                citations.append(
-                    Citation(source_type="vector", filename=c.get("source", ""))
-                )
-            except Exception:
-                pass
-        return QueryResponse(
-            answer=agentic_result.get("answer", ""),
-            citations=citations,
-            retrieval_method="agentic",
-            reasoning_steps=agentic_result.get("reasoning_steps"),
-            session_id=session_id,
-        )
+        started_at = time.time()
+        try:
+            agentic_result = await agentic_rag.query(request.question)
+            citations = []
+            for c in agentic_result.get("sources", []) or []:
+                try:
+                    citations.append(
+                        Citation(source_type="vector", filename=c.get("source", ""))
+                    )
+                except Exception:
+                    pass
+            _log_query_event(
+                "info",
+                "rag_query_completed",
+                "Agentic RAG 查询完成",
+                f"命中来源 {len(citations)} 个",
+                trace_id=trace_id,
+                source_id=session_id or "",
+                refs=[session_id],
+                data={
+                    "mode": "agentic",
+                    "session_id": session_id or "",
+                    "duration_ms": round((time.time() - started_at) * 1000),
+                    "citation_count": len(citations),
+                    "question_chars": len(request.question or ""),
+                },
+            )
+            return QueryResponse(
+                answer=agentic_result.get("answer", ""),
+                citations=citations,
+                retrieval_method="agentic",
+                reasoning_steps=agentic_result.get("reasoning_steps"),
+                session_id=session_id,
+            )
+        except Exception as exc:
+            _log_query_event(
+                "error",
+                "rag_query_failed",
+                "Agentic RAG 查询失败",
+                str(exc),
+                trace_id=trace_id,
+                source_id=session_id or "",
+                refs=[session_id],
+                data={"mode": "agentic", "session_id": session_id or "", "error": str(exc)},
+            )
+            raise InternalError(details=str(exc))
 
     start_time = time.time()
     had_exception = False
@@ -177,6 +215,25 @@ async def query(
                 session_id, "assistant", answer_result["answer"]
             )
 
+        _log_query_event(
+            "info",
+            "rag_query_completed",
+            "RAG 查询完成",
+            f"检索方式 {method_map.get(intent, 'vector')}",
+            trace_id=trace_id,
+            source_id=session_id or "",
+            refs=[session_id, intent],
+            data={
+                "mode": "standard",
+                "session_id": session_id or "",
+                "intent": intent,
+                "retrieval_method": method_map.get(intent, "vector"),
+                "duration_ms": round((time.time() - start_time) * 1000),
+                "citation_count": len(citations),
+                "context_chunk_count": len(context_chunks),
+                "question_chars": len(request.question or ""),
+            },
+        )
         return QueryResponse(
             answer=answer_result["answer"],
             citations=citations,
@@ -192,7 +249,22 @@ async def query(
             metrics_collector.record_query(
                 duration_ms=duration_ms, success=False, error=str(e)
             )
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_query_event(
+            "error",
+            "rag_query_failed",
+            "RAG 查询失败",
+            str(e),
+            trace_id=trace_id,
+            source_id=session_id or "",
+            refs=[session_id],
+            data={
+                "mode": "standard",
+                "session_id": session_id or "",
+                "duration_ms": round(duration_ms),
+                "error": str(e),
+            },
+        )
+        raise InternalError(details=str(e))
     finally:
         if not had_exception:
             duration_ms = (time.time() - start_time) * 1000

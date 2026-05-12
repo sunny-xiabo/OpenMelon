@@ -9,7 +9,8 @@ export const fetchJSON = async (url, options = {}) => {
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
-    throw new Error(err.detail || `API Error: ${response.status}`);
+    const errorMsg = err?.error?.message || err.detail || err.message || `API Error: ${response.status}`;
+    throw new Error(errorMsg);
   }
   return response.json();
 };
@@ -39,7 +40,8 @@ export const fetchStream = async (url, options = {}) => {
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
-    throw new Error(err.detail || `API Error: ${response.status}`);
+    const errorMsg = err?.error?.message || err.detail || err.message || `API Error: ${response.status}`;
+    throw new Error(errorMsg);
   }
   return response;
 };
@@ -52,7 +54,8 @@ export const fetchBlob = async (url, options = {}) => {
   const response = await fetch(url, { ...options, headers });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ detail: `HTTP ${response.status}` }));
-    throw new Error(err.detail || `API Error: ${response.status}`);
+    const errorMsg = err?.error?.message || err.detail || err.message || `API Error: ${response.status}`;
+    throw new Error(errorMsg);
   }
   return response.blob();
 };

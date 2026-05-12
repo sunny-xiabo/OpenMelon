@@ -10,6 +10,7 @@ import { useProjectEnvContext } from './contexts/ProjectEnvContext';
 import { useDSLContext } from './contexts/DSLContext';
 import { useExecutionContext } from './contexts/ExecutionContext';
 import { useRunHistoryContext } from './contexts/RunHistoryContext';
+import { useLoadRunIntoEditor } from './contexts/CombinedProvider';
 
 export const useAPIExecution = () => {
   const ui = useUIContext();
@@ -18,6 +19,7 @@ export const useAPIExecution = () => {
   const dsl = useDSLContext();
   const exec = useExecutionContext();
   const history = useRunHistoryContext();
+  const loadRunIntoEditor = useLoadRunIntoEditor();
 
   // Wrap cross-domain functions to match old signatures (no params, read from combined context)
   const wrappedGenerateDsl = () => dsl.generateDsl({
@@ -28,11 +30,20 @@ export const useAPIExecution = () => {
     baseUrl: projectEnv.baseUrl,
   });
 
-  const wrappedRunSelectedStep = () => exec.runSelectedStep(dsl.parsedScript, dsl.runStepId, projectEnv.buildRunOptions);
+  const wrappedRunSelectedStep = () => exec.runSelectedStep(dsl.parsedScript, dsl.runStepId, projectEnv.buildRunOptions, dsl.disabledFlowStepIds);
 
-  const wrappedRunAllSteps = () => exec.runAllSteps(dsl.parsedScript, projectEnv.buildRunOptions);
+  const getExecutableScript = () => {
+    if (!dsl.parsedScript || !dsl.disabledFlowStepIds?.length) return dsl.parsedScript;
+    const disabled = new Set(dsl.disabledFlowStepIds);
+    return {
+      ...dsl.parsedScript,
+      steps: (dsl.parsedScript.steps || []).filter((step) => !disabled.has(step.id)),
+    };
+  };
 
-  const wrappedRerunFailedSteps = () => exec.rerunFailedSteps(dsl.parsedScript, projectEnv.buildRunOptions);
+  const wrappedRunAllSteps = () => exec.runAllSteps(getExecutableScript(), projectEnv.buildRunOptions);
+
+  const wrappedRerunFailedSteps = () => exec.rerunFailedSteps(getExecutableScript(), projectEnv.buildRunOptions);
 
   const wrappedHandleReplayRun = (run) => history.replayRun(run, exec.runAllSteps, projectEnv.buildRunOptions);
 
@@ -51,6 +62,7 @@ export const useAPIExecution = () => {
   return {
     ...ui, ...spec, ...projectEnv, ...dsl, ...exec, ...history,
     // Override with wrapped versions
+    loadRunIntoEditor,
     generateDsl: wrappedGenerateDsl,
     runSelectedStep: wrappedRunSelectedStep,
     runAllSteps: wrappedRunAllSteps,
