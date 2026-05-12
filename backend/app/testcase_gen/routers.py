@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi.responses import StreamingResponse, FileResponse
 from typing import List, Dict, Any, Union
 from pydantic import BaseModel
@@ -11,6 +12,7 @@ import json
 import io
 import time
 from app.testcase_gen.utils.logger import logger
+from app.api.logging_service import safe_log_event
 
 from app.testcase_gen.models.test_case import TestCase
 from app.testcase_gen.services.ai_service import ai_service
@@ -27,6 +29,72 @@ from app.testcase_gen.services.prompt_assembler import (
     build_prompt_config_context,
     parse_skill_ids,
 )
+
+
+def _trace_id(prefix: str) -> str:
+    return f"{prefix}_{uuid.uuid4().hex}"
+
+
+def _log_testcase_event(
+    level: str,
+    event_type: str,
+    title: str,
+    message: str = "",
+    *,
+    trace_id: str = "",
+    source_id: str = "",
+    refs: list[Any] | None = None,
+    data: dict[str, Any] | None = None,
+):
+    return safe_log_event(
+        level,
+        "testcase_generation",
+        event_type,
+        title,
+        message,
+        trace_id=trace_id,
+        source_id=source_id,
+        refs=refs,
+        data=data,
+    )
+
+
+async def _stream_with_generation_log(stream, *, trace_id: str, module: str | None, data: dict[str, Any]):
+    chunk_count = 0
+    char_count = 0
+    started_at = time.time()
+    try:
+        async for chunk in stream:
+            chunk_count += 1
+            char_count += len(chunk) if isinstance(chunk, str | bytes) else 0
+            yield chunk
+        _log_testcase_event(
+            "info",
+            "testcase_generation_completed",
+            "测试用例生成完成",
+            f"模块 {module or '未指定'} 生成流完成",
+            trace_id=trace_id,
+            refs=[module],
+            data={
+                **data,
+                "module": module or "",
+                "chunk_count": chunk_count,
+                "char_count": char_count,
+                "duration_ms": round((time.time() - started_at) * 1000),
+            },
+        )
+    except Exception as exc:
+        _log_testcase_event(
+            "error",
+            "testcase_generation_failed",
+            "测试用例生成失败",
+            str(exc),
+            trace_id=trace_id,
+            refs=[module],
+            data={**data, "module": module or "", "error": str(exc)},
+        )
+        raise
+
 
 router = APIRouter(
     prefix="/api/test-cases",
@@ -99,13 +167,30 @@ async def generate_test_cases(
     返回:
         包含生成的测试用例的流式响应
     """
+    trace_id = _trace_id("tc_gen")
     try:
         try:
             parsed_skill_ids = parse_skill_ids(skill_ids)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"skill_ids 参数非法: {exc}") from exc
+            raise InvalidRequestError(message=str(f"skill_ids 参数非法: {exc}"))from exc
 
         prompt_config = build_prompt_config_context(style_id, parsed_skill_ids)
+        _log_testcase_event(
+            "info",
+            "testcase_generation_started",
+            "测试用例生成开始",
+            f"上传文件 {file.filename or ''}",
+            trace_id=trace_id,
+            refs=[module, file.filename],
+            data={
+                "module": module or "",
+                "filename": file.filename or "",
+                "source": "upload",
+                "use_vector": use_vector.lower() == "true",
+                "style_id": prompt_config["style_id"],
+                "skill_ids": prompt_config["skill_ids"],
+            },
+        )
 
         # 读取文件内容
         file_content = await file.read()
@@ -115,29 +200,18 @@ async def generate_test_cases(
             logger.warning(
                 f"文件过大: {file.filename}, 大小: {len(file_content)} bytes"
             )
-            raise HTTPException(
-                status_code=413, detail=f"文件过大，最大允许 {MAX_FILE_SIZE_MB}MB"
-            )
+            raise InvalidRequestError(message=str(f"文件过大，最大允许 {MAX_FILE_SIZE_MB}MB"))
 
         # 2. 验证文件类型（魔数验证）
         if not validate_file_type(file_content, file.filename):
             logger.warning(f"文件类型验证失败: {file.filename}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"文件类型不匹配或不受支持。支持的类型: {', '.join(ALLOWED_EXTENSIONS)}",
-            )
+            raise InvalidRequestError(message=str(f"文件类型不匹配或不受支持。支持的类型: {', '.join(ALLOWED_EXTENSIONS)}",))
 
         # 保存上传的文件
+        from app.runtime_paths import UPLOAD_TEMP_DIR
         file_id = str(uuid.uuid4())
         file_extension = os.path.splitext(file.filename)[1].lower()
-        upload_dir = os.path.join(
-            os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            ),
-            "uploads",
-        )
-        os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, f"{file_id}{file_extension}")
+        file_path = os.path.join(UPLOAD_TEMP_DIR, f"{file_id}{file_extension}")
 
         # 3. 使用异步文件操作保存文件
         async with aiofiles.open(file_path, "wb") as uploaded_file:
@@ -174,6 +248,15 @@ async def generate_test_cases(
                         vector_context += "【相似历史用例参考】\n" + "\n\n".join([f"[{tc.get('test_case_name', '')}]\n{tc.get('description', '')[:200]}..." for tc in similar_tcs]) + "\n\n"
                 except Exception as e:
                     logger.warning(f"Vector search failed during generation: {e}")
+                    _log_testcase_event(
+                        "warning",
+                        "testcase_vector_context_failed",
+                        "测试用例向量上下文检索失败",
+                        str(e),
+                        trace_id=trace_id,
+                        refs=[module],
+                        data={"module": module or "", "error": str(e)},
+                    )
 
         if file_extension in [
             ".png",
@@ -193,28 +276,57 @@ async def generate_test_cases(
                 ",".join(prompt_config["skill_ids"]) or "<none>",
             )
             return StreamingResponse(
-                ai_service.generate_test_cases_stream(
-                    file_path,
-                    context,
-                    requirements,
+                _stream_with_generation_log(
+                    ai_service.generate_test_cases_stream(
+                        file_path,
+                        context,
+                        requirements,
+                        module=module,
+                        vector_context=vector_context,
+                        use_vector=use_vector_bool,
+                        prompt_config=prompt_config,
+                    ),
+                    trace_id=trace_id,
                     module=module,
-                    vector_context=vector_context,
-                    use_vector=use_vector_bool,
-                    prompt_config=prompt_config,
+                    data={
+                        "source": "upload",
+                        "filename": file.filename or "",
+                        "use_vector": use_vector_bool,
+                        "vector_context_chars": len(vector_context),
+                    },
                 ),
                 media_type="text/markdown",
             )
         else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"不支持的文件类型: {file_extension}. 支持的类型: 图像文件(.png, .jpg, .jpeg, .gif, .bmp, .webp), PDF文件(.pdf), OpenAPI文档(.json, .yaml, .yml)",
-            )
+            raise InvalidRequestError(message=str(f"不支持的文件类型: {file_extension}. 支持的类型: 图像文件(.png, .jpg, .jpeg, .gif, .bmp, .webp), PDF文件(.pdf), OpenAPI文档(.json, .yaml, .yml)",))
 
-    except HTTPException:
+    except HTTPException as exc:
+        _log_testcase_event(
+            "warning" if exc.status_code < 500 else "error",
+            "testcase_generation_rejected",
+            "测试用例生成请求未通过",
+            str(exc.detail),
+            trace_id=trace_id,
+            refs=[module, file.filename],
+            data={
+                "status_code": exc.status_code,
+                "module": module or "",
+                "filename": file.filename or "",
+            },
+        )
         raise
     except Exception as e:
         logger.error(f"处理上传文件时发生错误: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"处理文件时发生错误: {str(e)}")
+        _log_testcase_event(
+            "error",
+            "testcase_generation_failed",
+            "测试用例生成失败",
+            str(e),
+            trace_id=trace_id,
+            refs=[module, file.filename],
+            data={"module": module or "", "filename": file.filename or "", "error": str(e)},
+        )
+        raise InternalError(details=f"处理文件时发生错误: {str(e)}")
 
 
 @router.post("/generate-from-context")
@@ -227,14 +339,30 @@ async def generate_from_context(
     style_id: str = Form(default=None),
     skill_ids: str = Form(default=None),
 ):
+    trace_id = _trace_id("tc_ctx")
     try:
         try:
             parsed_skill_ids = parse_skill_ids(skill_ids)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"skill_ids 参数非法: {exc}") from exc
+            raise InvalidRequestError(message=str(f"skill_ids 参数非法: {exc}"))from exc
 
         prompt_config = build_prompt_config_context(style_id, parsed_skill_ids)
         virtual_path = "virtual/context.txt"
+        _log_testcase_event(
+            "info",
+            "testcase_generation_started",
+            "测试用例文本生成开始",
+            f"模块 {module or '未指定'}",
+            trace_id=trace_id,
+            refs=[module],
+            data={
+                "module": module or "",
+                "source": "context",
+                "use_vector": use_vector.lower() == "true",
+                "style_id": prompt_config["style_id"],
+                "skill_ids": prompt_config["skill_ids"],
+            },
+        )
 
         use_vector_bool = use_vector.lower() == "true"
         vector_context = ""
@@ -262,6 +390,15 @@ async def generate_from_context(
                         vector_context += "【相似历史用例参考】\n" + "\n\n".join([f"[{tc.get('test_case_name', '')}]\n{tc.get('description', '')[:200]}..." for tc in similar_tcs]) + "\n\n"
                 except Exception as e:
                     logger.warning(f"Vector search failed during generation: {e}")
+                    _log_testcase_event(
+                        "warning",
+                        "testcase_vector_context_failed",
+                        "测试用例向量上下文检索失败",
+                        str(e),
+                        trace_id=trace_id,
+                        refs=[module],
+                        data={"module": module or "", "error": str(e)},
+                    )
 
         logger.info(
             "文本生成配置 - style_id=%s, skill_ids=%s",
@@ -269,21 +406,39 @@ async def generate_from_context(
             ",".join(prompt_config["skill_ids"]) or "<none>",
         )
         return StreamingResponse(
-            ai_service.generate_test_cases_stream(
-                virtual_path,
-                context,
-                requirements,
+            _stream_with_generation_log(
+                ai_service.generate_test_cases_stream(
+                    virtual_path,
+                    context,
+                    requirements,
+                    module=module,
+                    vector_context=vector_context,
+                    use_vector=use_vector_bool,
+                    prompt_config=prompt_config,
+                ),
+                trace_id=trace_id,
                 module=module,
-                vector_context=vector_context,
-                use_vector=use_vector_bool,
-                prompt_config=prompt_config,
+                data={
+                    "source": "context",
+                    "use_vector": use_vector_bool,
+                    "vector_context_chars": len(vector_context),
+                },
             ),
             media_type="text/markdown",
         )
 
     except Exception as e:
         logger.error(f"生成用例失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_testcase_event(
+            "error",
+            "testcase_generation_failed",
+            "测试用例文本生成失败",
+            str(e),
+            trace_id=trace_id,
+            refs=[module],
+            data={"module": module or "", "source": "context", "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 
 class MindMapRequest(BaseModel):
@@ -305,7 +460,7 @@ async def generate_mindmap_from_test_cases(request: MindMapRequest):
         mindmap_data = ai_service.generate_mindmap_from_test_cases(request.test_cases)
         return {"mindmap": mindmap_data}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"生成思维导图失败: {str(e)}")
+        raise InternalError(details=f"生成思维导图失败: {str(e)}")
 
 def _generate_xmind_zip(test_cases: List[Dict[str, Any]]) -> io.BytesIO:
     groups = {}
@@ -618,9 +773,7 @@ async def export_markdown(request: ExportMarkdownRequest):
     try:
         test_cases = _parse_markdown_test_cases(request.markdown)
         if not test_cases:
-            raise HTTPException(
-                status_code=400, detail="未能从Markdown中解析出测试用例，请检查内容格式"
-            )
+            raise InvalidRequestError(message=str("未能从Markdown中解析出测试用例，请检查内容格式"))
         excel_path = excel_service.generate_excel(test_cases)
         return FileResponse(
             path=excel_path,
@@ -631,7 +784,7 @@ async def export_markdown(request: ExportMarkdownRequest):
         raise
     except Exception as e:
         logger.error(f"导出Markdown用例失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+        raise InternalError(details=f"导出失败: {str(e)}")
 
 
 @router.post("/export-xmind")
@@ -642,9 +795,7 @@ async def export_xmind_from_markdown(request: ExportMarkdownRequest):
     try:
         test_cases = _parse_markdown_test_cases(request.markdown)
         if not test_cases:
-            raise HTTPException(
-                status_code=400, detail="未能从Markdown中解析出测试用例，请检查内容格式"
-            )
+            raise InvalidRequestError(message=str("未能从Markdown中解析出测试用例，请检查内容格式"))
 
         zip_buffer = _generate_xmind_zip(test_cases)
         
@@ -659,7 +810,7 @@ async def export_xmind_from_markdown(request: ExportMarkdownRequest):
         raise
     except Exception as e:
         logger.error(f"导出XMind失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+        raise InternalError(details=f"导出失败: {str(e)}")
 
 @router.post("/export-xmind-json")
 async def export_xmind_from_json(test_cases: List[Dict[str, Any]]):
@@ -677,7 +828,7 @@ async def export_xmind_from_json(test_cases: List[Dict[str, Any]]):
         )
     except Exception as e:
         logger.error(f"导出XMind失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+        raise InternalError(details=f"导出失败: {str(e)}")
 
 
 @router.post("/export")
@@ -702,9 +853,7 @@ async def export_test_cases(test_cases: List[Union[TestCase, Dict[str, Any]]]):
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error exporting test cases: {str(e)}"
-        )
+        raise InternalError(details=f"Error exporting test cases: {str(e)}")
 
 
 @router.get("/download/{filename}")
@@ -718,19 +867,16 @@ async def download_excel(filename: str):
     返回:
         供下载的Excel文件
     """
-    file_path = f"results/{filename}"
-
-    # Prevent path traversal: ensure resolved path stays within results directory
-    results_dir = os.path.abspath("results")
-    resolved_path = os.path.abspath(file_path)
-    if not resolved_path.startswith(results_dir):
-        raise HTTPException(status_code=403, detail="Access denied")
+    from app.runtime_paths import RESULTS_DIR
+    resolved_path = os.path.abspath(os.path.join(RESULTS_DIR, filename))
+    if not resolved_path.startswith(str(RESULTS_DIR.resolve())):
+        raise UnauthorizedError(message="Access denied")
 
     if not os.path.exists(resolved_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise NotFoundError(message="File not found")
 
     return FileResponse(
-        path=file_path,
+        path=resolved_path,
         filename=filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
@@ -749,7 +895,7 @@ async def get_performance_stats():
         return {"status": "success", "data": stats}
     except Exception as e:
         logger.error(f"获取性能统计失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取性能统计失败: {str(e)}")
+        raise InternalError(details=f"获取性能统计失败: {str(e)}")
 
 
 @router.get("/performance/cache")
@@ -770,7 +916,7 @@ async def get_cache_stats():
         }
     except Exception as e:
         logger.error(f"获取缓存统计失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取缓存统计失败: {str(e)}")
+        raise InternalError(details=f"获取缓存统计失败: {str(e)}")
 
 
 @router.delete("/performance/cache")
@@ -789,7 +935,7 @@ async def clear_cache():
         return {"status": "success", "message": "缓存已清空"}
     except Exception as e:
         logger.error(f"清空缓存失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"清空缓存失败: {str(e)}")
+        raise InternalError(details=f"清空缓存失败: {str(e)}")
 
 
 @router.get("/vector/status")
@@ -829,9 +975,19 @@ async def store_test_cases_to_vector(req: Request, body: StoreVectorRequest):
     返回:
         存储结果
     """
+    trace_id = _trace_id("tc_vector")
     try:
         test_cases = body.test_cases
         if not test_cases:
+            _log_testcase_event(
+                "warning",
+                "testcase_vector_store_rejected",
+                "测试用例向量入库未执行",
+                "未解析到测试用例",
+                trace_id=trace_id,
+                refs=[body.module],
+                data={"module": body.module or "", "test_case_count": 0},
+            )
             return {
                 "success": False,
                 "message": "未解析到测试用例",
@@ -841,6 +997,15 @@ async def store_test_cases_to_vector(req: Request, body: StoreVectorRequest):
 
         neo4j_writer = getattr(req.app.state, "_neo4j_writer", None)
         if not neo4j_writer:
+            _log_testcase_event(
+                "error",
+                "testcase_vector_store_failed",
+                "测试用例向量入库失败",
+                "写入器未初始化",
+                trace_id=trace_id,
+                refs=[body.module],
+                data={"module": body.module or "", "test_case_count": len(test_cases)},
+            )
             return {
                 "success": False,
                 "message": "写入器未初始化",
@@ -854,6 +1019,22 @@ async def store_test_cases_to_vector(req: Request, body: StoreVectorRequest):
             store_vector=True,
         )
 
+        level = "warning" if result.get("vector_errors") else "info"
+        _log_testcase_event(
+            level,
+            "testcase_vector_store_completed",
+            "测试用例向量入库完成",
+            f"新增 {result['vector_written']}，跳过 {result['vector_skipped']}",
+            trace_id=trace_id,
+            refs=[body.module],
+            data={
+                "module": body.module or "",
+                "test_case_count": len(test_cases),
+                "vector_written": result["vector_written"],
+                "vector_skipped": result["vector_skipped"],
+                "vector_errors": result.get("vector_errors", []),
+            },
+        )
         return {
             "success": True,
             "message": f"完成: 新增 {result['vector_written']}, 跳过 {result['vector_skipped']}",
@@ -863,4 +1044,13 @@ async def store_test_cases_to_vector(req: Request, body: StoreVectorRequest):
         }
     except Exception as e:
         logger.error(f"存入向量库失败: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"存入向量库失败: {str(e)}")
+        _log_testcase_event(
+            "error",
+            "testcase_vector_store_failed",
+            "测试用例向量入库失败",
+            str(e),
+            trace_id=trace_id,
+            refs=[body.module],
+            data={"module": body.module or "", "error": str(e)},
+        )
+        raise InternalError(details=f"存入向量库失败: {str(e)}")

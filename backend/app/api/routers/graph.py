@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
+from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from typing import Optional
+import uuid
 from app.config import settings
+from app.api.logging_service import safe_log_event
 from app.models.graph_types import (
     DOCUMENT_CHUNK_NODE_TYPE,
     get_primary_node_type,
@@ -32,6 +35,10 @@ router = APIRouter(prefix="/graph", tags=["graph"])
 
 _virtual_node_cache = {}
 
+
+def _log_graph_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
+    return safe_log_event(level, "graph", event_type, title, message, **kwargs)
+
 @router.get("/full", response_model=GraphData)
 async def graph_full(
     limit: int = Query(default=1000, ge=1, le=5000),
@@ -60,71 +67,160 @@ async def graph_full(
 
         return GraphData(nodes=nodes, relationships=rels)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/filters")
 async def graph_filters(graph_ops = Depends(get_graph_ops)):
     try:
         return await graph_ops.get_doc_types_and_modules()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/status")
 async def graph_status(graph_ops = Depends(get_graph_ops)):
     try:
         return await graph_ops.get_graph_status()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/node-types", response_model=NodeTypeConfigResponse)
 async def graph_node_types():
     try:
         return NodeTypeConfigResponse(node_types=list_node_type_configs())
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.post("/node-types", response_model=NodeTypeMutationResponse)
 async def create_graph_node_type(payload: NodeTypeConfigUpsertRequest):
+    trace_id = f"graph_type_{uuid.uuid4().hex}"
     try:
         node_type = create_node_type_config(payload.model_dump())
+        _log_graph_event(
+            "info",
+            "graph_node_type_created",
+            "图谱节点类型已创建",
+            f"节点类型 {node_type['type']} 已创建",
+            trace_id=trace_id,
+            source_id=node_type["type"],
+            refs=[node_type["type"]],
+            data={"node_type": node_type},
+        )
         return NodeTypeMutationResponse(
             success=True,
             message=f"节点类型 {node_type['type']} 已创建",
             node_type=node_type,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _log_graph_event(
+            "warning",
+            "graph_node_type_create_rejected",
+            "图谱节点类型创建未通过",
+            str(e),
+            trace_id=trace_id,
+            data={"payload": payload.model_dump(), "error": str(e)},
+        )
+        raise InvalidRequestError(message=str(str(e)))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_graph_event(
+            "error",
+            "graph_node_type_create_failed",
+            "图谱节点类型创建失败",
+            str(e),
+            trace_id=trace_id,
+            data={"payload": payload.model_dump(), "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 @router.put("/node-types/{node_type}", response_model=NodeTypeMutationResponse)
 async def update_graph_node_type(
     node_type: str, payload: NodeTypeConfigUpdateRequest
 ):
+    trace_id = f"graph_type_{uuid.uuid4().hex}"
     try:
         updated = update_node_type_config(node_type, payload.model_dump())
+        _log_graph_event(
+            "info",
+            "graph_node_type_updated",
+            "图谱节点类型已更新",
+            f"节点类型 {node_type} 已更新",
+            trace_id=trace_id,
+            source_id=node_type,
+            refs=[node_type],
+            data={"node_type": updated, "patch": payload.model_dump()},
+        )
         return NodeTypeMutationResponse(
             success=True,
             message=f"节点类型 {node_type} 已更新",
             node_type=updated,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _log_graph_event(
+            "warning",
+            "graph_node_type_update_rejected",
+            "图谱节点类型更新未通过",
+            str(e),
+            trace_id=trace_id,
+            source_id=node_type,
+            refs=[node_type],
+            data={"patch": payload.model_dump(), "error": str(e)},
+        )
+        raise InvalidRequestError(message=str(str(e)))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_graph_event(
+            "error",
+            "graph_node_type_update_failed",
+            "图谱节点类型更新失败",
+            str(e),
+            trace_id=trace_id,
+            source_id=node_type,
+            refs=[node_type],
+            data={"patch": payload.model_dump(), "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 @router.delete("/node-types/{node_type}", response_model=NodeTypeDeleteResponse)
 async def delete_graph_node_type(node_type: str):
+    trace_id = f"graph_type_{uuid.uuid4().hex}"
     try:
         delete_node_type_config(node_type)
+        _log_graph_event(
+            "info",
+            "graph_node_type_deleted",
+            "图谱节点类型已删除",
+            f"节点类型 {node_type} 已删除",
+            trace_id=trace_id,
+            source_id=node_type,
+            refs=[node_type],
+            data={"node_type": node_type},
+        )
         return NodeTypeDeleteResponse(
             success=True,
             message=f"节点类型 {node_type} 已删除",
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _log_graph_event(
+            "warning",
+            "graph_node_type_delete_rejected",
+            "图谱节点类型删除未通过",
+            str(e),
+            trace_id=trace_id,
+            source_id=node_type,
+            refs=[node_type],
+            data={"node_type": node_type, "error": str(e)},
+        )
+        raise InvalidRequestError(message=str(str(e)))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _log_graph_event(
+            "error",
+            "graph_node_type_delete_failed",
+            "图谱节点类型删除失败",
+            str(e),
+            trace_id=trace_id,
+            source_id=node_type,
+            refs=[node_type],
+            data={"node_type": node_type, "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 @router.get("/node/{node_id}")
 async def graph_node_detail(node_id: str, graph_ops = Depends(get_graph_ops)):
@@ -133,12 +229,12 @@ async def graph_node_detail(node_id: str, graph_ops = Depends(get_graph_ops)):
             return _virtual_node_cache[node_id]
         node_data = await graph_ops.get_node_by_id(node_id)
         if not node_data:
-            raise HTTPException(status_code=404, detail="Node not found")
+            raise NotFoundError(message="Node not found")
         return node_data
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/entity/{name}", response_model=GraphData)
 async def graph_entity(
@@ -216,7 +312,7 @@ async def graph_entity(
         return GraphData(nodes=[], relationships=[])
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/coverage", response_model=CoverageResponse)
 async def graph_coverage(coverage_service = Depends(get_coverage_service)):
@@ -235,7 +331,7 @@ async def graph_coverage(coverage_service = Depends(get_coverage_service)):
 
         return CoverageResponse(modules=modules)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))
 
 @router.get("/coverage/{module_name}")
 async def graph_coverage_detail(module_name: str, coverage_service = Depends(get_coverage_service)):
@@ -243,4 +339,4 @@ async def graph_coverage_detail(module_name: str, coverage_service = Depends(get
         detail = await coverage_service.get_module_coverage(module_name)
         return detail
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise InternalError(details=str(e))

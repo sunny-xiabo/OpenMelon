@@ -116,6 +116,26 @@ class SQLiteStore(BaseSQLiteStore):
             );
             CREATE INDEX IF NOT EXISTS idx_knowledge_type ON knowledge_items(item_type);
             CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge_items(project_id);
+
+            CREATE TABLE IF NOT EXISTS event_logs (
+                event_id TEXT PRIMARY KEY,
+                created_at TEXT DEFAULT '',
+                level TEXT DEFAULT '',
+                module TEXT DEFAULT '',
+                event_type TEXT DEFAULT '',
+                project_id TEXT DEFAULT '',
+                trace_id TEXT DEFAULT '',
+                source_id TEXT DEFAULT '',
+                title TEXT DEFAULT '',
+                message TEXT DEFAULT '',
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_event_logs_created_at ON event_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_level ON event_logs(level);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_module ON event_logs(module);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_project ON event_logs(project_id);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_trace ON event_logs(trace_id);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_type ON event_logs(event_type);
         """)
 
     # ---- specs ----
@@ -369,6 +389,42 @@ class SQLiteStore(BaseSQLiteStore):
             }, definition)
             return definition
 
+    def get_automation_definition(self, definition_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._row_to_data(self._query_one(
+                "SELECT data FROM automation_definitions WHERE definition_id = ?",
+                (definition_id,),
+            ))
+
+    def list_automation_definitions(
+        self,
+        limit: int = 100,
+        project_id: str | None = None,
+        definition_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._query(
+                "SELECT data FROM automation_definitions ORDER BY updated_at DESC LIMIT ?",
+                (max(limit * 3, limit),),
+            )
+            definitions = [json.loads(r["data"]) for r in rows]
+            if project_id:
+                safe_project_id = project_id.strip()
+                definitions = [
+                    item for item in definitions
+                    if item.get("project_id", "") in {"", safe_project_id}
+                ]
+            if definition_type:
+                safe_type = definition_type.strip()
+                definitions = [item for item in definitions if item.get("definition_type") == safe_type]
+            return definitions[:limit]
+
+    def delete_automation_definition(self, definition_id: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM automation_definitions WHERE definition_id = ?", (definition_id,))
+            self._conn.commit()
+            return cursor.rowcount > 0
+
     # ---- automation runs ----
 
     def save_automation_run(self, run: dict[str, Any]) -> dict[str, Any]:
@@ -425,6 +481,166 @@ class SQLiteStore(BaseSQLiteStore):
                     (limit,),
                 )
             return [json.loads(r["data"]) for r in rows]
+
+    # ---- event logs ----
+
+    def save_event_log(self, event: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert("event_logs", "event_id", event["event_id"], {
+                "created_at": event.get("created_at", ""),
+                "level": event.get("level", ""),
+                "module": event.get("module", ""),
+                "event_type": event.get("event_type", ""),
+                "project_id": event.get("project_id", ""),
+                "trace_id": event.get("trace_id", ""),
+                "source_id": event.get("source_id", ""),
+                "title": event.get("title", ""),
+                "message": event.get("message", ""),
+            }, event)
+            return event
+
+    def get_event_log(self, event_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._row_to_data(self._query_one("SELECT data FROM event_logs WHERE event_id = ?", (event_id,)))
+
+    def list_event_logs(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        project_id: str | None = None,
+        module: str | None = None,
+        level: str | None = None,
+        event_type: str | None = None,
+        trace_id: str | None = None,
+        keyword: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+    ) -> list[dict[str, Any]]:
+        where, params = self._event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
+        with self._lock:
+            rows = self._query(
+                f"SELECT data FROM event_logs WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                tuple(params) + (limit, offset),
+            )
+            return [json.loads(r["data"]) for r in rows]
+
+    def count_event_logs(
+        self,
+        project_id: str | None = None,
+        module: str | None = None,
+        level: str | None = None,
+        event_type: str | None = None,
+        trace_id: str | None = None,
+        keyword: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+    ) -> int:
+        where, params = self._event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
+        with self._lock:
+            row = self._query_one(f"SELECT COUNT(*) AS count FROM event_logs WHERE {where}", tuple(params))
+            return int(row["count"] if row else 0)
+
+    def list_related_event_logs(self, event_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        with self._lock:
+            event = self._row_to_data(self._query_one("SELECT data FROM event_logs WHERE event_id = ?", (event_id,)))
+            if not event:
+                return []
+            refs = set(event.get("refs") or [])
+            trace_id = event.get("trace_id") or ""
+            source_id = event.get("source_id") or ""
+            candidates = self._query(
+                "SELECT data FROM event_logs WHERE event_id != ? ORDER BY created_at DESC LIMIT ?",
+                (event_id, max(limit * 8, limit)),
+            )
+            related = []
+            for row in candidates:
+                item = json.loads(row["data"])
+                item_refs = set(item.get("refs") or [])
+                if (
+                    (trace_id and item.get("trace_id") == trace_id)
+                    or (source_id and item.get("source_id") == source_id)
+                    or bool(refs.intersection(item_refs))
+                ):
+                    related.append(item)
+                if len(related) >= limit:
+                    break
+            return related
+
+    def summarize_event_logs(
+        self,
+        project_id: str | None = None,
+        module: str | None = None,
+        level: str | None = None,
+        event_type: str | None = None,
+        trace_id: str | None = None,
+        keyword: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+    ) -> dict[str, Any]:
+        where, params = self._event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
+        with self._lock:
+            total_row = self._query_one(f"SELECT COUNT(*) AS count FROM event_logs WHERE {where}", tuple(params))
+            level_rows = self._query(
+                f"SELECT level, COUNT(*) AS count FROM event_logs WHERE {where} GROUP BY level",
+                tuple(params),
+            )
+            module_rows = self._query(
+                f"SELECT module, COUNT(*) AS count FROM event_logs WHERE {where} GROUP BY module ORDER BY count DESC",
+                tuple(params),
+            )
+            type_rows = self._query(
+                f"SELECT event_type, COUNT(*) AS count FROM event_logs WHERE {where} GROUP BY event_type ORDER BY count DESC",
+                tuple(params),
+            )
+            latest_error = self._query_one(
+                f"SELECT created_at FROM event_logs WHERE {where} AND level = 'error' ORDER BY created_at DESC LIMIT 1",
+                tuple(params),
+            )
+            level_counts = {row["level"]: int(row["count"]) for row in level_rows}
+            return {
+                "total": int(total_row["count"] if total_row else 0),
+                "error_count": level_counts.get("error", 0),
+                "warning_count": level_counts.get("warning", 0),
+                "module_counts": [{"label": row["module"], "count": int(row["count"])} for row in module_rows],
+                "event_type_counts": [{"label": row["event_type"], "count": int(row["count"])} for row in type_rows],
+                "latest_error_at": latest_error["created_at"] if latest_error else "",
+            }
+
+    def _event_log_where(
+        self,
+        project_id: str | None,
+        module: str | None,
+        level: str | None,
+        event_type: str | None,
+        trace_id: str | None,
+        keyword: str | None,
+        start_at: str | None,
+        end_at: str | None,
+    ) -> tuple[str, list[Any]]:
+        conditions = ["1=1"]
+        params: list[Any] = []
+        filters = {
+            "project_id": project_id,
+            "module": module,
+            "level": level,
+            "event_type": event_type,
+            "trace_id": trace_id,
+        }
+        for column, value in filters.items():
+            if value:
+                conditions.append(f"{column} = ?")
+                params.append(value.strip())
+        if start_at:
+            conditions.append("created_at >= ?")
+            params.append(start_at.strip())
+        if end_at:
+            conditions.append("created_at <= ?")
+            params.append(end_at.strip())
+        if keyword:
+            kw = f"%{keyword.lower().strip()}%"
+            conditions.append("(LOWER(title) LIKE ? OR LOWER(message) LIKE ? OR LOWER(event_type) LIKE ? OR data LIKE ?)")
+            params.extend([kw, kw, kw, kw])
+        return " AND ".join(conditions), params
 
     # ---- recovery ----
 
@@ -502,6 +718,9 @@ class SQLiteStore(BaseSQLiteStore):
     async def async_list_knowledge_items(self, **kwargs: Any) -> list[dict[str, Any]]:
         return await run_in_threadpool(lambda: self.list_knowledge_items(**kwargs))
 
+    async def async_save_event_log(self, event: dict[str, Any]) -> dict[str, Any]:
+        return await run_in_threadpool(self.save_event_log, event)
+
     # ---- migration from JSON ----
 
     def _migrate_one(self, table: str, id_col: str, entity_id: str, entity: dict) -> None:
@@ -564,6 +783,18 @@ class SQLiteStore(BaseSQLiteStore):
                 "project_id": entity.get("project_id", ""),
                 "created_at": entity.get("created_at", ""),
             }
+        if table == "event_logs":
+            return {
+                "created_at": entity.get("created_at", ""),
+                "level": entity.get("level", ""),
+                "module": entity.get("module", ""),
+                "event_type": entity.get("event_type", ""),
+                "project_id": entity.get("project_id", ""),
+                "trace_id": entity.get("trace_id", ""),
+                "source_id": entity.get("source_id", ""),
+                "title": entity.get("title", ""),
+                "message": entity.get("message", ""),
+            }
         return {}
 
     def migrate_from_json(self, json_dir: Path) -> int:
@@ -581,6 +812,7 @@ class SQLiteStore(BaseSQLiteStore):
             ("run_stage_events", "run_stage_events.json", "event_id"),
             ("artifact_meta", "artifact_meta.json", "artifact_id"),
             ("knowledge_items", "knowledge_items.json", "knowledge_id"),
+            ("event_logs", "event_logs.json", "event_id"),
         ]
         for table, filename, id_col in table_file_map:
             filepath = json_dir / filename

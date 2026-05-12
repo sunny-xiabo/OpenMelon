@@ -1,15 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Button, Paper, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import SettingsSuggestOutlined from '@mui/icons-material/SettingsSuggestOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import FolderOpenOutlined from '@mui/icons-material/FolderOpenOutlined';
+import ManageSearchOutlined from '@mui/icons-material/ManageSearchOutlined';
+import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import PageHeader from '../components/PageHeader';
 import NavMenuButton from '../components/NavMenuButton';
 import NodeTypeConfigPage from './NodeTypeConfigPage';
 import PromptHubConfigPage from './PromptHubConfigPage';
 import ProjectEnvConfigPage from './ProjectEnvConfigPage';
+import GovernanceCenter from '../features/GovernanceCenter/components/GovernanceCenter';
+import LogCenter from '../features/LogCenter/components/LogCenter';
+import { SETTINGS_SECTION_EVENT } from '../constants/events';
 
 const SECTIONS = [
   {
@@ -30,10 +35,38 @@ const SECTIONS = [
     description: '管理 API 自动化的项目和测试环境配置',
     icon: <FolderOpenOutlined fontSize="small" />,
   },
+  {
+    key: 'governance',
+    label: '治理中心',
+    description: '统一管理知识、任务、模板和数据资产状态',
+    icon: <ManageSearchOutlined fontSize="small" />,
+  },
+  {
+    key: 'logs',
+    label: '日志中心',
+    description: '查看执行、策略、任务和知识写入事件',
+    icon: <ReceiptLongOutlined fontSize="small" />,
+  },
 ];
 
 export default function SettingsPage() {
-  const [activeSection, setActiveSection] = useState('node-types');
+  const [activeSection, setActiveSection] = useState(() => sessionStorage.getItem('openmelon_settings_section') || 'node-types');
+
+  const selectSection = (section) => {
+    setActiveSection(section);
+    sessionStorage.setItem('openmelon_settings_section', section);
+  };
+
+  useEffect(() => {
+    const handleSettingsSection = (event) => {
+      const section = event.detail?.section;
+      if (section && SECTIONS.some((item) => item.key === section)) {
+        selectSection(section);
+      }
+    };
+    window.addEventListener(SETTINGS_SECTION_EVENT, handleSettingsSection);
+    return () => window.removeEventListener(SETTINGS_SECTION_EVENT, handleSettingsSection);
+  }, []);
 
   return (
     <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, overflow: 'auto', background: 'transparent' }}>
@@ -83,7 +116,7 @@ export default function SettingsPage() {
                   icon={section.icon}
                   label={section.label}
                   description={section.description}
-                  onClick={() => setActiveSection(section.key)}
+                  onClick={() => selectSection(section.key)}
                 />
               ))}
             </Box>
@@ -94,6 +127,8 @@ export default function SettingsPage() {
             {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
             {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
             {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
+            {activeSection === 'governance' && <GovernanceCenter />}
+            {activeSection === 'logs' && <LogCenter />}
           </Box>
         </Box>
       </Paper>
