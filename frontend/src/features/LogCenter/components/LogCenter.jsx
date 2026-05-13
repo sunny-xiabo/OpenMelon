@@ -30,6 +30,7 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import { apiExecutionAPI } from '../../../api/execution';
+import { formatRunTime } from '../../APIExecution/utils';
 import {
   findRelatedLogs,
   getRangeParams,

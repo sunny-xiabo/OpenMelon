@@ -1,5 +1,9 @@
 from app.api_execution.router_deps import *
 
+
+def get_dashboard_summary_service(project_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+    return _dashboard_summary(project_id=project_id, limit=limit)
+
 def _dashboard_summary(project_id: str | None = None, limit: int = 50) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 200))
     project_filter = project_id.strip() if project_id else None

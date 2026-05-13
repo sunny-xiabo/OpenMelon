@@ -5,6 +5,18 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.8.3] - 2026-05-13
+
+### 变更 (Changed)
+- **API Execution 路由 service 化**: API 执行、项目环境、OpenAPI 解析、模板、任务中心、AI 草稿/修复和知识沉淀路由改为薄路由，聚合、写库、诊断、AI 上下文拼装和知识治理逻辑下沉到 service 层。
+
+### 修复 (Fixed)
+- **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
+
+### 验证 (Verified)
+- **日志中心崩溃修复回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **API Execution service 化回归**: `python -m compileall backend/app/api_execution`、`uv run pytest backend/tests`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `bash scripts/release_acceptance_smoke.sh` 通过。
+
 ## [0.2.8.2] - 2026-05-12
 
 ### 新增 (Added)

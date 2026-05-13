@@ -196,5 +196,57 @@ def _spec_sync_item(
     }
 
 
+def list_policy_audits_service(limit: int = 20, project_id: str | None = None, action: str | None = None) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 100))
+    return {"audits": api_execution_store.list_policy_audits(safe_limit, project_id, action)}
+
+
+def list_automation_tasks_service(limit: int = 20, status: str | None = None, project_id: str | None = None) -> dict[str, Any]:
+    safe_limit = max(1, min(limit, 100))
+    safe_status = status if status in {"pending", "running", "resolved", "failed"} else None
+    return {"tasks": api_execution_store.list_automation_tasks(safe_limit, safe_status, project_id)}
+
+
+def get_task_center_summary_service(limit: int = 50, project_id: str | None = None) -> dict[str, Any]:
+    from app.api_execution.services.dashboard_service import _task_center_summary
+
+    return _task_center_summary(project_id=project_id, limit=limit)
+
+
+def resolve_automation_task_service(task_id: str) -> dict[str, Any]:
+    from app.api_execution.services.run_service import _log_task_event
+
+    now = _now_iso()
+    task = api_execution_store.update_automation_task(
+        task_id,
+        {
+            "status": "resolved",
+            "updated_at": now,
+            "resolved_at": now,
+            "resolution_note": "人工确认完成",
+        },
+    )
+    if not task:
+        raise NotFoundError(message=str("待处理任务不存在"))
+    _log_task_event(task, "task_resolved")
+    return task
+
+
+async def trigger_scheduled_runs_service() -> dict[str, Any]:
+    triggered_at = _now_iso()
+    items = []
+    for project in api_execution_store.list_projects():
+        items.append(await _enqueue_scheduled_project(project, triggered_at))
+    return {"triggered_at": triggered_at, "items": items}
+
+
+def trigger_spec_sync_service() -> dict[str, Any]:
+    triggered_at = _now_iso()
+    items = []
+    for project in api_execution_store.list_projects():
+        items.append(_sync_project_spec_dsl(project, triggered_at))
+    return {"triggered_at": triggered_at, "items": items}
+
+
 
 __all__ = [name for name in globals() if not name.startswith("__")]
