@@ -43,6 +43,9 @@ class SQLiteStore(BaseSQLiteStore):
             CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
             CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
             CREATE INDEX IF NOT EXISTS idx_runs_at ON runs(run_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_status_at ON runs(status, run_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_project_at ON runs(project_id, run_at);
+            CREATE INDEX IF NOT EXISTS idx_runs_project_status_at ON runs(project_id, status, run_at);
 
             CREATE TABLE IF NOT EXISTS projects (
                 project_id TEXT PRIMARY KEY,
@@ -88,6 +91,8 @@ class SQLiteStore(BaseSQLiteStore):
             );
             CREATE INDEX IF NOT EXISTS idx_tasks_status ON automation_tasks(status);
             CREATE INDEX IF NOT EXISTS idx_tasks_project ON automation_tasks(project_id);
+            CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON automation_tasks(status, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_tasks_project_status_updated ON automation_tasks(project_id, status, updated_at);
 
             CREATE TABLE IF NOT EXISTS automation_definitions (
                 definition_id TEXT PRIMARY KEY,
@@ -120,6 +125,7 @@ class SQLiteStore(BaseSQLiteStore):
                 knowledge_id TEXT PRIMARY KEY,
                 item_type TEXT DEFAULT '',
                 project_id TEXT DEFAULT '',
+                status TEXT DEFAULT '',
                 created_at TEXT DEFAULT '',
                 data TEXT NOT NULL
             );
@@ -145,6 +151,10 @@ class SQLiteStore(BaseSQLiteStore):
             CREATE INDEX IF NOT EXISTS idx_event_logs_project ON event_logs(project_id);
             CREATE INDEX IF NOT EXISTS idx_event_logs_trace ON event_logs(trace_id);
             CREATE INDEX IF NOT EXISTS idx_event_logs_type ON event_logs(event_type);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_project_created ON event_logs(project_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_module_created ON event_logs(module, created_at);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_level_created ON event_logs(level, created_at);
+            CREATE INDEX IF NOT EXISTS idx_event_logs_project_module_created ON event_logs(project_id, module, created_at);
 
             CREATE TABLE IF NOT EXISTS ai_call_logs (
                 call_id TEXT PRIMARY KEY,
@@ -172,14 +182,41 @@ class SQLiteStore(BaseSQLiteStore):
             CREATE INDEX IF NOT EXISTS idx_ai_call_logs_model ON ai_call_logs(model);
             CREATE INDEX IF NOT EXISTS idx_ai_call_logs_status ON ai_call_logs(status);
             CREATE INDEX IF NOT EXISTS idx_ai_call_logs_trace ON ai_call_logs(trace_id);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_feature_created ON ai_call_logs(feature, created_at);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_status_created ON ai_call_logs(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_degraded_created ON ai_call_logs(degraded, created_at);
 
             CREATE TABLE IF NOT EXISTS ai_debug_settings (
                 key TEXT PRIMARY KEY,
                 data TEXT NOT NULL
             );
         """)
+        self._ensure_column("knowledge_items", "status", "TEXT DEFAULT ''")
+        self._conn.execute(
+            """
+            UPDATE knowledge_items
+            SET status = COALESCE(NULLIF(json_extract(data, '$.status'), ''), 'active')
+            WHERE status = ''
+            """
+        )
+        self._conn.executescript("""
+            CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge_items(status);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_project_status_created ON knowledge_items(project_id, status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_type_status_created ON knowledge_items(item_type, status, created_at);
+        """)
+        self._conn.commit()
 
     # ---- specs ----
+
+    @staticmethod
+    def _safe_page(limit: int, offset: int = 0, max_limit: int = 200) -> tuple[int, int]:
+        return max(1, min(int(limit or 1), max_limit)), max(0, int(offset or 0))
+
+    def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in self._query(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            self._conn.commit()
 
     def save_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -250,6 +287,7 @@ class SQLiteStore(BaseSQLiteStore):
         project_id: str | None = None,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
+        safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=200)
         with self._lock:
             conditions = ["1=1"]
             params: list[Any] = []
@@ -262,13 +300,13 @@ class SQLiteStore(BaseSQLiteStore):
             if keyword:
                 kw = keyword.lower().strip()
                 conditions.append(
-                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR data LIKE ?)"
+                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR LOWER(run_id) LIKE ?)"
                 )
                 params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
             where = " AND ".join(conditions)
             rows = self._query(
                 f"SELECT data FROM runs WHERE {where} ORDER BY run_at DESC LIMIT ? OFFSET ?",
-                tuple(params) + (limit, offset),
+                tuple(params) + (safe_limit, safe_offset),
             )
             return [json.loads(r["data"]) for r in rows]
 
@@ -290,7 +328,7 @@ class SQLiteStore(BaseSQLiteStore):
             if keyword:
                 kw = keyword.lower().strip()
                 conditions.append(
-                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR data LIKE ?)"
+                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR LOWER(run_id) LIKE ?)"
                 )
                 params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
             where = " AND ".join(conditions)
@@ -422,6 +460,7 @@ class SQLiteStore(BaseSQLiteStore):
         project_id: str | None = None,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
+        safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=200)
         with self._lock:
             conditions = ["1=1"]
             params: list[Any] = []
@@ -434,7 +473,7 @@ class SQLiteStore(BaseSQLiteStore):
             where = " AND ".join(conditions)
             rows = self._query(
                 f"SELECT data FROM automation_tasks WHERE {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                tuple(params) + (limit, offset),
+                tuple(params) + (safe_limit, safe_offset),
             )
             return [json.loads(r["data"]) for r in rows]
 
@@ -575,33 +614,59 @@ class SQLiteStore(BaseSQLiteStore):
             self._upsert("knowledge_items", "knowledge_id", item["knowledge_id"], {
                 "item_type": item.get("item_type", ""),
                 "project_id": item.get("project_id", ""),
+                "status": item.get("status", "") or "active",
                 "created_at": item.get("created_at", ""),
             }, item)
             return item
 
-    def list_knowledge_items(self, limit: int = 50, item_type: str | None = None, offset: int = 0) -> list[dict[str, Any]]:
+    def list_knowledge_items(
+        self,
+        limit: int = 50,
+        item_type: str | None = None,
+        offset: int = 0,
+        project_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=500)
         with self._lock:
+            conditions = ["1=1"]
+            params: list[Any] = []
             if item_type:
-                rows = self._query(
-                    "SELECT data FROM knowledge_items WHERE item_type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                    (item_type.strip(), limit, offset),
-                )
-            else:
-                rows = self._query(
-                    "SELECT data FROM knowledge_items ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                    (limit, offset),
-                )
+                conditions.append("item_type = ?")
+                params.append(item_type.strip())
+            if project_id:
+                conditions.append("(project_id = ? OR project_id = '')")
+                params.append(project_id.strip())
+            if status:
+                conditions.append("status = ?")
+                params.append(status.strip())
+            where = " AND ".join(conditions)
+            rows = self._query(
+                f"SELECT data FROM knowledge_items WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                tuple(params) + (safe_limit, safe_offset),
+            )
             return [json.loads(r["data"]) for r in rows]
 
-    def count_knowledge_items(self, item_type: str | None = None) -> int:
+    def count_knowledge_items(
+        self,
+        item_type: str | None = None,
+        project_id: str | None = None,
+        status: str | None = None,
+    ) -> int:
         with self._lock:
+            conditions = ["1=1"]
+            params: list[Any] = []
             if item_type:
-                row = self._query_one(
-                    "SELECT COUNT(*) AS count FROM knowledge_items WHERE item_type = ?",
-                    (item_type.strip(),),
-                )
-            else:
-                row = self._query_one("SELECT COUNT(*) AS count FROM knowledge_items", ())
+                conditions.append("item_type = ?")
+                params.append(item_type.strip())
+            if project_id:
+                conditions.append("(project_id = ? OR project_id = '')")
+                params.append(project_id.strip())
+            if status:
+                conditions.append("status = ?")
+                params.append(status.strip())
+            where = " AND ".join(conditions)
+            row = self._query_one(f"SELECT COUNT(*) AS count FROM knowledge_items WHERE {where}", tuple(params))
             return int(row["count"] if row else 0)
 
     def delete_knowledge_item(self, knowledge_id: str) -> bool:
@@ -645,11 +710,12 @@ class SQLiteStore(BaseSQLiteStore):
         start_at: str | None = None,
         end_at: str | None = None,
     ) -> list[dict[str, Any]]:
+        safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=200)
         where, params = self._event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
         with self._lock:
             rows = self._query(
                 f"SELECT data FROM event_logs WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                tuple(params) + (limit, offset),
+                tuple(params) + (safe_limit, safe_offset),
             )
             return [json.loads(r["data"]) for r in rows]
 
@@ -670,6 +736,7 @@ class SQLiteStore(BaseSQLiteStore):
             return int(row["count"] if row else 0)
 
     def list_related_event_logs(self, event_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        safe_limit, _ = self._safe_page(limit, max_limit=100)
         with self._lock:
             event = self._row_to_data(self._query_one("SELECT data FROM event_logs WHERE event_id = ?", (event_id,)))
             if not event:
@@ -679,7 +746,7 @@ class SQLiteStore(BaseSQLiteStore):
             source_id = event.get("source_id") or ""
             candidates = self._query(
                 "SELECT data FROM event_logs WHERE event_id != ? ORDER BY created_at DESC LIMIT ?",
-                (event_id, max(limit * 8, limit)),
+                (event_id, max(safe_limit * 8, safe_limit)),
             )
             related = []
             for row in candidates:
@@ -691,7 +758,7 @@ class SQLiteStore(BaseSQLiteStore):
                     or bool(refs.intersection(item_refs))
                 ):
                     related.append(item)
-                if len(related) >= limit:
+                if len(related) >= safe_limit:
                     break
             return related
 
@@ -897,11 +964,12 @@ class SQLiteStore(BaseSQLiteStore):
         start_at: str | None = None,
         end_at: str | None = None,
     ) -> list[dict[str, Any]]:
+        safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=200)
         where, params = self._ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
         with self._lock:
             rows = self._query(
                 f"SELECT data FROM ai_call_logs WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                tuple(params) + (limit, offset),
+                tuple(params) + (safe_limit, safe_offset),
             )
             return [json.loads(r["data"]) for r in rows]
 

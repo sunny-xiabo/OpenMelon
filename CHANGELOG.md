@@ -29,6 +29,11 @@
 - **前端测试基线**: 引入 Vitest 与 React Testing Library，补充 API 客户端 mock、API Execution 核心工具函数、统一空状态组件和 AI/RAG 观测关键状态测试。
 - **配置版本治理**: 后端 `pyproject.toml`、`uv.lock`、前端 `package.json/package-lock.json` 统一到 `0.2.8.3`，FastAPI 应用版本改为读取统一版本 helper，并新增版本契约测试防止版本漂移。
 - **版本同步脚本**: 新增 `scripts/sync_version.py`，支持一条命令同步 changelog、后端包版本、锁文件和前端包版本，并提供 `--check` 模式用于发版前检查。
+- **性能边界优化**: 设置页内部重面板继续按需加载；后端列表/聚合接口增加 `limit/offset` 参数约束，SQLite 补充 runs、任务、日志、AI 调用和知识治理复合索引，并收窄执行历史关键词查询，避免全表 JSON 扫描。
+- **模块级领域边界**: 新增 `app.domain_boundaries` 领域清单和领域边界文档，明确 API 自动化、测试用例生成、知识库/RAG、治理中心、日志中心的后端 package 与前端 feature 归属；日志中心新增 `app.log_center` facade，前端治理/日志/AI 观测/执行仪表盘补齐 feature 根入口。
+- **日志中心领域迁包**: 日志中心路由实现迁入 `app.log_center.router`，响应模型拆入 `app.log_center.schemas`，旧 `app.api.routers.logs` 保留兼容 re-export，后续日志中心新增能力统一落到领域包。
+- **治理中心 service facade**: 新增 `app.governance_center.services`，统一承接待办队列、知识治理和模板治理服务入口；原 API 自动化路由路径保持不变，内部调用改走治理中心领域 facade。
+- **知识库/RAG facade**: 新增 `app.knowledge_rag` 领域入口，集中暴露图谱/向量操作、检索器、RAG 生成器、索引器、覆盖率和文件追踪，并将后端启动装配收敛到 `build_knowledge_rag_components`。
 
 ### 修复 (Fixed)
 - **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
@@ -53,6 +58,11 @@
 - **前端测试基线回归**: `npm --prefix frontend run test`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **配置版本治理回归**: `conda activate openmlon && python -m pytest backend/tests/test_version_contract.py`、`npm --prefix frontend run test`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **版本同步脚本回归**: `python scripts/sync_version.py 0.2.8.3 --date 2026-05-13 --check` 与 `conda activate openmlon && python -m pytest backend/tests/test_version_contract.py` 通过。
+- **性能边界回归**: `conda activate openmlon && python -m pytest backend/tests/test_api_execution_optimizations.py backend/tests/test_event_logs.py backend/tests/test_api_execution_dashboard.py`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **模块级领域边界回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_event_logs.py`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **日志中心领域迁包回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_event_logs.py` 通过。
+- **治理中心 service facade 回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_api_execution_dashboard.py backend/tests/test_api_execution_knowledge.py` 通过。
+- **知识库/RAG facade 回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_coverage_service.py backend/tests/test_file_tracker_sqlite.py`、`conda activate openmlon && python -m compileall backend/app/knowledge_rag backend/app/main.py` 通过。
 
 ## [0.2.8.2] - 2026-05-12
 

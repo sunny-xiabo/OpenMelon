@@ -1,17 +1,24 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+from typing import Annotated
 
 from app.api_execution.router_support import *
+from app.governance_center import services as governance_services
 
 router = APIRouter()
 
 
 @router.post("/knowledge/ingest-runs", response_model=KnowledgeIngestResponse)
-async def ingest_runs_to_knowledge(request: Request, limit: int = 20):
+async def ingest_runs_to_knowledge(request: Request, limit: Annotated[int, Query(ge=1, le=100)] = 20):
     return await ingest_runs_to_knowledge_service(request, limit=limit)
 
 
 @router.get("/knowledge/search-repairs", response_model=KnowledgeSearchResponse)
-async def search_repair_knowledge(request: Request, query: str, project_id: str = "", limit: int = 5):
+async def search_repair_knowledge(
+    request: Request,
+    query: str,
+    project_id: str = "",
+    limit: Annotated[int, Query(ge=1, le=20)] = 5,
+):
     return await search_repair_knowledge_service(request, query, project_id=project_id, limit=limit)
 
 
@@ -22,13 +29,13 @@ async def approve_knowledge_candidate(request: Request, task_id: str):
 
 @router.get("/knowledge/review", response_model=KnowledgeReviewResponse)
 async def list_knowledge_review_items(
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
     project_id: str | None = None,
     status: str | None = None,
     item_type: str | None = None,
 ):
-    return list_knowledge_review_items_service(
+    return governance_services.list_knowledge_items(
         limit=limit,
         offset=offset,
         project_id=project_id,
@@ -39,12 +46,12 @@ async def list_knowledge_review_items(
 
 @router.patch("/knowledge/items/{knowledge_id}/status", response_model=KnowledgeItem)
 async def update_knowledge_item_status(knowledge_id: str, request: KnowledgeStatusUpdateRequest):
-    return update_knowledge_item_status_service(knowledge_id, request)
+    return governance_services.update_knowledge_status(knowledge_id, request)
 
 
 @router.delete("/knowledge/items/{knowledge_id}")
 async def delete_knowledge_item(knowledge_id: str):
-    return delete_knowledge_item_service(knowledge_id)
+    return governance_services.delete_knowledge_item(knowledge_id)
 
 
 @router.post("/knowledge/runs/{run_id}/candidate", response_model=KnowledgeCandidateCreateResponse)

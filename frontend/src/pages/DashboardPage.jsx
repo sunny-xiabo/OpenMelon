@@ -4,7 +4,7 @@ import { PieChartRounded, AutoGraphRounded, AssignmentTurnedInRounded } from '@m
 import PageHeader from '../components/PageHeader';
 import NavMenuButton from '../components/NavMenuButton';
 import CoveragePage from './CoveragePage';
-import APIExecutionDashboard from '../features/APIExecutionDashboard/components/APIExecutionDashboard';
+import APIExecutionDashboard from '../features/APIExecutionDashboard';
 
 const SECTIONS = [
   {

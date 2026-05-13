@@ -6,9 +6,9 @@ from app.api.routers.query import router as query_router
 from app.api.routers.graph import router as graph_router
 from app.api.routers.ingestion import router as ingestion_router
 from app.api.routers.prompt_hub import router as prompt_hub_router
-from app.api.routers.logs import router as logs_router
 from app.api.management_routes import router as management_router
 from app.api_execution.routers import router as api_execution_router
+from app.log_center import router as logs_router
 
 router = APIRouter(prefix="/api")
 

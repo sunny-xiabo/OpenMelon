@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+from typing import Annotated
 
 from app.api_execution.router_support import *
 
@@ -27,8 +28,8 @@ async def create_background_run(request: RunScriptRequest):
 
 @router.get("/runs", response_model=APIRunHistoryResponse)
 async def list_run_history(
-    limit: int = 20,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
     status: str | None = None,
     keyword: str | None = None,
     project_id: str | None = None,
@@ -37,7 +38,11 @@ async def list_run_history(
 
 
 @router.get("/cases/{case_id}/runs", response_model=APIRunHistoryResponse)
-async def list_case_runs(case_id: str, limit: int = 20, offset: int = 0):
+async def list_case_runs(
+    case_id: str,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
     return list_case_runs_service(case_id, limit=limit, offset=offset)
 
 

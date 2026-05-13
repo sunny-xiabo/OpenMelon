@@ -1,28 +1,40 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+from typing import Annotated
 
 from app.api_execution.router_support import *
+from app.governance_center import services as governance_services
 
 router = APIRouter()
 
 
 @router.get("/policy/audits", response_model=PolicyAuditListResponse)
-async def list_policy_audits(limit: int = 20, offset: int = 0, project_id: str | None = None, action: str | None = None):
+async def list_policy_audits(
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    project_id: str | None = None,
+    action: str | None = None,
+):
     return list_policy_audits_service(limit=limit, offset=offset, project_id=project_id, action=action)
 
 
 @router.get("/automation/tasks", response_model=AutomationTaskListResponse)
-async def list_automation_tasks(limit: int = 20, offset: int = 0, status: str | None = None, project_id: str | None = None):
-    return list_automation_tasks_service(limit=limit, offset=offset, status=status, project_id=project_id)
+async def list_automation_tasks(
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    status: str | None = None,
+    project_id: str | None = None,
+):
+    return governance_services.list_task_queue(limit=limit, offset=offset, status=status, project_id=project_id)
 
 
 @router.get("/automation/task-center/summary", response_model=AutomationTaskCenterSummaryResponse)
-async def get_task_center_summary(limit: int = 50, project_id: str | None = None):
-    return get_task_center_summary_service(limit=limit, project_id=project_id)
+async def get_task_center_summary(limit: Annotated[int, Query(ge=1, le=200)] = 50, project_id: str | None = None):
+    return governance_services.summarize_task_queue(limit=limit, project_id=project_id)
 
 
 @router.post("/automation/tasks/{task_id}/resolve", response_model=AutomationTaskRecord)
 async def resolve_automation_task(task_id: str):
-    return resolve_automation_task_service(task_id)
+    return governance_services.resolve_task(task_id)
 
 
 @router.post("/automation/scheduled-runs/trigger", response_model=ScheduledExecutionResponse)

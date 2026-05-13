@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { Box, Button, Paper, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import SettingsSuggestOutlined from '@mui/icons-material/SettingsSuggestOutlined';
@@ -10,13 +10,16 @@ import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import QueryStatsOutlined from '@mui/icons-material/QueryStatsOutlined';
 import PageHeader from '../components/PageHeader';
 import NavMenuButton from '../components/NavMenuButton';
-import NodeTypeConfigPage from './NodeTypeConfigPage';
-import PromptHubConfigPage from './PromptHubConfigPage';
-import ProjectEnvConfigPage from './ProjectEnvConfigPage';
-import GovernanceCenter from '../features/GovernanceCenter/components/GovernanceCenter';
-import LogCenter from '../features/LogCenter/components/LogCenter';
-import AIObservabilityPanel from '../features/AIObservability/components/AIObservabilityPanel';
+import LoadingOverlay from '../components/LoadingOverlay';
+import lazyWithRetry from '../utils/lazyWithRetry';
 import { SETTINGS_SECTION_EVENT } from '../constants/events';
+
+const NodeTypeConfigPage = lazyWithRetry(() => import('./NodeTypeConfigPage'));
+const PromptHubConfigPage = lazyWithRetry(() => import('./PromptHubConfigPage'));
+const ProjectEnvConfigPage = lazyWithRetry(() => import('./ProjectEnvConfigPage'));
+const GovernanceCenter = lazyWithRetry(() => import('../features/GovernanceCenter'));
+const LogCenter = lazyWithRetry(() => import('../features/LogCenter'));
+const AIObservabilityPanel = lazyWithRetry(() => import('../features/AIObservability'));
 
 const SECTIONS = [
   {
@@ -132,12 +135,14 @@ export default function SettingsPage() {
           </Box>
 
           <Box sx={{ flex: 1, minWidth: 0, background: 'transparent' }}>
-            {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
-            {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
-            {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
-            {activeSection === 'governance' && <GovernanceCenter />}
-            {activeSection === 'logs' && <LogCenter />}
-            {activeSection === 'ai-observability' && <AIObservabilityPanel />}
+            <Suspense fallback={<LoadingOverlay message="正在加载设置模块..." />}>
+              {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
+              {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
+              {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
+              {activeSection === 'governance' && <GovernanceCenter />}
+              {activeSection === 'logs' && <LogCenter />}
+              {activeSection === 'ai-observability' && <AIObservabilityPanel />}
+            </Suspense>
           </Box>
         </Box>
       </Paper>

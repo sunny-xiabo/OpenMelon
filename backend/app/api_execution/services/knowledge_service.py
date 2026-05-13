@@ -421,16 +421,24 @@ def list_knowledge_review_items_service(
 ) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 200))
     safe_offset = max(0, offset)
-    items = api_execution_store.list_knowledge_items(limit=1000, item_type=item_type)
-    if project_id:
-        safe_project_id = project_id.strip()
-        items = [item for item in items if item.get("project_id", "") in {"", safe_project_id}]
-    if status:
-        safe_status = status.strip()
-        items = [item for item in items if _knowledge_status(item) == safe_status]
-    paged = items[safe_offset:safe_offset + safe_limit]
-    normalized = [_normalize_knowledge_item(item) for item in paged]
-    return {"total": len(items), "limit": safe_limit, "offset": safe_offset, "items": normalized}
+    safe_status = status.strip() if status else None
+    if safe_status and safe_status not in {"active", "invalid", "revoked"}:
+        safe_status = None
+    safe_project_id = project_id.strip() if project_id else None
+    items = api_execution_store.list_knowledge_items(
+        limit=safe_limit,
+        offset=safe_offset,
+        item_type=item_type,
+        project_id=safe_project_id,
+        status=safe_status,
+    )
+    total = api_execution_store.count_knowledge_items(
+        item_type=item_type,
+        project_id=safe_project_id,
+        status=safe_status,
+    )
+    normalized = [_normalize_knowledge_item(item) for item in items]
+    return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": normalized}
 
 
 def update_knowledge_item_status_service(knowledge_id: str, request: KnowledgeStatusUpdateRequest) -> dict[str, Any]:

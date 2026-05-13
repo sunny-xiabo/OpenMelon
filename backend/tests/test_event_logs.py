@@ -1,9 +1,11 @@
 import asyncio
+import importlib
 import time
 
 from app.api.logging_service import log_event
-from app.api.routers import logs
 from app.api_execution.storage import APIExecutionStore
+
+logs = importlib.import_module("app.log_center.router")
 
 
 def test_event_logs_query_summary_and_related(tmp_path, monkeypatch):
