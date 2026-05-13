@@ -655,10 +655,14 @@ def stream_run_progress_service(run_id: str) -> StreamingResponse:
     async def _stream():
         try:
             yield _sse_format("progress", {
+                "run_id": run_id,
                 "progress_total": run.get("progress_total", 0),
                 "progress_completed": run.get("progress_completed", 0),
                 "current_step_id": run.get("current_step_id"),
                 "current_step_name": run.get("current_step_name"),
+                "total": run.get("total", 0),
+                "passed": run.get("passed", 0),
+                "failed": run.get("failed", 0),
             })
             while True:
                 message = await queue.get()

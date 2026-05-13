@@ -32,6 +32,29 @@ const notifyDashboardRefresh = () => {
   window.dispatchEvent(new CustomEvent(API_EXECUTION_DASHBOARD_REFRESH_EVENT));
 };
 
+const parseSSEPayload = (event) => {
+  try {
+    return JSON.parse(event.data || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const mergeRunProgress = (report, progress) => {
+  if (!report) return report;
+  return {
+    ...report,
+    status: progress.status || report.status,
+    progress_total: progress.progress_total ?? report.progress_total,
+    progress_completed: progress.progress_completed ?? report.progress_completed,
+    current_step_id: progress.current_step_id ?? null,
+    current_step_name: progress.current_step_name ?? null,
+    total: progress.total ?? report.total,
+    passed: progress.passed ?? report.passed,
+    failed: progress.failed ?? report.failed,
+  };
+};
+
 const estimateBatchRequestTimeoutMs = (stepCount, stepTimeoutMs) => Math.min(
   BATCH_REQUEST_TIMEOUT_CEILING_MS,
   Math.max(
@@ -86,9 +109,30 @@ export const ExecutionProvider = ({ children }) => {
   useEffect(() => {
     if (!backgroundRunId || !ACTIVE_RUN_STATUSES.has(backgroundRunStatus)) return undefined;
     let cancelled = false;
+    let eventSource = null;
+    let pollTimer = null;
+    let queuedWarningTimer = null;
     let queuedWarned = false;
     const startedAt = Date.now();
     const QUEUED_TIMEOUT_MS = 90_000;
+
+    const finalizeRun = async (status = '') => {
+      if (cancelled) return;
+      try {
+        const data = await apiExecutionAPI.getRun(backgroundRunId);
+        if (cancelled) return;
+        setBackgroundRunStatus(data.status || status);
+        setRunReport(data);
+        fetchHistoryRef.current?.();
+        notifyDashboardRefresh();
+      } catch (error) {
+        if (!cancelled) {
+          setBackgroundRunStatus(status || backgroundRunStatus);
+          showSnackbar(error.message || '后台执行最终状态查询失败', 'error');
+        }
+      }
+    };
+
     const pollRun = async () => {
       try {
         const data = await apiExecutionAPI.getRun(backgroundRunId);
@@ -110,11 +154,63 @@ export const ExecutionProvider = ({ children }) => {
         }
       }
     };
-    const timer = setInterval(pollRun, RUN_POLL_INTERVAL_MS);
-    pollRun();
+
+    const startPolling = () => {
+      if (pollTimer || cancelled) return;
+      pollTimer = setInterval(pollRun, RUN_POLL_INTERVAL_MS);
+      pollRun();
+    };
+
+    queuedWarningTimer = setTimeout(() => {
+      if (cancelled || queuedWarned) return;
+      queuedWarned = true;
+      showSnackbar('任务排队时间过长，可能后台并发槽位已满或服务异常，建议取消后重试或重启后端服务', 'warning');
+    }, QUEUED_TIMEOUT_MS);
+
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      try {
+        eventSource = new EventSource(apiExecutionAPI.getRunProgressStreamUrl(backgroundRunId), { withCredentials: true });
+        eventSource.addEventListener('progress', (event) => {
+          if (cancelled) return;
+          const progress = parseSSEPayload(event);
+          setRunReport((current) => mergeRunProgress(current, progress));
+          if (progress.current_step_id || progress.current_step_name) {
+            setBackgroundRunStatus('running');
+            if (queuedWarningTimer) {
+              clearTimeout(queuedWarningTimer);
+              queuedWarningTimer = null;
+            }
+          }
+          if (!queuedWarned && Date.now() - startedAt > QUEUED_TIMEOUT_MS) {
+            queuedWarned = true;
+            showSnackbar('任务排队时间过长，可能后台并发槽位已满或服务异常，建议取消后重试或重启后端服务', 'warning');
+          }
+        });
+        eventSource.addEventListener('finished', (event) => {
+          if (cancelled) return;
+          const payload = parseSSEPayload(event);
+          eventSource?.close();
+          eventSource = null;
+          finalizeRun(payload.status);
+        });
+        eventSource.onerror = () => {
+          if (cancelled) return;
+          eventSource?.close();
+          eventSource = null;
+          startPolling();
+        };
+      } catch {
+        startPolling();
+      }
+    } else {
+      startPolling();
+    }
+
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (eventSource) eventSource.close();
+      if (pollTimer) clearInterval(pollTimer);
+      if (queuedWarningTimer) clearTimeout(queuedWarningTimer);
     };
   }, [backgroundRunId, backgroundRunStatus]);
 

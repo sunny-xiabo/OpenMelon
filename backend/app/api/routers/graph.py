@@ -3,6 +3,7 @@ from app.api.errors import InternalError, InvalidRequestError, NotFoundError, Un
 from typing import Optional
 import uuid
 from app.config import settings
+from app.runtime_config import current_embedding_config
 from app.api.logging_service import safe_log_event
 from app.models.graph_types import (
     DOCUMENT_CHUNK_NODE_TYPE,
@@ -263,13 +264,11 @@ async def graph_entity(
             return GraphData(nodes=nodes, relationships=rels)
 
         try:
-            model_name = settings.EMBEDDING_MODEL
+            embedding_config = current_embedding_config()
             kwargs = {
-                "model": model_name,
+                **embedding_config["kwargs"],
                 "input": [name],
             }
-            if settings.EMBEDDING_DIM and model_name and "text-embedding-3" in model_name:
-                kwargs["dimensions"] = settings.EMBEDDING_DIM
             response = await llm_client.embeddings.create(**kwargs)
             query_embedding = response.data[0].embedding
 

@@ -79,7 +79,7 @@ docker compose logs -f app
 | 测试用例生成 | 基于文档、上下文和 Prompt Hub 生成测试用例 | 上传文件或输入文本、切换模板/技能、导出 Excel/XMind | 测试、研发、需求分析 |
 | API 自动化 | 将接口文档转成可执行 API 用例，支持运行、报告、AI 修复和知识沉淀 | 导入 OpenAPI/Postman/HAR/文档、生成 API DSL、配置环境、执行、确认沉淀 | 测试、研发、接口负责人 |
 | 数据仪表盘 | 汇聚全链路的覆盖率分析与自动化测试健康度大屏，左侧分区导航切换不同视图 | 查看覆盖率总览、API执行通过率（开发中）、UI自动化总览（开发中） | 测试负责人、项目负责人 |
-| 设置 | 统一配置中心，左侧分区导航切换三个子页 | 节点类型配置（管理图谱节点类型定义与显示样式）、Prompt Hub（管理用例生成模板与技能）、项目与环境（管理API自动化项目与测试环境） | 管理员、维护者 |
+| 设置 | 统一配置中心，左侧分区导航切换多个子页 | 节点类型配置、运行配置、Prompt Hub、项目与环境、治理中心、日志中心 | 管理员、维护者 |
 
 建议的理解顺序（完美贴合系统的数据流动漏斗）：
 
@@ -123,6 +123,10 @@ docker compose logs -f app
 #### 设置 - 项目与环境
 
 ![项目与环境](docs/screenshots/project-env-page.png)
+
+#### 设置 - 运行配置
+
+运行配置中心用于初始化 `.env`、区分热更新与需重启项、维护主模块 LLM 参数和自定义 Provider 模板。
 
 #### 设置 - Prompt Hub
 
@@ -441,7 +445,14 @@ docker compose down
 
 ## 3. 环境配置详解
 
-所有配置通过 `.env` 文件管理，修改后需重启后端生效。完整配置模板见 [.env.example](.env.example)。
+当前版本建议优先通过“设置 -> 运行配置”管理后端配置。完整配置模板见 [.env.example](.env.example)。
+
+配置保存后的生效分两类：
+
+- `热更新`：保存后刷新进程内参数，只影响后续新请求
+- `需重启`：已经写入 `.env`，但需要重启后端才能完全生效
+
+`.env` 仍然是最终配置载体，但不再建议只靠手工编辑理解全部配置状态。
 
 ### 3.1 OpenMelon 主模块 LLM 配置（必填）
 
@@ -474,6 +485,23 @@ docker compose down
 
 - 第一次部署优先选 `qwen` 或 `openai_compat`
 - 如果选 `deepseek` / `mimo`，问答可以正常用，但文档索引依赖 Embedding，建议额外明确配置 `EMBEDDING_MODEL` 和 `EMBEDDING_DIM`
+
+### 3.1.1 Provider 管理和运行参数的关系
+
+设置页“运行配置 -> Provider 管理”维护的是 Provider 模板库，不会直接改动当前 `.env`。
+
+可以这样理解：
+
+- `Provider 管理`：沉淀可复用模板
+- `主模块 LLM`：决定当前实际生效配置
+
+新增自定义 Provider 后，它会出现在主模块 LLM 的可选项中，但仍需要你在主模块分组里保存后才会变成当前运行参数。
+
+### 3.1.2 自定义 Provider 存储位置
+
+自定义 Provider 不保存在 `.env`，而是持久化到运行时文件：
+
+`backend/runtime/data/json/llm_providers.json`
 
 **自动填充规则**：
 
@@ -629,7 +657,16 @@ CUSTOM_MODEL_NAME=deepseek-ai/DeepSeek-V3
   - 文本链路优先看 `DEEPSEEK_API_KEY`
 - 主模块始终按 `LLM_PROVIDER +（手填优先）` 规则生效
 
-**步骤 2：看启动日志（运行时结果）**
+**步骤 2：看运行配置页面或启动日志（运行时结果）**
+
+在设置页“运行配置”里可以直接看到：
+
+- 当前主模块 Provider
+- 是否命中已知 Provider
+- 当前 Base URL / Chat Model / Embedding Model 来源
+- 字段属于 `热更新` 还是 `需重启`
+
+如果仍需从后端确认，再看启动日志：
 
 后端启动后检查日志是否出现以下信息：
 
@@ -646,7 +683,7 @@ Embedding 自检: model=..., dim=..., dimensions_enforced=...
 - `dimensions_enforced=True`：`text-embedding-3*` 已按 `EMBEDDING_DIM` 强制统一维度
 - `dimensions_enforced=False`：当前模型不走该参数（如 BGE），但仍会按模型自身维度执行
 
-> 建议：每次改模型配置后都重启一次后端，并核对这两行日志，避免“以为改了但没生效”。
+> 建议：先看运行配置页面的生效摘要，再根据字段是否属于 `热更新` 或 `需重启` 决定是否重启后端。
 
 ### 3.9 企业通知 Webhook
 

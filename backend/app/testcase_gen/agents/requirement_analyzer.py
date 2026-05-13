@@ -15,10 +15,8 @@ from autogen_core import Image as AGImage
 from PIL import Image as PILImage
 
 from app.testcase_gen.utils.llms import (
-    model_client,
-    deepseek_model_client,
-    QWEN_MODEL_NAME,
-    DEEPSEEK_MODEL_NAME,
+    get_model_client,
+    get_model_display_name,
 )
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.pdf_service import pdf_service
@@ -37,9 +35,9 @@ class RequirementAnalyzer:
 
         # 图像文件使用支持视觉的模型客户端
         if file_extension in ["png", "jpg", "jpeg", "gif", "bmp", "webp"]:
-            return model_client  # 支持视觉的模型
+            return get_model_client(use_vision=True)  # 支持视觉的模型
         else:
-            return deepseek_model_client
+            return get_model_client(use_vision=False)
 
     def _get_file_type_name(self, file_extension: str) -> str:
         """获取文件类型名称"""
@@ -109,10 +107,10 @@ class RequirementAnalyzer:
         selected_model_client = self._get_model_client_for_file_type(file_path)
         file_extension = file_path.lower().split(".")[-1] if "." in file_path else ""
         _file_type = self._get_file_type_name(file_extension)
+        uses_vision_model = file_extension in ["png", "jpg", "jpeg", "gif", "bmp", "webp"]
+        model_name = get_model_display_name(use_vision=uses_vision_model)
 
-        logger.info(
-            f"文件类型: {file_extension}, 使用模型: {DEEPSEEK_MODEL_NAME if selected_model_client == deepseek_model_client else QWEN_MODEL_NAME}"
-        )
+        logger.info(f"文件类型: {file_extension}, 使用模型: {model_name}")
 
         _file_content = await self._read_file_content(file_path, file_extension)
 
@@ -141,7 +139,7 @@ class RequirementAnalyzer:
         yield "# 需求分析阶段\n\n"
         yield f"**分析文件**: {file_path}\n"
         yield f"**文件类型**: {file_extension.upper()}\n"
-        yield f"**使用模型**: {DEEPSEEK_MODEL_NAME if selected_model_client == deepseek_model_client else QWEN_MODEL_NAME}\n"
+        yield f"**使用模型**: {model_name}\n"
         yield "\n---\n\n"
 
         # 流式输出分析结果

@@ -5,6 +5,8 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.llm_provider_registry import get_provider_defaults, normalize_provider
+
 
 _ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
@@ -73,58 +75,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def apply_provider_defaults(self) -> "Settings":
-        provider_aliases = {
-            "openai-compatible": "openai_compat",
-            "openai_compatible": "openai_compat",
-        }
-        provider = provider_aliases.get(
-            self.LLM_PROVIDER.strip().lower(), self.LLM_PROVIDER.strip().lower()
-        )
-
-        provider_defaults = {
-            "openai_compat": {
-                "API_BASE_URL": "https://one-api.miotech.com/v1",
-                "CHAT_MODEL": "qwen-plus",
-                "EMBEDDING_MODEL": "text-embedding-v3",
-                "EMBEDDING_DIM": 1024,
-            },
-            "openai": {
-                "API_BASE_URL": "https://api.openai.com/v1",
-                "CHAT_MODEL": "gpt-4o-mini",
-                "EMBEDDING_MODEL": "text-embedding-3-small",
-                "EMBEDDING_DIM": 1024,
-            },
-            "qwen": {
-                "API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                "CHAT_MODEL": "qwen-plus",
-                "EMBEDDING_MODEL": "text-embedding-v3",
-                "EMBEDDING_DIM": 1024,
-            },
-            "deepseek": {
-                "API_BASE_URL": "https://api.deepseek.com/v1",
-                "CHAT_MODEL": "deepseek-chat",
-                "EMBEDDING_MODEL": "",
-                "EMBEDDING_DIM": 1024,
-            },
-            "mimo": {
-                "API_BASE_URL": "https://open.mimo.work/v1",
-                "CHAT_MODEL": "mimo-v2-flash",
-                "EMBEDDING_MODEL": "",
-                "EMBEDDING_DIM": 1024,
-            },
-        }
-
-        defaults = provider_defaults.get(provider, provider_defaults["openai_compat"])
+        provider = normalize_provider(self.LLM_PROVIDER)
+        defaults = get_provider_defaults(provider)
         self.LLM_PROVIDER = provider
 
         if not self.API_BASE_URL:
-            self.API_BASE_URL = defaults["API_BASE_URL"]
+            self.API_BASE_URL = defaults.api_base_url
         if not self.CHAT_MODEL:
-            self.CHAT_MODEL = defaults["CHAT_MODEL"]
+            self.CHAT_MODEL = defaults.chat_model
         if not self.EMBEDDING_MODEL:
-            self.EMBEDDING_MODEL = defaults["EMBEDDING_MODEL"]
+            self.EMBEDDING_MODEL = defaults.embedding_model
         if not self.EMBEDDING_DIM:
-            self.EMBEDDING_DIM = defaults["EMBEDDING_DIM"]
+            self.EMBEDDING_DIM = defaults.embedding_dim
 
         return self
 

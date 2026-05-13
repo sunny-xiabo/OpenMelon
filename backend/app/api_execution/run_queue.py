@@ -246,10 +246,14 @@ async def _update_progress(run_id: str, progress: dict[str, Any]) -> None:
     if result is None:
         raise asyncio.CancelledError()
     await _broadcast_sse(run_id, "progress", {
+        "run_id": run_id,
         "progress_total": progress.get("progress_total", 0),
         "progress_completed": progress.get("progress_completed", 0),
         "current_step_id": progress.get("current_step_id"),
         "current_step_name": progress.get("current_step_name"),
+        "total": len(progress.get("results") or []),
+        "passed": sum(1 for result in (progress.get("results") or []) if result.get("status") == "passed"),
+        "failed": sum(1 for result in (progress.get("results") or []) if result.get("status") != "passed"),
     })
 
 

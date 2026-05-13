@@ -853,8 +853,10 @@ class SQLiteStore(BaseSQLiteStore):
         retention_days: int | None = None,
         max_rows: int | None = None,
     ) -> dict[str, int]:
-        safe_retention_days = max(1, int(retention_days or settings.EVENT_LOG_RETENTION_DAYS))
-        safe_max_rows = max(1000, int(max_rows or settings.EVENT_LOG_MAX_ROWS))
+        retention_value = retention_days if retention_days is not None else settings.EVENT_LOG_RETENTION_DAYS
+        max_rows_value = max_rows if max_rows is not None else settings.EVENT_LOG_MAX_ROWS
+        safe_retention_days = max(1, int(retention_value))
+        safe_max_rows = max(1000, int(max_rows_value))
         cutoff = (datetime.now(UTC) - timedelta(days=safe_retention_days)).isoformat().replace("+00:00", "Z")
         age_cursor = self._conn.execute(
             "DELETE FROM event_logs WHERE created_at < ? AND level != 'error'",

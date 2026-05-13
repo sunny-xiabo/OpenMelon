@@ -8,12 +8,16 @@ async def _build_patch_with_llm(
     project_policy_snapshot: dict[str, Any],
     fallback: dict[str, Any],
 ) -> dict[str, Any]:
-    client = AsyncOpenAI(api_key=settings.API_KEY, base_url=settings.API_BASE_URL)
+    api_key = settings.API_KEY
+    base_url = settings.API_BASE_URL
+    model_name = settings.CHAT_MODEL
+    max_tokens = min(settings.GENERATION_MAX_TOKENS or 2000, 3000)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     response = await client.chat.completions.create(
-        model=settings.CHAT_MODEL,
+        model=model_name,
         messages=_build_llm_messages(task, script, report, project_policy_snapshot, fallback),
         temperature=0.1,
-        max_tokens=min(settings.GENERATION_MAX_TOKENS or 2000, 3000),
+        max_tokens=max_tokens,
         timeout=AI_ASSISTANT_TIMEOUT_SECONDS,
     )
     content = response.choices[0].message.content or ""
@@ -43,7 +47,7 @@ async def _build_patch_with_llm(
         "risk_level": decision["risk_level"],
         "requires_approval": True,
         "ai_mode": "llm",
-        "model_name": settings.CHAT_MODEL,
+        "model_name": model_name,
         "fallback_reason": "",
     }
 

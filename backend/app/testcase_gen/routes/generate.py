@@ -89,23 +89,11 @@ async def generate_test_cases(
             llm_client = getattr(req.app.state, "llm_client", None)
             if vector_ops and llm_client:
                 try:
-                    from app.config import settings
-                    model_name = settings.EMBEDDING_MODEL
-                    kwargs = {
-                        "model": model_name,
-                        "input": [f"{requirements}\n{context}"],
-                    }
-                    if settings.EMBEDDING_DIM and model_name and "text-embedding-3" in model_name:
-                        kwargs["dimensions"] = settings.EMBEDDING_DIM
-                    emb_resp = await llm_client.embeddings.create(**kwargs)
-                    query_embedding = emb_resp.data[0].embedding
-                    similar_chunks = await vector_ops.similarity_search(query_embedding, top_k=3)
-                    similar_tcs = await vector_ops.search_similar_test_cases(query_embedding, top_k=3)
-                    
-                    if similar_chunks:
-                        vector_context += "【相关参考文档片段】\n" + "\n\n".join([f"[{c.get('filename','')}]\n{c.get('content', '')}" for c in similar_chunks]) + "\n\n"
-                    if similar_tcs:
-                        vector_context += "【相似历史用例参考】\n" + "\n\n".join([f"[{tc.get('test_case_name', '')}]\n{tc.get('description', '')[:200]}..." for tc in similar_tcs]) + "\n\n"
+                    vector_context = await build_vector_context(
+                        llm_client,
+                        vector_ops,
+                        f"{requirements}\n{context}",
+                    )
                 except Exception as e:
                     logger.warning(f"Vector search failed during generation: {e}")
                     _log_testcase_event(
@@ -231,23 +219,11 @@ async def generate_from_context(
             llm_client = getattr(req.app.state, "llm_client", None)
             if vector_ops and llm_client:
                 try:
-                    from app.config import settings
-                    model_name = settings.EMBEDDING_MODEL
-                    kwargs = {
-                        "model": model_name,
-                        "input": [f"{requirements}\n{context}"],
-                    }
-                    if settings.EMBEDDING_DIM and model_name and "text-embedding-3" in model_name:
-                        kwargs["dimensions"] = settings.EMBEDDING_DIM
-                    emb_resp = await llm_client.embeddings.create(**kwargs)
-                    query_embedding = emb_resp.data[0].embedding
-                    similar_chunks = await vector_ops.similarity_search(query_embedding, top_k=3)
-                    similar_tcs = await vector_ops.search_similar_test_cases(query_embedding, top_k=3)
-                    
-                    if similar_chunks:
-                        vector_context += "【相关参考文档片段】\n" + "\n\n".join([f"[{c.get('filename','')}]\n{c.get('content', '')}" for c in similar_chunks]) + "\n\n"
-                    if similar_tcs:
-                        vector_context += "【相似历史用例参考】\n" + "\n\n".join([f"[{tc.get('test_case_name', '')}]\n{tc.get('description', '')[:200]}..." for tc in similar_tcs]) + "\n\n"
+                    vector_context = await build_vector_context(
+                        llm_client,
+                        vector_ops,
+                        f"{requirements}\n{context}",
+                    )
                 except Exception as e:
                     logger.warning(f"Vector search failed during generation: {e}")
                     _log_testcase_event(

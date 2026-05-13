@@ -259,13 +259,14 @@ def _normalize_knowledge_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _generate_embedding(llm_client: Any, text: str) -> list[float]:
-    model_name = settings.EMBEDDING_MODEL or "text-embedding-3-small"
+    from app.runtime_config import current_embedding_config
+
+    embedding_config = current_embedding_config()
+    model_name = embedding_config["model"] or "text-embedding-3-small"
     kwargs = {
-        "model": model_name,
+        **embedding_config["kwargs"],
         "input": text[:6000],
     }
-    if settings.EMBEDDING_DIM and "text-embedding-3" in model_name:
-        kwargs["dimensions"] = settings.EMBEDDING_DIM
     response = await llm_client.embeddings.create(**kwargs)
     return response.data[0].embedding
 
