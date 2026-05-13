@@ -420,7 +420,7 @@ def list_knowledge_review_items_service(
     status: str | None = None,
     item_type: str | None = None,
 ) -> dict[str, Any]:
-    safe_limit = max(1, min(limit, 200))
+    safe_limit = max(1, min(limit, 500))
     safe_offset = max(0, offset)
     safe_status = status.strip() if status else None
     if safe_status and safe_status not in {"active", "invalid", "revoked"}:

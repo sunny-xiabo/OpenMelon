@@ -49,9 +49,11 @@
 
 ### 修复 (Fixed)
 - **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
+- **治理中心知识库加载失败**: 修复治理中心为生成知识类型筛选项请求 `GET /api/api-execution/knowledge/review?limit=500&offset=0` 时，后端路由仍限制 `limit <= 200` 导致 FastAPI 参数校验失败的问题；知识治理 review 接口与 service 安全上限统一调整为 500。
 
 ### 验证 (Verified)
 - **日志中心崩溃修复回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **治理中心知识库加载回归**: `conda activate openmlon && python -m pytest backend/tests/test_api_execution_knowledge.py -q` 与 `npm --prefix frontend run lint` 通过。
 - **API Execution service 化回归**: `python -m compileall backend/app/api_execution`、`uv run pytest backend/tests`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `bash scripts/release_acceptance_smoke.sh` 通过。
 - **统一分页协议回归**: `python -m compileall backend/app/api_execution backend/app/api/routers/logs.py`、API Execution 相关 pytest 与 `npm --prefix frontend run lint` 通过。
 - **治理中心筛选与操作回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。

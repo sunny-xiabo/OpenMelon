@@ -1,7 +1,11 @@
 import asyncio
 from types import SimpleNamespace
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
 from app.api_execution import routers
+from app.api_execution.routes import knowledge as knowledge_routes
 from app.api_execution.knowledge import build_run_knowledge_items, write_run_to_graph
 from app.api_execution.storage import APIExecutionStore
 
@@ -136,6 +140,19 @@ def test_knowledge_review_and_status_update(tmp_path, monkeypatch):
     assert response["status"] == "invalid"
     assert response["governance_note"] == "接口已下线"
     assert store.list_knowledge_items()[0]["invalidated_at"]
+
+
+def test_knowledge_review_route_accepts_governance_asset_limit(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    app = FastAPI()
+    app.include_router(knowledge_routes.router, prefix="/api/api-execution")
+    client = TestClient(app)
+
+    response = client.get("/api/api-execution/knowledge/review?limit=500&offset=0")
+
+    assert response.status_code == 200
+    assert response.json()["limit"] == 500
 
 
 def test_delete_knowledge_item_requires_non_active_status(tmp_path, monkeypatch):
