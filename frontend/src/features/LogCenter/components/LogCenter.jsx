@@ -46,6 +46,7 @@ export default function LogCenter() {
   const [summary, setSummary] = React.useState(null);
   const [usingFallback, setUsingFallback] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState('');
   const [selectedLog, setSelectedLog] = React.useState(null);
   const [relatedLogs, setRelatedLogs] = React.useState([]);
   const [page, setPage] = React.useState(0);
@@ -82,6 +83,7 @@ export default function LogCenter() {
       setTotalLogs(logData.total || 0);
       setSummary(summaryData);
       setUsingFallback(false);
+      setLoadError('');
     } catch (error) {
       try {
         const fallback = await loadFallbackLogs(projectId);
@@ -90,9 +92,12 @@ export default function LogCenter() {
         setTotalLogs(fallback.logs.length);
         setSummary(null);
         setUsingFallback(true);
+        setLoadError('');
         showSnackbar('统一日志接口暂不可用，已切换为聚合日志模式', 'warning');
       } catch (fallbackError) {
-        showSnackbar(fallbackError.message || error.message || '加载日志中心失败', 'error');
+        const message = fallbackError.message || error.message || '加载日志中心失败';
+        setLoadError(message);
+        showSnackbar(message, 'error');
       }
     } finally {
       setLoading(false);
@@ -268,6 +273,9 @@ export default function LogCenter() {
         rowsPerPage={rowsPerPage}
         handleRowsPerPageChange={handleRowsPerPageChange}
         openLogDetail={openLogDetail}
+        loadError={loadError}
+        retry={loadLogs}
+        loading={loading}
       />
       <LogDetailDrawer
         selectedLog={selectedLog}

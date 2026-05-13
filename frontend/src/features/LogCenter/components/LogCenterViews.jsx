@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Alert,
   Box,
   Button,
   Chip,
@@ -29,6 +28,7 @@ import {
   SearchOutlined,
 } from '@mui/icons-material';
 import { formatRunTime } from '../../APIExecution/utils';
+import EmptyState from '../../../components/EmptyState';
 import {
   getRelatedCount,
   Info,
@@ -180,10 +180,28 @@ export function LogTable({
   rowsPerPage,
   handleRowsPerPageChange,
   openLogDetail,
+  loadError,
+  retry,
+  loading,
 }) {
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, bgcolor: 'rgba(255,255,255,0.52)', overflow: 'hidden' }}>
-      {filteredLogs.length ? (
+      {loadError ? (
+        <Box sx={{ p: 2 }}>
+          <EmptyState
+            compact
+            variant="error"
+            title="日志加载失败"
+            description={loadError}
+            actionLabel="重试"
+            onAction={retry}
+          />
+        </Box>
+      ) : loading && !filteredLogs.length ? (
+        <Box sx={{ p: 2 }}>
+          <EmptyState compact variant="loading" title="正在加载日志" />
+        </Box>
+      ) : filteredLogs.length ? (
         <>
           <TableContainer>
             <Table size="small">
@@ -236,7 +254,7 @@ export function LogTable({
         </>
       ) : (
         <Box sx={{ p: 2 }}>
-          <Alert severity="info">当前筛选下暂无日志。</Alert>
+          <EmptyState compact title="当前筛选下暂无日志" description="可以调整项目、模块、等级或时间范围后重新查询。" />
         </Box>
       )}
     </Paper>
@@ -282,7 +300,7 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
                     <Typography variant="caption" color="text.secondary">{log.moduleLabel} · {log.type}</Typography>
                   </Box>
                 );
-              }) : <Typography variant="body2">暂无相关事件</Typography>}
+              }) : <EmptyState compact title="暂无相关事件" />}
             </Stack>
           </Box>
           <Box>

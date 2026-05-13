@@ -22,6 +22,8 @@
 - **知识治理状态语义收口**: 知识治理明确“标记失效/撤回使用”不做物理删除，知识类型筛选改为按后端真实 `item_type` 动态生成并保留中文映射。
 - **知识治理永久删除**: 新增知识项永久删除危险操作，仅允许对已标记失效或已撤回使用的知识执行，并通过确认弹窗提示不可恢复和外部索引残留风险。
 - **前端治理/日志中心组件拆分**: 治理中心按模型、待办队列、知识库、模板库和资产健康拆分组件，日志中心按筛选、清理、统计、分页、表格和详情抽屉拆分视图，主组件收敛为数据加载和动作编排。
+- **API 自动化状态边界整理**: 明确 API 自动化 `ui/spec/project/dsl/execution/history` 六类状态归属，新增跨域状态协调工具，统一处理文档切换重置、历史执行载入和策略快照注入，减少 context 间直接依赖。
+- **空状态/错误态标准化**: 扩展统一 `EmptyState` 组件支持 loading、error、empty 和 retry，用于 API 执行概览、日志中心、治理中心、图谱和测试用例生成的加载失败、无数据和重试场景。
 
 ### 修复 (Fixed)
 - **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
@@ -39,6 +41,8 @@
 - **知识治理状态语义回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **知识治理永久删除回归**: `uv run pytest backend/tests/test_api_execution_knowledge.py`、`uv run pytest backend/tests`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **前端治理/日志中心拆分回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **API 自动化状态边界回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **空状态/错误态标准化回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 
 ## [0.2.8.2] - 2026-05-12
 

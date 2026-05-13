@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import { DeleteOutline, RestoreOutlined } from '@mui/icons-material';
+import EmptyState from '../../../components/EmptyState';
 import {
   KNOWLEDGE_STATUS,
   KNOWLEDGE_TYPE_LABELS,
@@ -84,7 +85,7 @@ export function KnowledgeGovernancePanel({
 }
 
 function KnowledgeTable({ items, updateKnowledgeStatus, requestDeleteKnowledgeItem, copyText }) {
-  if (!items.length) return <Alert severity="info">当前筛选下暂无知识项。</Alert>;
+  if (!items.length) return <EmptyState compact title="当前筛选下暂无知识项" description="可以调整知识状态、类型或关键词后重新查看。" />;
   return (
     <TableContainer>
       <Table size="small">

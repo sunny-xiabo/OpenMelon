@@ -5,15 +5,15 @@ import { ProjectEnvProvider, useProjectEnvContext } from './ProjectEnvContext';
 import { DSLProvider, useDSLContext } from './DSLContext';
 import { ExecutionProvider, useExecutionContext } from './ExecutionContext';
 import { RunHistoryProvider, useRunHistoryContext } from './RunHistoryContext';
-import { formatLineList } from '../utils';
+import { applyRunToEditor, resetEditorForSpec } from './stateCoordinator';
 
 // Inner component that wires cross-domain coordination
 function CrossDomainWire() {
   const { setActiveStep } = useUIContext();
-  const { setDslText, setAssertionStepId, setRunStepId, parsedScript } = useDSLContext();
-  const { setRunReport, setRunResult, registerFetchHistory, runAllSteps, buildRunOptions: _buildRunOptions } = useExecutionContext();
+  const { setDslText, setAssertionStepId, setRunStepId } = useDSLContext();
+  const { setRunReport, setRunResult, registerFetchHistory } = useExecutionContext();
   const { setBaseUrl, restoreProjectSnapshot, restoreEnvironmentSnapshot, setSelectedProjectId, setSelectedEnvironmentId } = useProjectEnvContext();
-  const { registerResetCallback, spec } = useSpecContext();
+  const { registerResetCallback } = useSpecContext();
   const { fetchHistory } = useRunHistoryContext();
 
   // Register fetchHistory with ExecutionContext for background polling
@@ -23,13 +23,14 @@ function CrossDomainWire() {
 
   // Register cross-domain reset callback for spec changes
   useEffect(() => {
-    const unregister = registerResetCallback((data) => {
-      setDslText('');
-      setBaseUrl((prev) => prev || data.servers?.[0]?.url || '');
-      setRunResult(null);
-      setRunReport(null);
-      setAssertionStepId('');
-    });
+    const unregister = registerResetCallback((data) => resetEditorForSpec({
+      spec: data,
+      setDslText,
+      setBaseUrl,
+      setRunResult,
+      setRunReport,
+      setAssertionStepId,
+    }));
     return unregister;
   }, []);
 
@@ -41,20 +42,21 @@ function CrossDomainWire() {
       apiExecutionAPI.getRun(pendingRunId)
     )).then((run) => {
       if (cancelled || !run?.script) return;
-      const options = run.execution_options || {};
-      const environmentSnapshot = options.environment_snapshot || {};
-      const projectSnapshot = options.project_policy_snapshot || {};
-      if (options.project_id) setSelectedProjectId(options.project_id);
-      if (options.environment_id) setSelectedEnvironmentId(options.environment_id);
-      restoreProjectSnapshot(projectSnapshot);
-      restoreEnvironmentSnapshot(environmentSnapshot);
-      setBaseUrl(options.base_url || environmentSnapshot.base_url || run.script.base_url || '');
-      setDslText(JSON.stringify(run.script, null, 2));
-      setRunReport(run);
-      setRunResult(null);
-      setAssertionStepId(run.script.steps?.[0]?.id || '');
-      setRunStepId(run.script.steps?.[0]?.id || '');
-      setActiveStep(3);
+      applyRunToEditor({
+        run,
+        step: 3,
+        setActiveStep,
+        setSelectedProjectId,
+        setSelectedEnvironmentId,
+        restoreProjectSnapshot,
+        restoreEnvironmentSnapshot,
+        setBaseUrl,
+        setDslText,
+        setRunReport,
+        setRunResult,
+        setAssertionStepId,
+        setRunStepId,
+      });
       sessionStorage.removeItem('openmelon_api_execution_run_id');
     }).catch(() => {
       sessionStorage.removeItem('openmelon_api_execution_run_id');
@@ -78,20 +80,21 @@ export function useLoadRunIntoEditor() {
       showSnackbar('该历史记录没有脚本数据，无法载入', 'warning');
       return;
     }
-    const options = run.execution_options || {};
-    const environmentSnapshot = options.environment_snapshot || {};
-    const projectSnapshot = options.project_policy_snapshot || {};
-    if (options.project_id) setSelectedProjectId(options.project_id);
-    if (options.environment_id) setSelectedEnvironmentId(options.environment_id);
-    restoreProjectSnapshot(projectSnapshot);
-    restoreEnvironmentSnapshot(environmentSnapshot);
-    setBaseUrl(options.base_url || environmentSnapshot.base_url || run.script.base_url || '');
-    setDslText(JSON.stringify(run.script, null, 2));
-    setRunReport(run);
-    setRunResult(null);
-    setAssertionStepId(run.script.steps?.[0]?.id || '');
-    setRunStepId(run.script.steps?.[0]?.id || '');
-    setActiveStep(2);
+    applyRunToEditor({
+      run,
+      step: 2,
+      setActiveStep,
+      setSelectedProjectId,
+      setSelectedEnvironmentId,
+      restoreProjectSnapshot,
+      restoreEnvironmentSnapshot,
+      setBaseUrl,
+      setDslText,
+      setRunReport,
+      setRunResult,
+      setAssertionStepId,
+      setRunStepId,
+    });
     showSnackbar('已载入历史脚本，可以编辑后重跑', 'success');
   }, []);
 }

@@ -1,5 +1,6 @@
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import EmptyState from './EmptyState';
 
 export default function LoadingOverlay({ message = '加载中...' }) {
   return (
@@ -19,10 +20,7 @@ export default function LoadingOverlay({ message = '加载中...' }) {
         gap: 2,
       }}
     >
-      <CircularProgress size={40} />
-      <Typography variant="body2" color="text.secondary">
-        {message}
-      </Typography>
+      <EmptyState variant="loading" title={message} compact />
     </Box>
   );
 }

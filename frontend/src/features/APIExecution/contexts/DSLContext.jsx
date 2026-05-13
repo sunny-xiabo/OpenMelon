@@ -14,7 +14,6 @@ import {
   ASSERTION_TYPES_WITHOUT_EXPECTED,
 } from '../constants';
 import { useUIContext } from './UIContext';
-import { useProjectEnvContext } from './ProjectEnvContext';
 
 const DSLContext = createContext();
 
@@ -27,7 +26,6 @@ export const useDSLContext = () => {
 export const DSLProvider = ({ children }) => {
   const showSnackbar = useSnackbar();
   const { setLoading, setLoadingMessage, setActiveStep } = useUIContext();
-  const { buildProjectPolicySnapshot } = useProjectEnvContext();
 
   const [dslText, setDslText] = useState('');
   const [assertionStepId, setAssertionStepId] = useState('');
@@ -115,7 +113,7 @@ export const DSLProvider = ({ children }) => {
     showSnackbar('已插入断言', 'success');
   };
 
-  const enhanceDslWithAi = async () => {
+  const enhanceDslWithAi = async (projectPolicySnapshot = {}) => {
     if (!parsedScript) {
       showSnackbar('请先生成或修复测试脚本 JSON', 'warning');
       return;
@@ -123,7 +121,7 @@ export const DSLProvider = ({ children }) => {
     setAiEnhancing(true);
     setLoading(true);
     try {
-      const data = await apiExecutionAPI.enhanceDsl(parsedScript, buildProjectPolicySnapshot());
+      const data = await apiExecutionAPI.enhanceDsl(parsedScript, projectPolicySnapshot);
       setAiPatch(data);
       if (data.patch_operations?.length) {
         showSnackbar(`AI 已生成 ${data.patch_operations.length} 条编排建议，可查看后应用`, 'success');
@@ -138,14 +136,14 @@ export const DSLProvider = ({ children }) => {
     }
   };
 
-  const generateAiRepairPatch = async (runReport) => {
+  const generateAiRepairPatch = async (runReport, projectPolicySnapshot = {}) => {
     if (!parsedScript || !runReport) {
       showSnackbar('请先载入脚本并生成执行报告', 'warning');
       return;
     }
     setLoading(true);
     try {
-      const data = await apiExecutionAPI.generateRepairPatch(parsedScript, runReport, buildProjectPolicySnapshot());
+      const data = await apiExecutionAPI.generateRepairPatch(parsedScript, runReport, projectPolicySnapshot);
       setAiPatch(data);
       showSnackbar(data.patch_operations?.length ? 'AI 修复补丁已生成，请确认后应用' : '暂未找到可自动修复的补丁', data.patch_operations?.length ? 'success' : 'info');
     } catch (error) {

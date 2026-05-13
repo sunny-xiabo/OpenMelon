@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } fro
 import {
   Box,
   Paper,
-  CircularProgress,
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
@@ -37,6 +36,7 @@ export default function TestCasePage({ isActive = true }) {
   const [useVector, setUseVector] = useState(true);
 
   const [generating, setGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
   const [parsedTestCases, setParsedTestCases] = useState([]);
   const [viewMode, setViewMode] = useState('list');
@@ -138,6 +138,7 @@ export default function TestCasePage({ isActive = true }) {
     if (!context.trim() || !requirements.trim()) return;
     if (mode === 'file' && !file) return;
     setGenerating(true);
+    setGenerationError('');
     setStreamingContent('');
     setParsedTestCases([]);
     setPriorityFilter('all');
@@ -168,8 +169,9 @@ export default function TestCasePage({ isActive = true }) {
         showSnackbar('生成完成，但未能解析出标准格式用例', 'warning');
       }
     } catch (e) {
-      showSnackbar('生成失败: ' + e.message, 'error');
-      setStreamingContent(prev => prev || `生成失败: ${e.message}`);
+      const message = e.message || '测试用例生成失败';
+      showSnackbar('生成失败: ' + message, 'error');
+      setGenerationError(message);
     } finally {
       setGenerating(false);
     }
@@ -339,13 +341,21 @@ export default function TestCasePage({ isActive = true }) {
             />
           )}
 
-          {generating ? (
+          {generationError && !generating ? (
+            <EmptyState
+              variant="error"
+              title="测试用例生成失败"
+              description={generationError}
+              actionLabel="重试生成"
+              onAction={generate}
+            />
+          ) : generating ? (
             <StageOutput content={streamingContent} />
           ) : hasResult ? (
             viewMode === 'stages' ? (
               <StageOutput content={streamingContent} isComplete />
             ) : viewMode === 'mindmap' && parsedTestCases.length > 0 ? (
-              <Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>}>
+              <Suspense fallback={<EmptyState compact variant="loading" title="正在加载思维导图" />}>
                 <TestCaseMindMap testCases={filteredTestCases} />
               </Suspense>
             ) : parsedTestCases.length > 0 ? (

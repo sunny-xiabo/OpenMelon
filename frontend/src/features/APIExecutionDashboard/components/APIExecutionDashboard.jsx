@@ -5,7 +5,6 @@ import {
   Chip,
   LinearProgress,
   Paper,
-  Skeleton,
   Stack,
   Table,
   TableBody,
@@ -50,6 +49,7 @@ export default function APIExecutionDashboard({ onOpenAPIExecution }) {
   const [projectId, setProjectId] = useState('');
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [selectedRun, setSelectedRun] = useState(null);
   const [selectedRunLoading, setSelectedRunLoading] = useState(false);
 
@@ -67,8 +67,11 @@ export default function APIExecutionDashboard({ onOpenAPIExecution }) {
     try {
       const data = await apiExecutionAPI.getDashboardSummary({ projectId, limit: 50 });
       setSummary(data);
+      setLoadError('');
     } catch (error) {
-      showSnackbar(error.message || '加载 API 执行概览失败', 'error');
+      const message = error.message || '加载 API 执行概览失败';
+      setLoadError(message);
+      showSnackbar(message, 'error');
     } finally {
       setLoading(false);
     }
@@ -131,14 +134,19 @@ export default function APIExecutionDashboard({ onOpenAPIExecution }) {
 
   if (loading && !summary) {
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
-          {[1, 2, 3, 4, 5].map((item) => (
-            <Skeleton key={item} variant="rectangular" height={112} sx={{ borderRadius: 3, flex: '1 1 180px' }} />
-          ))}
-        </Box>
-        <Skeleton variant="rectangular" height={280} sx={{ borderRadius: 3 }} />
-      </Box>
+      <EmptyState variant="loading" title="正在加载 API 执行概览" compact />
+    );
+  }
+
+  if (loadError && !summary) {
+    return (
+      <EmptyState
+        variant="error"
+        title="API 执行概览加载失败"
+        description={loadError}
+        actionLabel="重试"
+        onAction={loadSummary}
+      />
     );
   }
 

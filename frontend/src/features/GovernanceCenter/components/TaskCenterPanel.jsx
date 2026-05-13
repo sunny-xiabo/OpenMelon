@@ -1,5 +1,4 @@
 import {
-  Alert,
   Box,
   Button,
   Chip,
@@ -20,6 +19,7 @@ import {
   Typography,
 } from '@mui/material';
 import { ContentCopyOutlined, FactCheckOutlined } from '@mui/icons-material';
+import EmptyState from '../../../components/EmptyState';
 import {
   formatRunTime,
   getPolicyRiskColor,
@@ -119,7 +119,7 @@ export function TaskCenterPanel({
 }
 
 function TaskTable({ tasks, approveCandidate, resolveTask, copyText }) {
-  if (!tasks?.length) return <Alert severity="success">当前没有待处理任务。</Alert>;
+  if (!tasks?.length) return <EmptyState compact title="当前没有待处理任务" description="待确认知识、失败诊断和策略阻断会在这里进入处理队列。" />;
   return (
     <TableContainer>
       <Table size="small">

@@ -25,6 +25,7 @@ import {
 } from '@mui/icons-material';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import ConfirmDialog from '../../../components/ConfirmDialog';
+import EmptyState from '../../../components/EmptyState';
 import { apiExecutionAPI } from '../../../api/execution';
 import {
   DataAssetPanel,
@@ -67,6 +68,7 @@ export default function GovernanceCenter() {
   const [templateStatus, setTemplateStatus] = React.useState('');
   const [confirmDialog, setConfirmDialog] = React.useState(EMPTY_CONFIRM_DIALOG);
   const [loading, setLoading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState('');
 
   const selectedProject = React.useMemo(
     () => projects.find((project) => project.project_id === projectId),
@@ -100,8 +102,11 @@ export default function GovernanceCenter() {
       setKnowledgeAssetItems(knowledgeAssets);
       setKnowledgeTypeOptions([...new Set(knowledgeAssets.map((item) => item.item_type).filter(Boolean))].sort());
       setTemplates(templateData.items || templateData.templates || []);
+      setLoadError('');
     } catch (error) {
-      showSnackbar(error.message || '加载治理中心失败', 'error');
+      const message = error.message || '加载治理中心失败';
+      setLoadError(message);
+      showSnackbar(message, 'error');
     } finally {
       setLoading(false);
     }
@@ -325,59 +330,74 @@ export default function GovernanceCenter() {
         </Tabs>
         {loading && <LinearProgress />}
         <Box sx={{ p: 2 }}>
-          {tab === 'tasks' && (
-            <TaskCenterPanel
-              taskCenter={taskCenter}
-              tasks={filteredTasks}
-              rawTaskCount={tasks.length}
-              taskStatus={taskStatus}
-              setTaskStatus={setTaskStatus}
-              taskType={taskType}
-              setTaskType={setTaskType}
-              taskRisk={taskRisk}
-              setTaskRisk={setTaskRisk}
-              taskKeyword={taskKeyword}
-              setTaskKeyword={setTaskKeyword}
-              taskTypeOptions={tasks.map((task) => task.task_type).filter(Boolean)}
-              approveCandidate={approveCandidate}
-              resolveTask={resolveTask}
-              copyText={copyText}
+          {loadError ? (
+            <EmptyState
+              compact
+              variant="error"
+              title="治理中心加载失败"
+              description={loadError}
+              actionLabel="重试"
+              onAction={loadData}
             />
-          )}
-          {tab === 'knowledge' && (
-            <KnowledgeGovernancePanel
-              knowledgeItems={knowledgeItems}
-              knowledgeTypeOptions={knowledgeTypeOptions}
-              filteredKnowledgeItems={filteredKnowledgeItems}
-              knowledgeStatus={knowledgeStatus}
-              setKnowledgeStatus={setKnowledgeStatus}
-              knowledgeType={knowledgeType}
-              setKnowledgeType={setKnowledgeType}
-              knowledgeKeyword={knowledgeKeyword}
-              setKnowledgeKeyword={setKnowledgeKeyword}
-              updateKnowledgeStatus={updateKnowledgeStatus}
-              requestDeleteKnowledgeItem={requestDeleteKnowledgeItem}
-              copyText={copyText}
-            />
-          )}
-          {tab === 'templates' && (
-            <TemplateGovernancePanel
-              templates={filteredTemplates}
-              rawTemplateCount={templates.length}
-              templateKeyword={templateKeyword}
-              setTemplateKeyword={setTemplateKeyword}
-              templateStatus={templateStatus}
-              setTemplateStatus={setTemplateStatus}
-              deleteTemplate={deleteTemplate}
-              copyText={copyText}
-            />
-          )}
-          {tab === 'assets' && (
-            <DataAssetPanel
-              taskCenter={taskCenter}
-              knowledgeItems={knowledgeAssetItems}
-              templates={templates}
-            />
+          ) : loading && !taskCenter ? (
+            <EmptyState compact variant="loading" title="正在加载治理中心" />
+          ) : (
+            <>
+              {tab === 'tasks' && (
+                <TaskCenterPanel
+                  taskCenter={taskCenter}
+                  tasks={filteredTasks}
+                  rawTaskCount={tasks.length}
+                  taskStatus={taskStatus}
+                  setTaskStatus={setTaskStatus}
+                  taskType={taskType}
+                  setTaskType={setTaskType}
+                  taskRisk={taskRisk}
+                  setTaskRisk={setTaskRisk}
+                  taskKeyword={taskKeyword}
+                  setTaskKeyword={setTaskKeyword}
+                  taskTypeOptions={tasks.map((task) => task.task_type).filter(Boolean)}
+                  approveCandidate={approveCandidate}
+                  resolveTask={resolveTask}
+                  copyText={copyText}
+                />
+              )}
+              {tab === 'knowledge' && (
+                <KnowledgeGovernancePanel
+                  knowledgeItems={knowledgeItems}
+                  knowledgeTypeOptions={knowledgeTypeOptions}
+                  filteredKnowledgeItems={filteredKnowledgeItems}
+                  knowledgeStatus={knowledgeStatus}
+                  setKnowledgeStatus={setKnowledgeStatus}
+                  knowledgeType={knowledgeType}
+                  setKnowledgeType={setKnowledgeType}
+                  knowledgeKeyword={knowledgeKeyword}
+                  setKnowledgeKeyword={setKnowledgeKeyword}
+                  updateKnowledgeStatus={updateKnowledgeStatus}
+                  requestDeleteKnowledgeItem={requestDeleteKnowledgeItem}
+                  copyText={copyText}
+                />
+              )}
+              {tab === 'templates' && (
+                <TemplateGovernancePanel
+                  templates={filteredTemplates}
+                  rawTemplateCount={templates.length}
+                  templateKeyword={templateKeyword}
+                  setTemplateKeyword={setTemplateKeyword}
+                  templateStatus={templateStatus}
+                  setTemplateStatus={setTemplateStatus}
+                  deleteTemplate={deleteTemplate}
+                  copyText={copyText}
+                />
+              )}
+              {tab === 'assets' && (
+                <DataAssetPanel
+                  taskCenter={taskCenter}
+                  knowledgeItems={knowledgeAssetItems}
+                  templates={templates}
+                />
+              )}
+            </>
           )}
         </Box>
       </Paper>

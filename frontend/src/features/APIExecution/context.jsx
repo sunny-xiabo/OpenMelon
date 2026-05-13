@@ -3,6 +3,10 @@
 // New consumers should import from individual contexts for better re-render performance.
 
 export { APIExecutionProvider } from './contexts/CombinedProvider';
+export {
+  API_EXECUTION_STATE_BOUNDARIES,
+  CROSS_DOMAIN_ACTIONS,
+} from './contexts/stateBoundaries';
 
 import { useUIContext } from './contexts/UIContext';
 import { useSpecContext } from './contexts/SpecContext';
@@ -59,6 +63,13 @@ export const useAPIExecution = () => {
 
   const wrappedBuildProjectPayload = (projectId, name) => projectEnv.buildProjectPayload(projectId, name, spec.spec);
 
+  const wrappedEnhanceDslWithAi = () => dsl.enhanceDslWithAi(projectEnv.buildProjectPolicySnapshot());
+
+  const wrappedGenerateAiRepairPatch = (runReport) => dsl.generateAiRepairPatch(
+    runReport,
+    projectEnv.buildProjectPolicySnapshot(),
+  );
+
   return {
     ...ui, ...spec, ...projectEnv, ...dsl, ...exec, ...history,
     // Override with wrapped versions
@@ -71,5 +82,7 @@ export const useAPIExecution = () => {
     handleAutoRepairRun: wrappedHandleAutoRepairRun,
     saveCurrentEnvironment: wrappedSaveCurrentEnvironment,
     buildProjectPayload: wrappedBuildProjectPayload,
+    enhanceDslWithAi: wrappedEnhanceDslWithAi,
+    generateAiRepairPatch: wrappedGenerateAiRepairPatch,
   };
 };

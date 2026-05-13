@@ -1,5 +1,4 @@
 import {
-  Alert,
   Button,
   Chip,
   FormControl,
@@ -18,6 +17,7 @@ import {
 } from '@mui/material';
 import { DeleteOutline } from '@mui/icons-material';
 import { formatRunTime } from '../../APIExecution/utils';
+import EmptyState from '../../../components/EmptyState';
 
 export function TemplateGovernancePanel({
   templates,
@@ -52,7 +52,7 @@ export function TemplateGovernancePanel({
         </Typography>
       </Stack>
       {!templates.length ? (
-        <Alert severity="info">暂无匹配流程模板。可以在 API 自动化编排工作台中保存当前 DSL 为模板。</Alert>
+        <EmptyState compact title="暂无匹配流程模板" description="可以在 API 自动化编排工作台中保存当前 DSL 为模板。" />
       ) : (
         <TableContainer>
           <Table size="small">
