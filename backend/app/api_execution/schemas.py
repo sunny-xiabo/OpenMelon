@@ -286,6 +286,10 @@ class PolicyAuditRecord(BaseModel):
 
 
 class PolicyAuditListResponse(BaseModel):
+    total: int = 0
+    limit: int = 20
+    offset: int = 0
+    items: list[PolicyAuditRecord] = []
     audits: list[PolicyAuditRecord] = []
 
 
@@ -308,6 +312,10 @@ class AutomationTaskRecord(BaseModel):
 
 
 class AutomationTaskListResponse(BaseModel):
+    total: int = 0
+    limit: int = 20
+    offset: int = 0
+    items: list[AutomationTaskRecord] = []
     tasks: list[AutomationTaskRecord] = []
 
 
@@ -409,6 +417,10 @@ class APIFlowTemplateUpsertRequest(BaseModel):
 
 
 class APIFlowTemplateListResponse(BaseModel):
+    total: int = 0
+    limit: int = 100
+    offset: int = 0
+    items: list[APIFlowTemplate] = []
     templates: list[APIFlowTemplate] = []
 
 
@@ -490,6 +502,9 @@ class KnowledgeSearchResponse(BaseModel):
 
 
 class KnowledgeReviewResponse(BaseModel):
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
     items: list[KnowledgeItem] = []
 
 
@@ -595,4 +610,8 @@ class APIRunReport(BaseModel):
 
 
 class APIRunHistoryResponse(BaseModel):
+    total: int = 0
+    limit: int = 20
+    offset: int = 0
+    items: list[APIRunReport] = []
     runs: list[APIRunReport] = []

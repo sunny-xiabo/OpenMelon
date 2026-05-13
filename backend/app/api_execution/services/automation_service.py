@@ -196,15 +196,31 @@ def _spec_sync_item(
     }
 
 
-def list_policy_audits_service(limit: int = 20, project_id: str | None = None, action: str | None = None) -> dict[str, Any]:
+def list_policy_audits_service(
+    limit: int = 20,
+    offset: int = 0,
+    project_id: str | None = None,
+    action: str | None = None,
+) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 100))
-    return {"audits": api_execution_store.list_policy_audits(safe_limit, project_id, action)}
+    safe_offset = max(0, offset)
+    audits = api_execution_store.list_policy_audits(safe_limit + safe_offset, project_id, action)
+    items = audits[safe_offset:safe_offset + safe_limit]
+    return {"total": len(audits), "limit": safe_limit, "offset": safe_offset, "items": items, "audits": items}
 
 
-def list_automation_tasks_service(limit: int = 20, status: str | None = None, project_id: str | None = None) -> dict[str, Any]:
+def list_automation_tasks_service(
+    limit: int = 20,
+    offset: int = 0,
+    status: str | None = None,
+    project_id: str | None = None,
+) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 100))
+    safe_offset = max(0, offset)
     safe_status = status if status in {"pending", "running", "resolved", "failed"} else None
-    return {"tasks": api_execution_store.list_automation_tasks(safe_limit, safe_status, project_id)}
+    items = api_execution_store.list_automation_tasks(safe_limit, safe_status, project_id, offset=safe_offset)
+    total = api_execution_store.count_automation_tasks(safe_status, project_id)
+    return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "tasks": items}
 
 
 def get_task_center_summary_service(limit: int = 50, project_id: str | None = None) -> dict[str, Any]:

@@ -28,16 +28,17 @@ async def create_background_run(request: RunScriptRequest):
 @router.get("/runs", response_model=APIRunHistoryResponse)
 async def list_run_history(
     limit: int = 20,
+    offset: int = 0,
     status: str | None = None,
     keyword: str | None = None,
     project_id: str | None = None,
 ):
-    return list_run_history_service(limit=limit, status=status, keyword=keyword, project_id=project_id)
+    return list_run_history_service(limit=limit, offset=offset, status=status, keyword=keyword, project_id=project_id)
 
 
 @router.get("/cases/{case_id}/runs", response_model=APIRunHistoryResponse)
-async def list_case_runs(case_id: str, limit: int = 20):
-    return list_case_runs_service(case_id, limit=limit)
+async def list_case_runs(case_id: str, limit: int = 20, offset: int = 0):
+    return list_case_runs_service(case_id, limit=limit, offset=offset)
 
 
 @router.get("/runs/{run_id}", response_model=APIRunReport)

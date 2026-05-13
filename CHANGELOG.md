@@ -9,6 +9,19 @@
 
 ### 变更 (Changed)
 - **API Execution 路由 service 化**: API 执行、项目环境、OpenAPI 解析、模板、任务中心、AI 草稿/修复和知识沉淀路由改为薄路由，聚合、写库、诊断、AI 上下文拼装和知识治理逻辑下沉到 service 层。
+- **列表分页协议统一**: 日志中心、任务中心、执行历史、知识治理和模板治理的列表接口统一暴露 `limit`、`offset`、`total`、`items` 字段，并保留旧字段兼容现有页面。
+- **治理中心筛选与操作增强**: 治理中心补充任务状态/类型/风险/关键词、知识状态/类型/关键词、模板状态/关键词筛选，并新增复制 ID、模板删除和清空筛选操作。
+- **治理中心流转收口**: 治理中心默认入口调整为待办队列，按“待办队列 -> 知识库 -> 模板库 -> 资产健康”组织功能；知识候选确认回到任务入口，知识库只管理已沉淀知识状态和危险删除。
+- **待办队列展示优化**: 待办队列任务标题改为按状态展示，知识候选已完成后显示“知识已沉淀”，并用中文业务分类替代 `knowledge_ingest_candidate` 等技术枚举；“关联对象”列调整为“来源”，明确标记执行记录、项目或环境；任务 ID 和执行 ID 复制收敛为带提示的图标按钮。
+- **日志中心生命周期治理**: 日志中心默认查看最近 7 天，新增历史日志清理入口；后端事件日志增加自动裁剪策略，默认保留 Error 并清理过期非 Error 日志，避免 SQLite 日志表无限增长。
+- **日志清理接口兼容**: 日志清理前端优先使用专用 `POST /logs/events/cleanup` 接口，并在运行后端尚未加载新路由时回退旧 `DELETE /logs/events` 清理接口；补充“全部等级”清理回归。
+- **日志清理反馈优化**: 日志清理范围新增“全部已记录”，支持清理当前项目/模块范围内全部已落库日志；当历史范围没有命中记录时提示“未删除记录”，避免误以为功能失效。
+- **统一审计事件模型**: `event_logs` 写入统一约束模块枚举、事件类型枚举/前缀规则、非空 `trace_id` 生成和 `refs` 自动关联规则，并新增 `GET /api/logs/schema` 暴露当前审计事件契约。
+- **日志关键词查询收口**: 日志关键词筛选限定为标题、说明、事件类型和关键关联标识，不再扫描完整 JSON 载荷，避免审计元数据导致误命中。
+- **前端 API 层增强**: `fetchJSON`、`fetchStream` 和 `fetchBlob` 统一补齐超时、`AbortController`、请求 ID、标准 `APIError`、401/5xx 友好错误信息和全局 API 错误事件。
+- **知识治理状态语义收口**: 知识治理明确“标记失效/撤回使用”不做物理删除，知识类型筛选改为按后端真实 `item_type` 动态生成并保留中文映射。
+- **知识治理永久删除**: 新增知识项永久删除危险操作，仅允许对已标记失效或已撤回使用的知识执行，并通过确认弹窗提示不可恢复和外部索引残留风险。
+- **前端治理/日志中心组件拆分**: 治理中心按模型、待办队列、知识库、模板库和资产健康拆分组件，日志中心按筛选、清理、统计、分页、表格和详情抽屉拆分视图，主组件收敛为数据加载和动作编排。
 
 ### 修复 (Fixed)
 - **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
@@ -16,6 +29,16 @@
 ### 验证 (Verified)
 - **日志中心崩溃修复回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **API Execution service 化回归**: `python -m compileall backend/app/api_execution`、`uv run pytest backend/tests`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `bash scripts/release_acceptance_smoke.sh` 通过。
+- **统一分页协议回归**: `python -m compileall backend/app/api_execution backend/app/api/routers/logs.py`、API Execution 相关 pytest 与 `npm --prefix frontend run lint` 通过。
+- **治理中心筛选与操作回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **治理中心流转收口回归**: `npm --prefix frontend run lint` 通过。
+- **待办队列任务命名回归**: `npm --prefix frontend run lint` 通过。
+- **日志中心生命周期回归**: `uv run pytest backend/tests/test_event_logs.py`、`uv run pytest backend/tests`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **统一审计事件模型回归**: `conda activate openmlon && python -m pytest backend/tests/test_event_logs.py` 通过。
+- **前端 API 层回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **知识治理状态语义回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **知识治理永久删除回归**: `uv run pytest backend/tests/test_api_execution_knowledge.py`、`uv run pytest backend/tests`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **前端治理/日志中心拆分回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 
 ## [0.2.8.2] - 2026-05-12
 

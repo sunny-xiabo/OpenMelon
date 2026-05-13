@@ -23,12 +23,14 @@ async def approve_knowledge_candidate(request: Request, task_id: str):
 @router.get("/knowledge/review", response_model=KnowledgeReviewResponse)
 async def list_knowledge_review_items(
     limit: int = 50,
+    offset: int = 0,
     project_id: str | None = None,
     status: str | None = None,
     item_type: str | None = None,
 ):
     return list_knowledge_review_items_service(
         limit=limit,
+        offset=offset,
         project_id=project_id,
         status=status,
         item_type=item_type,
@@ -38,6 +40,11 @@ async def list_knowledge_review_items(
 @router.patch("/knowledge/items/{knowledge_id}/status", response_model=KnowledgeItem)
 async def update_knowledge_item_status(knowledge_id: str, request: KnowledgeStatusUpdateRequest):
     return update_knowledge_item_status_service(knowledge_id, request)
+
+
+@router.delete("/knowledge/items/{knowledge_id}")
+async def delete_knowledge_item(knowledge_id: str):
+    return delete_knowledge_item_service(knowledge_id)
 
 
 @router.post("/knowledge/runs/{run_id}/candidate", response_model=KnowledgeCandidateCreateResponse)

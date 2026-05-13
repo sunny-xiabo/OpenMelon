@@ -1,16 +1,23 @@
 from app.api_execution.router_deps import *
 
 
-def list_flow_templates_service(project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+def list_flow_templates_service(project_id: str | None = None, limit: int = 100, offset: int = 0) -> dict[str, Any]:
     from app.api_execution.services.dashboard_service import _flow_template_from_definition
 
     safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, offset)
     definitions = api_execution_store.list_automation_definitions(
         limit=safe_limit,
+        offset=safe_offset,
         project_id=project_id,
         definition_type=FLOW_TEMPLATE_DEFINITION_TYPE,
     )
-    return {"templates": [_flow_template_from_definition(item) for item in definitions]}
+    items = [_flow_template_from_definition(item) for item in definitions]
+    total = api_execution_store.count_automation_definitions(
+        project_id=project_id,
+        definition_type=FLOW_TEMPLATE_DEFINITION_TYPE,
+    )
+    return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "templates": items}
 
 
 def upsert_flow_template_service(request: APIFlowTemplateUpsertRequest) -> dict[str, Any]:

@@ -6,13 +6,13 @@ router = APIRouter()
 
 
 @router.get("/policy/audits", response_model=PolicyAuditListResponse)
-async def list_policy_audits(limit: int = 20, project_id: str | None = None, action: str | None = None):
-    return list_policy_audits_service(limit=limit, project_id=project_id, action=action)
+async def list_policy_audits(limit: int = 20, offset: int = 0, project_id: str | None = None, action: str | None = None):
+    return list_policy_audits_service(limit=limit, offset=offset, project_id=project_id, action=action)
 
 
 @router.get("/automation/tasks", response_model=AutomationTaskListResponse)
-async def list_automation_tasks(limit: int = 20, status: str | None = None, project_id: str | None = None):
-    return list_automation_tasks_service(limit=limit, status=status, project_id=project_id)
+async def list_automation_tasks(limit: int = 20, offset: int = 0, status: str | None = None, project_id: str | None = None):
+    return list_automation_tasks_service(limit=limit, offset=offset, status=status, project_id=project_id)
 
 
 @router.get("/automation/task-center/summary", response_model=AutomationTaskCenterSummaryResponse)

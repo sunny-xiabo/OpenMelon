@@ -6,8 +6,8 @@ router = APIRouter()
 
 
 @router.get("/flow-templates", response_model=APIFlowTemplateListResponse)
-async def list_flow_templates(project_id: str | None = None, limit: int = 100):
-    return list_flow_templates_service(project_id=project_id, limit=limit)
+async def list_flow_templates(project_id: str | None = None, limit: int = 100, offset: int = 0):
+    return list_flow_templates_service(project_id=project_id, limit=limit, offset=offset)
 
 
 @router.post("/flow-templates", response_model=APIFlowTemplate)

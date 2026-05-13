@@ -612,18 +612,25 @@ async def create_background_run_service(request: RunScriptRequest) -> dict[str, 
 
 def list_run_history_service(
     limit: int = 20,
+    offset: int = 0,
     status: str | None = None,
     keyword: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 50))
+    safe_offset = max(0, offset)
     safe_status = status if status in {"queued", "running", "passed", "failed", "cancelled"} else None
-    return {"runs": api_execution_store.list_runs(safe_limit, safe_status, keyword, project_id)}
+    items = api_execution_store.list_runs(safe_limit, safe_status, keyword, project_id, offset=safe_offset)
+    total = api_execution_store.count_runs(safe_status, keyword, project_id)
+    return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "runs": items}
 
 
-def list_case_runs_service(case_id: str, limit: int = 20) -> dict[str, Any]:
+def list_case_runs_service(case_id: str, limit: int = 20, offset: int = 0) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 50))
-    return {"runs": api_execution_store.list_runs(safe_limit, keyword=case_id)}
+    safe_offset = max(0, offset)
+    items = api_execution_store.list_runs(safe_limit, keyword=case_id, offset=safe_offset)
+    total = api_execution_store.count_runs(keyword=case_id)
+    return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "runs": items}
 
 
 def get_run_report_service(run_id: str) -> dict[str, Any]:

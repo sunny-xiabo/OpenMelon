@@ -414,20 +414,23 @@ async def approve_knowledge_candidate_service(request: Request, task_id: str) ->
 
 def list_knowledge_review_items_service(
     limit: int = 50,
+    offset: int = 0,
     project_id: str | None = None,
     status: str | None = None,
     item_type: str | None = None,
 ) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 200))
-    items = api_execution_store.list_knowledge_items(limit=200, item_type=item_type)
+    safe_offset = max(0, offset)
+    items = api_execution_store.list_knowledge_items(limit=1000, item_type=item_type)
     if project_id:
         safe_project_id = project_id.strip()
         items = [item for item in items if item.get("project_id", "") in {"", safe_project_id}]
     if status:
         safe_status = status.strip()
         items = [item for item in items if _knowledge_status(item) == safe_status]
-    normalized = [_normalize_knowledge_item(item) for item in items[:safe_limit]]
-    return {"items": normalized}
+    paged = items[safe_offset:safe_offset + safe_limit]
+    normalized = [_normalize_knowledge_item(item) for item in paged]
+    return {"total": len(items), "limit": safe_limit, "offset": safe_offset, "items": normalized}
 
 
 def update_knowledge_item_status_service(knowledge_id: str, request: KnowledgeStatusUpdateRequest) -> dict[str, Any]:
@@ -468,6 +471,31 @@ def update_knowledge_item_status_service(knowledge_id: str, request: KnowledgeSt
         data=saved,
     )
     return _normalize_knowledge_item(saved)
+
+
+def delete_knowledge_item_service(knowledge_id: str) -> dict[str, bool]:
+    item = _get_knowledge_item(knowledge_id)
+    if not item:
+        raise NotFoundError(message=str("知识项不存在"))
+    status = _knowledge_status(item)
+    if status == "active":
+        raise InvalidRequestError(message=str("有效知识不能直接永久删除，请先标记失效或撤回使用"))
+    if not api_execution_store.delete_knowledge_item(knowledge_id):
+        raise NotFoundError(message=str("知识项不存在"))
+    _invalidate_knowledge_index()
+    log_event(
+        "warning",
+        "knowledge",
+        "knowledge_deleted",
+        "知识项已永久删除",
+        "知识项已从本地知识治理记录中永久删除；如已写入向量库或图谱，可能需要后续重建外部索引。",
+        project_id=item.get("project_id", ""),
+        trace_id=item.get("source_run_id") or knowledge_id,
+        source_id=knowledge_id,
+        refs=[item.get("source_run_id")],
+        data={**item, "deleted": True},
+    )
+    return {"deleted": True}
 
 
 def create_run_knowledge_candidate_service(run_id: str) -> dict[str, Any]:

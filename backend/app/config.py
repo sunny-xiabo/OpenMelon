@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     WECOM_CORP_ID: str = ""
 
     MAX_FILE_SIZE_MB: int = 10
+    EVENT_LOG_RETENTION_DAYS: int = 90
+    EVENT_LOG_MAX_ROWS: int = 50000
 
     @model_validator(mode="after")
     def apply_provider_defaults(self) -> "Settings":
