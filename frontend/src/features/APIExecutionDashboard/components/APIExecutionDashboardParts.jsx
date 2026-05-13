@@ -1,4 +1,5 @@
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -35,6 +36,7 @@ import {
   getRunStatusMeta,
 } from '../../../features/APIExecution/utils';
 import { getAssertionTypeLabel } from '../../../features/APIExecution/constants';
+import EmptyState from '../../../components/EmptyState';
 
 export const STATUS_ORDER = ['passed', 'failed', 'running', 'queued', 'cancelled'];
 export const STATUS_LABELS = {
@@ -148,7 +150,7 @@ export function TopList({ title, items = [], emptyText }) {
           ))}
         </Stack>
       ) : (
-        <Typography variant="body2" color="text.secondary">{emptyText}</Typography>
+        <EmptyState compact title={emptyText} />
       )}
     </Paper>
   );
@@ -208,7 +210,7 @@ export function TemplateStatsTable({ items = [] }) {
           </Table>
         </TableContainer>
       ) : (
-        <Typography variant="body2" color="text.secondary">暂无带模板来源的执行记录。载入流程模板后执行，后续会在这里展示模板通过率和失败率。</Typography>
+        <EmptyState compact title="暂无模板执行表现" description="载入流程模板后执行，后续会在这里展示模板通过率和失败率。" />
       )}
     </Paper>
   );
@@ -334,7 +336,7 @@ export function RunDetailDrawer({ open, run, loading, onClose, onOpenAPIExecutio
                 </Paper>
               );})}
               {!visibleResults.length && (
-                <Typography variant="body2" color="text.secondary">暂无步骤明细，可跳转 API 自动化查看完整脚本和历史记录。</Typography>
+                <EmptyState compact title="暂无步骤明细" description="可跳转 API 自动化查看完整脚本和历史记录。" />
               )}
             </Stack>
           </Stack>

@@ -6,7 +6,7 @@ router = APIRouter()
 
 @router.get("/dashboard/summary")
 async def get_dashboard_summary(project_id: str | None = None, limit: int = 50):
-    return _dashboard_summary(project_id=project_id, limit=limit)
+    return get_dashboard_summary_service(project_id=project_id, limit=limit)
 
 
 

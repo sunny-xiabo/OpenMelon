@@ -82,7 +82,7 @@ export default function FlowWorkbench({
     setTemplatesLoading(true);
     try {
       const data = await apiExecutionAPI.listFlowTemplates({ projectId: selectedProjectId || '', limit: 100 });
-      setTemplates(data.templates || []);
+      setTemplates(data.items || data.templates || []);
     } catch (error) {
       showSnackbar(error.message || '流程模板加载失败', 'error');
     } finally {

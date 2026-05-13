@@ -29,13 +29,13 @@ export const RunHistoryProvider = ({ children }) => {
         keyword: runHistoryKeyword.trim(),
         projectId: runHistoryProjectId,
       });
-      setRunHistory(data.runs || []);
+      setRunHistory(data.items || data.runs || []);
       const tasksData = await apiExecutionAPI.listAutomationTasks({
         limit: 10,
         status: 'pending',
         projectId: runHistoryProjectId,
       });
-      setAutomationTasks(tasksData.tasks || []);
+      setAutomationTasks(tasksData.items || tasksData.tasks || []);
     } catch (error) {
       console.error(error);
     }

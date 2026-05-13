@@ -6,6 +6,7 @@ import time
 import logging
 from typing import List, Dict, Any, Optional
 from app.config import settings
+from app.api.ai_observability_service import build_usage_from_response, safe_record_ai_call
 from app.services.file_tracker import file_tracker
 
 _ilog = logging.getLogger("app.services.indexer")
@@ -309,6 +310,7 @@ class DocumentIndexer:
         dim = settings.EMBEDDING_DIM or 1024
         if not self.openai_async_client or not settings.EMBEDDING_MODEL:
             return [0.0] * dim
+        started_at = time.perf_counter()
         try:
             model_name = settings.EMBEDDING_MODEL
             kwargs = {
@@ -318,11 +320,33 @@ class DocumentIndexer:
             if settings.EMBEDDING_DIM and model_name and "text-embedding-3" in model_name:
                 kwargs["dimensions"] = settings.EMBEDDING_DIM
             resp = await self.openai_async_client.embeddings.create(**kwargs)
+            safe_record_ai_call(
+                feature="embedding",
+                operation="document_index_embedding",
+                provider=settings.LLM_PROVIDER,
+                model=model_name,
+                status="success",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=len(text),
+                response_chars=0,
+                **build_usage_from_response(resp),
+            )
             if resp.data and len(resp.data) > 0:
                 emb = resp.data[0].embedding
                 if isinstance(emb, list) and len(emb) > 0:
                     return emb
-        except Exception:
+        except Exception as exc:
+            safe_record_ai_call(
+                feature="embedding",
+                operation="document_index_embedding",
+                provider=settings.LLM_PROVIDER,
+                model=settings.EMBEDDING_MODEL,
+                status="failed",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=len(text),
+                degraded=True,
+                failure_reason=str(exc),
+            )
             pass
         return [0.0] * dim
 

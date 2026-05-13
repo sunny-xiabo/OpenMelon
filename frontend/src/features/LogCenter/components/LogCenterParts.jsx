@@ -118,9 +118,9 @@ export async function loadFallbackLogs(projectId) {
   return {
     projects: projectData.projects || [],
     logs: [
-      ...buildRunLogs(runData.runs || []),
+      ...buildRunLogs(runData.items || runData.runs || []),
       ...buildPolicyLogs(auditData.audits || []),
-      ...buildTaskLogs(taskData.tasks || []),
+      ...buildTaskLogs(taskData.items || taskData.tasks || []),
       ...buildKnowledgeLogs(knowledgeData.items || []),
     ].sort((a, b) => String(b.time).localeCompare(String(a.time))),
   };

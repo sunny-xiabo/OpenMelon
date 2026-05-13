@@ -6,12 +6,15 @@ Uses the shared SQLite connection from app.storage.sqlite_store.
 
 import json
 import logging
+import time
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from starlette.concurrency import run_in_threadpool
 
+from app.config import settings
 from app.storage.sqlite_store import BaseSQLiteStore
 
 logger = logging.getLogger(__name__)
@@ -19,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 class SQLiteStore(BaseSQLiteStore):
     """SQLite-backed storage for API execution. Same public API as APIExecutionStore."""
+
+    _EVENT_LOG_PRUNE_INTERVAL_SECONDS = 300
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self._last_event_log_prune_at = 0.0
+        super().__init__(*args, **kwargs)
 
     def _init_schema(self) -> None:
         self._conn.executescript("""
@@ -136,6 +145,38 @@ class SQLiteStore(BaseSQLiteStore):
             CREATE INDEX IF NOT EXISTS idx_event_logs_project ON event_logs(project_id);
             CREATE INDEX IF NOT EXISTS idx_event_logs_trace ON event_logs(trace_id);
             CREATE INDEX IF NOT EXISTS idx_event_logs_type ON event_logs(event_type);
+
+            CREATE TABLE IF NOT EXISTS ai_call_logs (
+                call_id TEXT PRIMARY KEY,
+                created_at TEXT DEFAULT '',
+                feature TEXT DEFAULT '',
+                operation TEXT DEFAULT '',
+                provider TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                status TEXT DEFAULT '',
+                degraded INTEGER DEFAULT 0,
+                trace_id TEXT DEFAULT '',
+                source_id TEXT DEFAULT '',
+                latency_ms INTEGER DEFAULT 0,
+                prompt_chars INTEGER DEFAULT 0,
+                response_chars INTEGER DEFAULT 0,
+                input_tokens INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                failure_reason TEXT DEFAULT '',
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_created_at ON ai_call_logs(created_at);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_feature ON ai_call_logs(feature);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_operation ON ai_call_logs(operation);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_model ON ai_call_logs(model);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_status ON ai_call_logs(status);
+            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_trace ON ai_call_logs(trace_id);
+
+            CREATE TABLE IF NOT EXISTS ai_debug_settings (
+                key TEXT PRIMARY KEY,
+                data TEXT NOT NULL
+            );
         """)
 
     # ---- specs ----
@@ -230,6 +271,31 @@ class SQLiteStore(BaseSQLiteStore):
                 tuple(params) + (limit, offset),
             )
             return [json.loads(r["data"]) for r in rows]
+
+    def count_runs(
+        self,
+        status: str | None = None,
+        keyword: str | None = None,
+        project_id: str | None = None,
+    ) -> int:
+        with self._lock:
+            conditions = ["1=1"]
+            params: list[Any] = []
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            if project_id:
+                conditions.append("project_id = ?")
+                params.append(project_id.strip())
+            if keyword:
+                kw = keyword.lower().strip()
+                conditions.append(
+                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR data LIKE ?)"
+                )
+                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+            where = " AND ".join(conditions)
+            row = self._query_one(f"SELECT COUNT(*) AS count FROM runs WHERE {where}", tuple(params))
+            return int(row["count"] if row else 0)
 
     def delete_run(self, run_id: str) -> bool:
         with self._lock:
@@ -354,6 +420,7 @@ class SQLiteStore(BaseSQLiteStore):
         limit: int = 20,
         status: str | None = None,
         project_id: str | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         with self._lock:
             conditions = ["1=1"]
@@ -366,10 +433,28 @@ class SQLiteStore(BaseSQLiteStore):
                 params.append(project_id.strip())
             where = " AND ".join(conditions)
             rows = self._query(
-                f"SELECT data FROM automation_tasks WHERE {where} ORDER BY updated_at DESC LIMIT ?",
-                tuple(params) + (limit,),
+                f"SELECT data FROM automation_tasks WHERE {where} ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                tuple(params) + (limit, offset),
             )
             return [json.loads(r["data"]) for r in rows]
+
+    def count_automation_tasks(
+        self,
+        status: str | None = None,
+        project_id: str | None = None,
+    ) -> int:
+        with self._lock:
+            conditions = ["1=1"]
+            params: list[Any] = []
+            if status:
+                conditions.append("status = ?")
+                params.append(status.strip())
+            if project_id:
+                conditions.append("project_id = ?")
+                params.append(project_id.strip())
+            where = " AND ".join(conditions)
+            row = self._query_one(f"SELECT COUNT(*) AS count FROM automation_tasks WHERE {where}", tuple(params))
+            return int(row["count"] if row else 0)
 
     def update_automation_task(self, task_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
         with self._lock:
@@ -407,11 +492,12 @@ class SQLiteStore(BaseSQLiteStore):
         limit: int = 100,
         project_id: str | None = None,
         definition_type: str | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._query(
                 "SELECT data FROM automation_definitions ORDER BY updated_at DESC LIMIT ?",
-                (max(limit * 3, limit),),
+                (max((limit + offset) * 3, limit + offset),),
             )
             definitions = [json.loads(r["data"]) for r in rows]
             if project_id:
@@ -423,7 +509,26 @@ class SQLiteStore(BaseSQLiteStore):
             if definition_type:
                 safe_type = definition_type.strip()
                 definitions = [item for item in definitions if item.get("definition_type") == safe_type]
-            return definitions[:limit]
+            return definitions[offset:offset + limit]
+
+    def count_automation_definitions(
+        self,
+        project_id: str | None = None,
+        definition_type: str | None = None,
+    ) -> int:
+        with self._lock:
+            rows = self._query("SELECT data FROM automation_definitions", ())
+            definitions = [json.loads(r["data"]) for r in rows]
+            if project_id:
+                safe_project_id = project_id.strip()
+                definitions = [
+                    item for item in definitions
+                    if item.get("project_id", "") in {"", safe_project_id}
+                ]
+            if definition_type:
+                safe_type = definition_type.strip()
+                definitions = [item for item in definitions if item.get("definition_type") == safe_type]
+            return len(definitions)
 
     def delete_automation_definition(self, definition_id: str) -> bool:
         with self._lock:
@@ -474,19 +579,36 @@ class SQLiteStore(BaseSQLiteStore):
             }, item)
             return item
 
-    def list_knowledge_items(self, limit: int = 50, item_type: str | None = None) -> list[dict[str, Any]]:
+    def list_knowledge_items(self, limit: int = 50, item_type: str | None = None, offset: int = 0) -> list[dict[str, Any]]:
         with self._lock:
             if item_type:
                 rows = self._query(
-                    "SELECT data FROM knowledge_items WHERE item_type = ? ORDER BY created_at DESC LIMIT ?",
-                    (item_type.strip(), limit),
+                    "SELECT data FROM knowledge_items WHERE item_type = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    (item_type.strip(), limit, offset),
                 )
             else:
                 rows = self._query(
-                    "SELECT data FROM knowledge_items ORDER BY created_at DESC LIMIT ?",
-                    (limit,),
+                    "SELECT data FROM knowledge_items ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    (limit, offset),
                 )
             return [json.loads(r["data"]) for r in rows]
+
+    def count_knowledge_items(self, item_type: str | None = None) -> int:
+        with self._lock:
+            if item_type:
+                row = self._query_one(
+                    "SELECT COUNT(*) AS count FROM knowledge_items WHERE item_type = ?",
+                    (item_type.strip(),),
+                )
+            else:
+                row = self._query_one("SELECT COUNT(*) AS count FROM knowledge_items", ())
+            return int(row["count"] if row else 0)
+
+    def delete_knowledge_item(self, knowledge_id: str) -> bool:
+        with self._lock:
+            cursor = self._conn.execute("DELETE FROM knowledge_items WHERE knowledge_id = ?", (knowledge_id,))
+            self._conn.commit()
+            return cursor.rowcount > 0
 
     # ---- event logs ----
 
@@ -503,6 +625,7 @@ class SQLiteStore(BaseSQLiteStore):
                 "title": event.get("title", ""),
                 "message": event.get("message", ""),
             }, event)
+            self._maybe_prune_event_logs_locked()
             return event
 
     def get_event_log(self, event_id: str) -> dict[str, Any] | None:
@@ -612,6 +735,88 @@ class SQLiteStore(BaseSQLiteStore):
                 "latest_error_at": latest_error["created_at"] if latest_error else "",
             }
 
+    def delete_event_logs(
+        self,
+        *,
+        older_than: str | None = None,
+        level: str | None = None,
+        project_id: str | None = None,
+        module: str | None = None,
+    ) -> int:
+        conditions = ["1=1"]
+        params: list[Any] = []
+        if older_than:
+            conditions.append("created_at < ?")
+            params.append(older_than.strip())
+        if project_id:
+            conditions.append("project_id = ?")
+            params.append(project_id.strip())
+        if module:
+            conditions.append("module = ?")
+            params.append(module.strip())
+        if level == "non_error":
+            conditions.append("level != 'error'")
+        elif level in {"info", "warning", "error"}:
+            conditions.append("level = ?")
+            params.append(level)
+        with self._lock:
+            cursor = self._conn.execute(f"DELETE FROM event_logs WHERE {' AND '.join(conditions)}", tuple(params))
+            self._conn.commit()
+            return int(cursor.rowcount or 0)
+
+    def prune_event_logs(
+        self,
+        *,
+        retention_days: int | None = None,
+        max_rows: int | None = None,
+    ) -> dict[str, int]:
+        with self._lock:
+            return self._prune_event_logs_locked(retention_days=retention_days, max_rows=max_rows)
+
+    def _maybe_prune_event_logs_locked(self) -> None:
+        now = time.monotonic()
+        if now - self._last_event_log_prune_at < self._EVENT_LOG_PRUNE_INTERVAL_SECONDS:
+            return
+        self._last_event_log_prune_at = now
+        self._prune_event_logs_locked()
+
+    def _prune_event_logs_locked(
+        self,
+        *,
+        retention_days: int | None = None,
+        max_rows: int | None = None,
+    ) -> dict[str, int]:
+        safe_retention_days = max(1, int(retention_days or settings.EVENT_LOG_RETENTION_DAYS))
+        safe_max_rows = max(1000, int(max_rows or settings.EVENT_LOG_MAX_ROWS))
+        cutoff = (datetime.now(UTC) - timedelta(days=safe_retention_days)).isoformat().replace("+00:00", "Z")
+        age_cursor = self._conn.execute(
+            "DELETE FROM event_logs WHERE created_at < ? AND level != 'error'",
+            (cutoff,),
+        )
+        age_deleted = int(age_cursor.rowcount or 0)
+        count_row = self._query_one("SELECT COUNT(*) AS count FROM event_logs")
+        total = int(count_row["count"] if count_row else 0)
+        overflow_deleted = 0
+        if total > safe_max_rows:
+            overflow_cursor = self._conn.execute(
+                """
+                DELETE FROM event_logs
+                WHERE level != 'error'
+                  AND event_id IN (
+                    SELECT event_id FROM event_logs
+                    WHERE level != 'error'
+                    ORDER BY created_at DESC
+                    LIMIT -1 OFFSET ?
+                  )
+                """,
+                (safe_max_rows,),
+            )
+            overflow_deleted = int(overflow_cursor.rowcount or 0)
+        self._conn.commit()
+        remaining_row = self._query_one("SELECT COUNT(*) AS count FROM event_logs")
+        remaining = int(remaining_row["count"] if remaining_row else 0)
+        return {"deleted": age_deleted + overflow_deleted, "age_deleted": age_deleted, "overflow_deleted": overflow_deleted, "remaining": remaining}
+
     def _event_log_where(
         self,
         project_id: str | None,
@@ -644,9 +849,206 @@ class SQLiteStore(BaseSQLiteStore):
             params.append(end_at.strip())
         if keyword:
             kw = f"%{keyword.lower().strip()}%"
-            conditions.append("(LOWER(title) LIKE ? OR LOWER(message) LIKE ? OR LOWER(event_type) LIKE ? OR data LIKE ?)")
-            params.extend([kw, kw, kw, kw])
+            conditions.append(
+                "(LOWER(title) LIKE ? OR LOWER(message) LIKE ? OR LOWER(event_type) LIKE ? "
+                "OR LOWER(trace_id) LIKE ? OR LOWER(source_id) LIKE ? OR LOWER(project_id) LIKE ?)"
+            )
+            params.extend([kw, kw, kw, kw, kw, kw])
         return " AND ".join(conditions), params
+
+    # ---- AI call observability ----
+
+    def save_ai_call_log(self, record: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert("ai_call_logs", "call_id", record["call_id"], {
+                "created_at": record.get("created_at", ""),
+                "feature": record.get("feature", ""),
+                "operation": record.get("operation", ""),
+                "provider": record.get("provider", ""),
+                "model": record.get("model", ""),
+                "status": record.get("status", ""),
+                "degraded": 1 if record.get("degraded") else 0,
+                "trace_id": record.get("trace_id", ""),
+                "source_id": record.get("source_id", ""),
+                "latency_ms": int(record.get("latency_ms") or 0),
+                "prompt_chars": int(record.get("prompt_chars") or 0),
+                "response_chars": int(record.get("response_chars") or 0),
+                "input_tokens": int(record.get("input_tokens") or 0),
+                "output_tokens": int(record.get("output_tokens") or 0),
+                "total_tokens": int(record.get("total_tokens") or 0),
+                "failure_reason": record.get("failure_reason", ""),
+            }, record)
+            return record
+
+    def get_ai_call_log(self, call_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._row_to_data(self._query_one("SELECT data FROM ai_call_logs WHERE call_id = ?", (call_id,)))
+
+    def list_ai_call_logs(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        feature: str | None = None,
+        operation: str | None = None,
+        model: str | None = None,
+        status: str | None = None,
+        degraded: bool | None = None,
+        keyword: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+    ) -> list[dict[str, Any]]:
+        where, params = self._ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
+        with self._lock:
+            rows = self._query(
+                f"SELECT data FROM ai_call_logs WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                tuple(params) + (limit, offset),
+            )
+            return [json.loads(r["data"]) for r in rows]
+
+    def count_ai_call_logs(
+        self,
+        feature: str | None = None,
+        operation: str | None = None,
+        model: str | None = None,
+        status: str | None = None,
+        degraded: bool | None = None,
+        keyword: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+    ) -> int:
+        where, params = self._ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
+        with self._lock:
+            row = self._query_one(f"SELECT COUNT(*) AS count FROM ai_call_logs WHERE {where}", tuple(params))
+            return int(row["count"] if row else 0)
+
+    def summarize_ai_call_logs(
+        self,
+        feature: str | None = None,
+        operation: str | None = None,
+        model: str | None = None,
+        status: str | None = None,
+        degraded: bool | None = None,
+        keyword: str | None = None,
+        start_at: str | None = None,
+        end_at: str | None = None,
+    ) -> dict[str, Any]:
+        where, params = self._ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
+        with self._lock:
+            total_row = self._query_one(f"SELECT COUNT(*) AS count FROM ai_call_logs WHERE {where}", tuple(params))
+            aggregate = self._query_one(
+                f"""
+                SELECT
+                    AVG(latency_ms) AS avg_latency_ms,
+                    SUM(prompt_chars) AS prompt_chars,
+                    SUM(response_chars) AS response_chars,
+                    SUM(input_tokens) AS input_tokens,
+                    SUM(output_tokens) AS output_tokens,
+                    SUM(total_tokens) AS total_tokens,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN degraded = 1 THEN 1 ELSE 0 END) AS degraded_count
+                FROM ai_call_logs WHERE {where}
+                """,
+                tuple(params),
+            )
+            model_rows = self._query(
+                f"SELECT model, COUNT(*) AS count FROM ai_call_logs WHERE {where} GROUP BY model ORDER BY count DESC",
+                tuple(params),
+            )
+            feature_rows = self._query(
+                f"SELECT feature, COUNT(*) AS count FROM ai_call_logs WHERE {where} GROUP BY feature ORDER BY count DESC",
+                tuple(params),
+            )
+            failure_rows = self._query(
+                f"""
+                SELECT failure_reason, COUNT(*) AS count
+                FROM ai_call_logs
+                WHERE {where} AND failure_reason != ''
+                GROUP BY failure_reason
+                ORDER BY count DESC
+                LIMIT 8
+                """,
+                tuple(params),
+            )
+            total = int(total_row["count"] if total_row else 0)
+            aggregate = dict(aggregate or {})
+            failed_count = aggregate.get("failed_count") or 0
+            degraded_count = aggregate.get("degraded_count") or 0
+            return {
+                "total": total,
+                "failed_count": int(failed_count),
+                "degraded_count": int(degraded_count),
+                "avg_latency_ms": round(float(aggregate.get("avg_latency_ms") or 0)),
+                "prompt_chars": int(aggregate.get("prompt_chars") or 0),
+                "response_chars": int(aggregate.get("response_chars") or 0),
+                "input_tokens": int(aggregate.get("input_tokens") or 0),
+                "output_tokens": int(aggregate.get("output_tokens") or 0),
+                "total_tokens": int(aggregate.get("total_tokens") or 0),
+                "model_counts": [{"label": row["model"] or "unknown", "count": int(row["count"])} for row in model_rows],
+                "feature_counts": [{"label": row["feature"] or "unknown", "count": int(row["count"])} for row in feature_rows],
+                "failure_reason_counts": [{"label": row["failure_reason"], "count": int(row["count"])} for row in failure_rows],
+            }
+
+    def _ai_call_where(
+        self,
+        feature: str | None,
+        operation: str | None,
+        model: str | None,
+        status: str | None,
+        degraded: bool | None,
+        keyword: str | None,
+        start_at: str | None,
+        end_at: str | None,
+    ) -> tuple[str, list[Any]]:
+        conditions = ["1=1"]
+        params: list[Any] = []
+        for column, value in {
+            "feature": feature,
+            "operation": operation,
+            "model": model,
+            "status": status,
+        }.items():
+            if value:
+                conditions.append(f"{column} = ?")
+                params.append(value.strip())
+        if degraded is not None:
+            conditions.append("degraded = ?")
+            params.append(1 if degraded else 0)
+        if start_at:
+            conditions.append("created_at >= ?")
+            params.append(start_at.strip())
+        if end_at:
+            conditions.append("created_at <= ?")
+            params.append(end_at.strip())
+        if keyword:
+            kw = f"%{keyword.lower().strip()}%"
+            conditions.append(
+                "(LOWER(feature) LIKE ? OR LOWER(operation) LIKE ? OR LOWER(model) LIKE ? "
+                "OR LOWER(status) LIKE ? OR LOWER(failure_reason) LIKE ? OR LOWER(trace_id) LIKE ? OR LOWER(source_id) LIKE ?)"
+            )
+            params.extend([kw, kw, kw, kw, kw, kw, kw])
+        return " AND ".join(conditions), params
+
+    def get_ai_debug_settings(self) -> dict[str, Any]:
+        with self._lock:
+            row = self._query_one("SELECT data FROM ai_debug_settings WHERE key = 'settings'")
+            if not row:
+                return {"enabled": False, "retention_minutes": 30, "max_chars": 4000, "updated_at": ""}
+            data = json.loads(row["data"])
+            return {
+                "enabled": bool(data.get("enabled")),
+                "retention_minutes": int(data.get("retention_minutes") or 30),
+                "max_chars": int(data.get("max_chars") or 4000),
+                "updated_at": data.get("updated_at", ""),
+            }
+
+    def save_ai_debug_settings(self, settings_data: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO ai_debug_settings (key, data) VALUES ('settings', ?)",
+                (json.dumps(settings_data, ensure_ascii=False),),
+            )
+            self._conn.commit()
+            return settings_data
 
     # ---- recovery ----
 

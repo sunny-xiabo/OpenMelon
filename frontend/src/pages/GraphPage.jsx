@@ -32,6 +32,7 @@ export default function GraphPage({ isActive = true }) {
   const [detailCollapsed, setDetailCollapsed] = useState(false);
   const [selectedNode, setSelectedNode] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [graphReady, setGraphReady] = useState(null);
   const [nodeTypeConfigs, setNodeTypeConfigs] = useState([]);
   const [nodeTypeOverrides, setNodeTypeOverrides] = useState({});
@@ -153,10 +154,12 @@ export default function GraphPage({ isActive = true }) {
         setFilters(graphFilters);
         setDetailOpen(false);
         setSelectedNode(null);
+        setLoadError('');
       } else {
         setFilters({ doc_types: [], modules: [] });
         setSelectedNode(null);
         setDetailOpen(false);
+        setLoadError('');
         if (networkRef.current) {
           networkRef.current.setData({ nodes: new DataSet([]), edges: new DataSet([]) });
         }
@@ -164,6 +167,7 @@ export default function GraphPage({ isActive = true }) {
     } catch (e) {
       console.error(e);
       setGraphReady(false);
+      setLoadError(e.message || '图谱状态检查失败');
     } finally {
       setLoading(false);
     }
@@ -174,8 +178,9 @@ export default function GraphPage({ isActive = true }) {
     setLoading(true);
     try {
       const d = await graphAPI.getFullGraph({ doc_type: docType, module: moduleFilter, include_chunks: showChunks });
+      setLoadError('');
       renderGraph(d);
-    } catch (e) { console.error(e); setLoading(false); }
+    } catch (e) { console.error(e); setLoadError(e.message || '图谱数据加载失败'); setLoading(false); }
   };
 
   const resetGraph = () => {
@@ -192,8 +197,9 @@ export default function GraphPage({ isActive = true }) {
     setLoading(true);
     try {
       const d = await graphAPI.searchEntity(searchText);
+      setLoadError('');
       renderGraph(d, searchText);
-    } catch (e) { console.error(e); setLoading(false); }
+    } catch (e) { console.error(e); setLoadError(e.message || '图谱搜索失败'); setLoading(false); }
   };
 
   const renderGraph = (data, focusLabel) => {
@@ -254,10 +260,22 @@ export default function GraphPage({ isActive = true }) {
             }}
           />
 
-          {graphReady === false && (
+          {loadError && (
             <Box sx={{ position: 'absolute', inset: 0, p: 2, display: 'flex', zIndex: 5, bgcolor: 'rgba(255, 255, 255, 0.5)', backdropFilter: 'blur(8px)' }}>
               <EmptyState
-                title="暂无数据"
+                variant="error"
+                title="图谱加载失败"
+                description={loadError}
+                actionLabel="重试"
+                onAction={checkGraphStatus}
+              />
+            </Box>
+          )}
+
+          {!loadError && graphReady === false && (
+            <Box sx={{ position: 'absolute', inset: 0, p: 2, display: 'flex', zIndex: 5, bgcolor: 'rgba(255, 255, 255, 0.5)', backdropFilter: 'blur(8px)' }}>
+              <EmptyState
+                title="暂无图谱数据"
                 description="Neo4j 为空，上传完成后会自动恢复，也可以手动刷新数据。"
                 actionLabel="刷新数据"
                 onAction={checkGraphStatus}

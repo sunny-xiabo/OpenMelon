@@ -18,6 +18,24 @@
 export OPENMELON_API_BASE=http://localhost:8000/api
 ```
 
+## 0. 固定脚本入口
+
+发版前优先执行仓库内固定脚本：
+
+```bash
+bash scripts/release_acceptance_smoke.sh
+```
+
+脚本会固定执行以下检查：
+
+1. Demo 项目初始化。
+2. Demo OpenAPI 资产读取。
+3. API 执行概览聚合。
+4. 任务中心聚合。
+5. 日志中心统一事件接口与统计接口。
+6. 后端 pytest 回归。
+7. 前端 `npm run lint` 与 `npm run build`。
+
 ## 1. 后端接口 Smoke
 
 初始化 Demo 项目：
@@ -50,12 +68,21 @@ curl -sS "${OPENMELON_API_BASE:-http://localhost:8000/api}/api-execution/automat
 curl -sS "${OPENMELON_API_BASE:-http://localhost:8000/api}/api-execution/automation/tasks?project_id=demo-api-flow&status=pending&limit=20"
 ```
 
+检查日志中心：
+
+```bash
+curl -sS "${OPENMELON_API_BASE:-http://localhost:8000/api}/logs/summary?project_id=demo-api-flow"
+curl -sS "${OPENMELON_API_BASE:-http://localhost:8000/api}/logs/events?project_id=demo-api-flow&limit=10&offset=0"
+```
+
 通过标准：
 
 - `demo/bootstrap` 返回 `project.project_id=demo-api-flow`
 - `dashboard/summary` 返回非空 `recent_runs`
 - `task-center/summary` 返回 `status_counts`、`type_counts`、`action_buckets`
 - 待处理任务列表至少能看到知识候选或失败诊断类任务
+- `logs/summary` 返回 `total`、`module_counts`、`event_type_counts`
+- `logs/events` 返回 `total` 和事件 `items` 列表
 
 ## 2. 自动化测试
 
@@ -69,7 +96,8 @@ uv run pytest \
   backend/tests/test_api_execution_knowledge.py \
   backend/tests/test_api_execution_ai_assistant.py \
   backend/tests/test_api_execution_flow_draft.py \
-  backend/tests/test_api_execution_runner.py
+  backend/tests/test_api_execution_runner.py \
+  backend/tests/test_event_logs.py
 ```
 
 前端静态检查与构建：

@@ -183,6 +183,63 @@ def test_flow_template_helpers_roundtrip(monkeypatch, tmp_path):
     assert template["script"]["case_id"] == "case-1"
 
 
+def test_list_endpoints_use_unified_pagination_shape(monkeypatch, tmp_path):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    store.save_run(_run("run_1", "passed"))
+    store.save_run(_run("run_2", "failed"))
+    store.save_automation_task(
+        {
+            "task_id": "task_1",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:02Z",
+            "task_type": "manual_review",
+            "status": "pending",
+            "project_id": "project_a",
+            "risk_level": "medium",
+        }
+    )
+    store.save_knowledge_item(
+        {
+            "knowledge_id": "knowledge_1",
+            "item_type": "api_failure",
+            "source_run_id": "run_2",
+            "project_id": "project_a",
+            "created_at": "2026-01-01T00:00:03Z",
+            "summary": "失败知识",
+            "payload": {},
+        }
+    )
+    store.save_automation_definition(
+        {
+            "definition_id": "flow-template:template_1",
+            "definition_type": "flow_template",
+            "template_id": "template_1",
+            "project_id": "project_a",
+            "name": "模板",
+            "script": {"case_id": "case_1", "name": "模板", "steps": []},
+            "created_at": "2026-01-01T00:00:04Z",
+            "updated_at": "2026-01-01T00:00:04Z",
+        }
+    )
+
+    runs = routers.list_run_history_service(limit=1, offset=1, project_id="project_a")
+    tasks = routers.list_automation_tasks_service(limit=10, offset=0, status="pending", project_id="project_a")
+    knowledge = routers.list_knowledge_review_items_service(limit=10, offset=0, project_id="project_a")
+    templates = routers.list_flow_templates_service(limit=10, offset=0, project_id="project_a")
+
+    assert runs["total"] == 2
+    assert runs["limit"] == 1
+    assert runs["offset"] == 1
+    assert runs["items"] == runs["runs"]
+    assert tasks["total"] == 1
+    assert tasks["items"] == tasks["tasks"]
+    assert knowledge["total"] == 1
+    assert knowledge["items"][0]["knowledge_id"] == "knowledge_1"
+    assert templates["total"] == 1
+    assert templates["items"] == templates["templates"]
+
+
 def _run(
     run_id,
     status,

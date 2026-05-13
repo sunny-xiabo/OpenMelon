@@ -10,8 +10,8 @@ export const apiExecutionAPI = {
     return fetchJSON(`${API_BASE}/api-execution/dashboard/summary?${params.toString()}`);
   },
 
-  listFlowTemplates: ({ projectId = '', limit = 100 } = {}) => {
-    const params = new URLSearchParams({ limit: String(limit) });
+  listFlowTemplates: ({ projectId = '', limit = 100, offset = 0 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (projectId) params.set('project_id', projectId);
     return fetchJSON(`${API_BASE}/api-execution/flow-templates?${params.toString()}`);
   },
@@ -27,8 +27,8 @@ export const apiExecutionAPI = {
       method: 'DELETE',
     }),
 
-  listPolicyAudits: ({ limit = 20, projectId = '', action = '' } = {}) => {
-    const params = new URLSearchParams({ limit: String(limit) });
+  listPolicyAudits: ({ limit = 20, offset = 0, projectId = '', action = '' } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (projectId) params.set('project_id', projectId);
     if (action) params.set('action', action);
     return fetchJSON(`${API_BASE}/api-execution/policy/audits?${params.toString()}`);
@@ -74,8 +74,90 @@ export const apiExecutionAPI = {
   listRelatedEventLogs: (eventId, { limit = 20 } = {}) =>
     fetchJSON(`${API_BASE}/logs/events/${encodeURIComponent(eventId)}/related?limit=${encodeURIComponent(limit)}`),
 
-  listAutomationTasks: ({ limit = 20, status = '', projectId = '' } = {}) => {
-    const params = new URLSearchParams({ limit: String(limit) });
+  listAICallLogs: ({
+    limit = 50,
+    offset = 0,
+    feature = '',
+    operation = '',
+    model = '',
+    status = '',
+    degraded = '',
+    keyword = '',
+    startAt = '',
+    endAt = '',
+  } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (feature) params.set('feature', feature);
+    if (operation) params.set('operation', operation);
+    if (model) params.set('model', model);
+    if (status) params.set('status', status);
+    if (degraded !== '') params.set('degraded', String(degraded));
+    if (keyword) params.set('keyword', keyword);
+    if (startAt) params.set('start_at', startAt);
+    if (endAt) params.set('end_at', endAt);
+    return fetchJSON(`${API_BASE}/logs/ai-calls?${params.toString()}`);
+  },
+
+  getAICallSummary: ({ feature = '', operation = '', model = '', status = '', degraded = '', keyword = '', startAt = '', endAt = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (feature) params.set('feature', feature);
+    if (operation) params.set('operation', operation);
+    if (model) params.set('model', model);
+    if (status) params.set('status', status);
+    if (degraded !== '') params.set('degraded', String(degraded));
+    if (keyword) params.set('keyword', keyword);
+    if (startAt) params.set('start_at', startAt);
+    if (endAt) params.set('end_at', endAt);
+    return fetchJSON(`${API_BASE}/logs/ai-calls/summary?${params.toString()}`);
+  },
+
+  getAIDebugSettings: () =>
+    fetchJSON(`${API_BASE}/logs/ai-debug/settings`),
+
+  updateAIDebugSettings: (settings) =>
+    fetchJSON(`${API_BASE}/logs/ai-debug/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+
+  getAIDebugSnapshot: (callId) =>
+    fetchJSON(`${API_BASE}/logs/ai-calls/${encodeURIComponent(callId)}/debug-snapshot`),
+
+  deleteEventLogs: async ({ olderThanDays = 90, level = 'non_error', projectId = '', module = '' } = {}) => {
+    const cleanupOneLevel = async (cleanupLevel) => {
+      try {
+        return await fetchJSON(`${API_BASE}/logs/events/cleanup`, {
+          method: 'POST',
+          body: JSON.stringify({
+            older_than_days: olderThanDays,
+            level: cleanupLevel,
+            project_id: projectId,
+            module,
+          }),
+        });
+      } catch (error) {
+        const params = new URLSearchParams({ older_than_days: String(olderThanDays), level: cleanupLevel });
+        if (projectId) params.set('project_id', projectId);
+        if (module) params.set('module', module);
+        return fetchJSON(`${API_BASE}/logs/events?${params.toString()}`, {
+          method: 'DELETE',
+        });
+      }
+    };
+    if (level === 'all') {
+      const results = await Promise.all(['info', 'warning', 'error'].map((cleanupLevel) => cleanupOneLevel(cleanupLevel)));
+      return {
+        deleted: results.reduce((sum, item) => sum + (item.deleted || 0), 0),
+        remaining: results.at(-1)?.remaining || 0,
+        older_than: results.at(-1)?.older_than || '',
+        level: 'all',
+      };
+    }
+    return cleanupOneLevel(level);
+  },
+
+  listAutomationTasks: ({ limit = 20, offset = 0, status = '', projectId = '' } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (status) params.set('status', status);
     if (projectId) params.set('project_id', projectId);
     return fetchJSON(`${API_BASE}/api-execution/automation/tasks?${params.toString()}`);
@@ -123,8 +205,8 @@ export const apiExecutionAPI = {
       method: 'POST',
     }),
 
-  listKnowledgeReviewItems: ({ limit = 50, projectId = '', status = '', itemType = '' } = {}) => {
-    const params = new URLSearchParams({ limit: String(limit) });
+  listKnowledgeReviewItems: ({ limit = 50, offset = 0, projectId = '', status = '', itemType = '' } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (projectId) params.set('project_id', projectId);
     if (status) params.set('status', status);
     if (itemType) params.set('item_type', itemType);
@@ -135,6 +217,11 @@ export const apiExecutionAPI = {
     fetchJSON(`${API_BASE}/api-execution/knowledge/items/${encodeURIComponent(knowledgeId)}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status, note }),
+    }),
+
+  deleteKnowledgeItem: (knowledgeId) =>
+    fetchJSON(`${API_BASE}/api-execution/knowledge/items/${encodeURIComponent(knowledgeId)}`, {
+      method: 'DELETE',
     }),
 
   saveProject: (project) =>
@@ -271,16 +358,16 @@ export const apiExecutionAPI = {
   getRun: (runId) =>
     fetchJSON(`${API_BASE}/api-execution/runs/${encodeURIComponent(runId)}`),
 
-  listCaseRuns: (caseId, limit = 10) =>
-    fetchJSON(`${API_BASE}/api-execution/cases/${encodeURIComponent(caseId)}/runs?limit=${limit}`),
+  listCaseRuns: (caseId, limit = 10, offset = 0) =>
+    fetchJSON(`${API_BASE}/api-execution/cases/${encodeURIComponent(caseId)}/runs?limit=${limit}&offset=${offset}`),
 
   cancelRun: (runId) =>
     fetchJSON(`${API_BASE}/api-execution/runs/${encodeURIComponent(runId)}/cancel`, {
       method: 'POST',
     }),
 
-  listRuns: ({ limit = 10, status = '', keyword = '', projectId = '' } = {}) => {
-    const params = new URLSearchParams({ limit: String(limit) });
+  listRuns: ({ limit = 10, offset = 0, status = '', keyword = '', projectId = '' } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (status) params.set('status', status);
     if (keyword) params.set('keyword', keyword);
     if (projectId) params.set('project_id', projectId);

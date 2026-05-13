@@ -30,6 +30,8 @@ from app.testcase_gen.services.neo4j_writer import init_neo4j_writer
 from app.testcase_gen.services.graph_context_retriever import (
     init_graph_context_retriever,
 )
+from app.api.ai_observability_service import build_usage_from_response, safe_record_ai_call
+from app.version import APP_VERSION
 
 _shutdown_event = asyncio.Event()
 
@@ -133,6 +135,7 @@ async def lifespan(app: FastAPI):
         # 兼容 bge 模型 512 tokens 限制，安全截断至 400 字符。对于其他模型也截断以防越界。
         model_name = settings.EMBEDDING_MODEL or "text-embedding-3-small"
         safe_limit = 400 if "bge" in model_name.lower() else 6000
+        started_at = time.perf_counter()
         kwargs = {
             "model": model_name,
             "input": text[:safe_limit],
@@ -140,8 +143,33 @@ async def lifespan(app: FastAPI):
         # OpenAI text-embedding-3 系列支持 dimensions，显式传入可保持全局维度一致
         if settings.EMBEDDING_DIM and "text-embedding-3" in model_name:
             kwargs["dimensions"] = settings.EMBEDDING_DIM
-        resp = await llm_client.embeddings.create(**kwargs)
-        return resp.data[0].embedding
+        try:
+            resp = await llm_client.embeddings.create(**kwargs)
+            safe_record_ai_call(
+                feature="embedding",
+                operation="neo4j_writer_embedding",
+                provider=settings.LLM_PROVIDER,
+                model=model_name,
+                status="success",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=len(kwargs["input"]),
+                response_chars=0,
+                **build_usage_from_response(resp),
+            )
+            return resp.data[0].embedding
+        except Exception as exc:
+            safe_record_ai_call(
+                feature="embedding",
+                operation="neo4j_writer_embedding",
+                provider=settings.LLM_PROVIDER,
+                model=model_name,
+                status="failed",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=len(kwargs["input"]),
+                degraded=True,
+                failure_reason=str(exc),
+            )
+            raise
 
     writer_instance = None
     if neo4j_available:
@@ -175,7 +203,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OpenMelon",
     description="Knowledge graph + vector RAG system for documentation Q&A",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 

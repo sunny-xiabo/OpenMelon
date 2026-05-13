@@ -1,6 +1,7 @@
 import { Box, Typography, Paper } from '@mui/material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import EmptyState from './EmptyState';
 
 function generateMarkdown(testCases) {
   if (!testCases?.length) return '';
@@ -22,6 +23,10 @@ function generateMarkdown(testCases) {
 }
 
 export default function TestCaseListView({ testCases }) {
+  if (!testCases?.length) {
+    return <EmptyState compact title="当前筛选下暂无测试用例" description="可以调整优先级或模块筛选后重新查看。" />;
+  }
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1.25 }}>

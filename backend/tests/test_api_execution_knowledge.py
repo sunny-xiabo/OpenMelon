@@ -138,6 +138,41 @@ def test_knowledge_review_and_status_update(tmp_path, monkeypatch):
     assert store.list_knowledge_items()[0]["invalidated_at"]
 
 
+def test_delete_knowledge_item_requires_non_active_status(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    store.save_knowledge_item(
+        {
+            "knowledge_id": "repair-1",
+            "item_type": "api_repair",
+            "source_run_id": "run-1",
+            "project_id": "project-1",
+            "created_at": "2026-04-29T00:00:00Z",
+            "status": "active",
+            "summary": "修复经验",
+            "payload": {},
+        }
+    )
+
+    try:
+        asyncio.run(routers.delete_knowledge_item("repair-1"))
+    except Exception as exc:
+        assert "先标记失效或撤回使用" in str(exc)
+    else:
+        raise AssertionError("active knowledge item should not be deleted directly")
+
+    asyncio.run(
+        routers.update_knowledge_item_status(
+            "repair-1",
+            routers.KnowledgeStatusUpdateRequest(status="invalid"),
+        )
+    )
+    response = asyncio.run(routers.delete_knowledge_item("repair-1"))
+
+    assert response == {"deleted": True}
+    assert store.list_knowledge_items() == []
+
+
 def test_ingest_runs_indexes_knowledge_when_vector_available(tmp_path, monkeypatch):
     class FakeVectorOps:
         def __init__(self):
