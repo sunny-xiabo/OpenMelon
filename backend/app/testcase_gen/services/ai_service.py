@@ -4,7 +4,10 @@ AI服务 - 协调三个智能体的工作流程
 """
 
 from typing import List, Dict, Any, AsyncGenerator, Optional
+import time
 
+from app.api.ai_observability_service import safe_record_ai_call
+from app.config import settings
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.utils.performance_optimizer import (
     response_cache,
@@ -50,6 +53,12 @@ class AIService:
         产出:
             Markdown 格式的三阶段输出
         """
+        started_at = time.perf_counter()
+        prompt_chars = len(context or "") + len(requirements or "") + len(vector_context or "")
+        response_chars = 0
+        failed_reason = ""
+        degraded = False
+        recorded = False
         with Timer("三阶段流程总耗时"):
             try:
                 logger.info(f"开始三阶段流程 - 文件: {file_path}")
@@ -73,6 +82,24 @@ class AIService:
                     cached_response = response_cache.get(cache_key)
                     if cached_response:
                         logger.info("使用缓存的响应")
+                        response_chars = len(cached_response)
+                        safe_record_ai_call(
+                            feature="testcase_generation",
+                            operation="generate_test_cases_stream",
+                            provider=settings.LLM_PROVIDER,
+                            model=settings.CHAT_MODEL,
+                            status="success",
+                            latency_ms=round((time.perf_counter() - started_at) * 1000),
+                            prompt_chars=prompt_chars,
+                            response_chars=response_chars,
+                            debug_snapshot={
+                                "user": requirements,
+                                "context": context,
+                                "response": cached_response,
+                            },
+                            data={"cached": True, "use_vector": use_vector},
+                        )
+                        recorded = True
                         yield cached_response
                         return
 
@@ -109,6 +136,7 @@ class AIService:
                     yield chunk
                     analysis_result += chunk
                     full_response += chunk
+                    response_chars += len(chunk)
 
                 if prompt_config:
                     logger.info(
@@ -131,6 +159,7 @@ class AIService:
                     yield chunk
                     test_cases_result += chunk
                     full_response += chunk
+                    response_chars += len(chunk)
 
                 # ==================== 阶段3：测试用例评审 ====================
                 logger.info("阶段3/3: 测试用例评审")
@@ -143,6 +172,7 @@ class AIService:
                 ):
                     yield chunk
                     full_response += chunk
+                    response_chars += len(chunk)
 
                 # 缓存完整响应
                 if cache_key and full_response:
@@ -169,12 +199,36 @@ class AIService:
                     final_signal = f"\n\n{FINAL_MARKER}\n以上为生成的最终测试用例结果。"
                     yield final_signal
                     full_response += final_signal
+                    response_chars += len(final_signal)
 
                 logger.info("三阶段流程完成，已发送最终标记")
             except Exception as e:
+                failed_reason = str(e)
+                degraded = True
                 logger.error(f"流式生成过程中发生错误: {str(e)}", exc_info=True)
-                yield f"\n\n> [!ERROR]\n> 生成失败: {str(e)}"
+                error_text = f"\n\n> [!ERROR]\n> 生成失败: {str(e)}"
+                response_chars += len(error_text)
+                yield error_text
             finally:
+                if not recorded:
+                    safe_record_ai_call(
+                        feature="testcase_generation",
+                        operation="generate_test_cases_stream",
+                        provider=settings.LLM_PROVIDER,
+                        model=settings.CHAT_MODEL,
+                        status="failed" if failed_reason else "success",
+                        latency_ms=round((time.perf_counter() - started_at) * 1000),
+                        prompt_chars=prompt_chars,
+                        response_chars=response_chars,
+                        degraded=degraded,
+                        failure_reason=failed_reason,
+                        debug_snapshot={
+                            "user": requirements,
+                            "context": context,
+                            "response": full_response if not failed_reason else failed_reason,
+                        },
+                        data={"cached": False, "use_vector": use_vector, "module": module or ""},
+                    )
                 logger.info("三阶段流式过程结束")
 
     def generate_mindmap_from_test_cases(

@@ -74,6 +74,55 @@ export const apiExecutionAPI = {
   listRelatedEventLogs: (eventId, { limit = 20 } = {}) =>
     fetchJSON(`${API_BASE}/logs/events/${encodeURIComponent(eventId)}/related?limit=${encodeURIComponent(limit)}`),
 
+  listAICallLogs: ({
+    limit = 50,
+    offset = 0,
+    feature = '',
+    operation = '',
+    model = '',
+    status = '',
+    degraded = '',
+    keyword = '',
+    startAt = '',
+    endAt = '',
+  } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (feature) params.set('feature', feature);
+    if (operation) params.set('operation', operation);
+    if (model) params.set('model', model);
+    if (status) params.set('status', status);
+    if (degraded !== '') params.set('degraded', String(degraded));
+    if (keyword) params.set('keyword', keyword);
+    if (startAt) params.set('start_at', startAt);
+    if (endAt) params.set('end_at', endAt);
+    return fetchJSON(`${API_BASE}/logs/ai-calls?${params.toString()}`);
+  },
+
+  getAICallSummary: ({ feature = '', operation = '', model = '', status = '', degraded = '', keyword = '', startAt = '', endAt = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (feature) params.set('feature', feature);
+    if (operation) params.set('operation', operation);
+    if (model) params.set('model', model);
+    if (status) params.set('status', status);
+    if (degraded !== '') params.set('degraded', String(degraded));
+    if (keyword) params.set('keyword', keyword);
+    if (startAt) params.set('start_at', startAt);
+    if (endAt) params.set('end_at', endAt);
+    return fetchJSON(`${API_BASE}/logs/ai-calls/summary?${params.toString()}`);
+  },
+
+  getAIDebugSettings: () =>
+    fetchJSON(`${API_BASE}/logs/ai-debug/settings`),
+
+  updateAIDebugSettings: (settings) =>
+    fetchJSON(`${API_BASE}/logs/ai-debug/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+
+  getAIDebugSnapshot: (callId) =>
+    fetchJSON(`${API_BASE}/logs/ai-calls/${encodeURIComponent(callId)}/debug-snapshot`),
+
   deleteEventLogs: async ({ olderThanDays = 90, level = 'non_error', projectId = '', module = '' } = {}) => {
     const cleanupOneLevel = async (cleanupLevel) => {
       try {

@@ -1,6 +1,9 @@
 from openai import AsyncOpenAI
 from app.config import settings
 from typing import List, Dict, Any
+import time
+
+from app.api.ai_observability_service import build_usage_from_response, safe_record_ai_call
 
 
 class RAGGenerator:
@@ -15,6 +18,8 @@ class RAGGenerator:
         chat_history: List[Dict[str, Any]] | None = None,
     ) -> Dict[str, Any]:
         prompt = self.build_prompt(question, context, intent, chat_history or [])
+        started_at = time.perf_counter()
+        prompt_chars = len(prompt["system"]) + len(prompt["user"])
 
         try:
             response = await self.openai_client.chat.completions.create(
@@ -27,8 +32,44 @@ class RAGGenerator:
                 max_tokens=settings.GENERATION_MAX_TOKENS,
             )
             answer = response.choices[0].message.content.strip()
+            usage = build_usage_from_response(response)
+            safe_record_ai_call(
+                feature="rag",
+                operation="generate_answer",
+                provider=settings.LLM_PROVIDER,
+                model=settings.CHAT_MODEL,
+                status="success",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=prompt_chars,
+                response_chars=len(answer),
+                debug_snapshot={
+                    "system": prompt["system"],
+                    "user": prompt["user"],
+                    "context": context,
+                    "response": answer,
+                },
+                **usage,
+            )
         except Exception as e:
             answer = f"Error generating answer: {str(e)}"
+            safe_record_ai_call(
+                feature="rag",
+                operation="generate_answer",
+                provider=settings.LLM_PROVIDER,
+                model=settings.CHAT_MODEL,
+                status="failed",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=prompt_chars,
+                response_chars=len(answer),
+                degraded=True,
+                failure_reason=str(e),
+                debug_snapshot={
+                    "system": prompt["system"],
+                    "user": prompt["user"],
+                    "context": context,
+                    "response": answer,
+                },
+            )
 
         return {"answer": answer}
 

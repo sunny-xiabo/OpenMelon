@@ -7,6 +7,7 @@ import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import FolderOpenOutlined from '@mui/icons-material/FolderOpenOutlined';
 import ManageSearchOutlined from '@mui/icons-material/ManageSearchOutlined';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
+import QueryStatsOutlined from '@mui/icons-material/QueryStatsOutlined';
 import PageHeader from '../components/PageHeader';
 import NavMenuButton from '../components/NavMenuButton';
 import NodeTypeConfigPage from './NodeTypeConfigPage';
@@ -14,6 +15,7 @@ import PromptHubConfigPage from './PromptHubConfigPage';
 import ProjectEnvConfigPage from './ProjectEnvConfigPage';
 import GovernanceCenter from '../features/GovernanceCenter/components/GovernanceCenter';
 import LogCenter from '../features/LogCenter/components/LogCenter';
+import AIObservabilityPanel from '../features/AIObservability/components/AIObservabilityPanel';
 import { SETTINGS_SECTION_EVENT } from '../constants/events';
 
 const SECTIONS = [
@@ -46,6 +48,12 @@ const SECTIONS = [
     label: '日志中心',
     description: '查看执行、策略、任务和知识写入事件',
     icon: <ReceiptLongOutlined fontSize="small" />,
+  },
+  {
+    key: 'ai-observability',
+    label: 'AI/RAG 观测',
+    description: '查看模型调用、耗时、token 和降级失败',
+    icon: <QueryStatsOutlined fontSize="small" />,
   },
 ];
 
@@ -129,6 +137,7 @@ export default function SettingsPage() {
             {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
             {activeSection === 'governance' && <GovernanceCenter />}
             {activeSection === 'logs' && <LogCenter />}
+            {activeSection === 'ai-observability' && <AIObservabilityPanel />}
           </Box>
         </Box>
       </Paper>

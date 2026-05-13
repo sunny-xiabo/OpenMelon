@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.api.logging_service import AUDIT_EVENT_SCHEMA_VERSION, AUDIT_EVENT_TYPES, AUDIT_EVENT_TYPE_PREFIXES, AUDIT_MODULES
+from app.api.ai_observability_service import get_ai_debug_settings, get_debug_snapshot, update_ai_debug_settings
 from app.api_execution.storage import api_execution_store
 
 router = APIRouter(prefix="/logs", tags=["logs"])
@@ -71,6 +72,74 @@ class EventLogCleanupRequest(BaseModel):
     module: str = ""
 
 
+class AICallLogRecord(BaseModel):
+    call_id: str
+    created_at: str = ""
+    feature: str = ""
+    operation: str = ""
+    provider: str = ""
+    model: str = ""
+    status: str = "success"
+    latency_ms: int = 0
+    prompt_chars: int = 0
+    response_chars: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    degraded: bool = False
+    failure_reason: str = ""
+    trace_id: str = ""
+    source_id: str = ""
+    data: dict[str, Any] = {}
+
+
+class AICallLogListResponse(BaseModel):
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+    items: list[AICallLogRecord] = []
+
+
+class AICallLogSummaryResponse(BaseModel):
+    total: int = 0
+    failed_count: int = 0
+    degraded_count: int = 0
+    avg_latency_ms: int = 0
+    prompt_chars: int = 0
+    response_chars: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    model_counts: list[EventLogCountItem] = []
+    feature_counts: list[EventLogCountItem] = []
+    failure_reason_counts: list[EventLogCountItem] = []
+
+
+class AIDebugSettingsRequest(BaseModel):
+    enabled: bool = False
+    retention_minutes: int = 30
+    max_chars: int = 4000
+
+
+class AIDebugSettingsResponse(BaseModel):
+    enabled: bool = False
+    retention_minutes: int = 30
+    max_chars: int = 4000
+    updated_at: str = ""
+
+
+class AIDebugSnapshotResponse(BaseModel):
+    call_id: str
+    enabled: bool = True
+    created_at: str = ""
+    expires_at: str = ""
+    redacted: bool = True
+    system: str = ""
+    user: str = ""
+    context: str = ""
+    response: str = ""
+
+
 def _query_kwargs(
     project_id: str | None = None,
     module: str | None = None,
@@ -87,6 +156,28 @@ def _query_kwargs(
         "level": level if level in {"info", "warning", "error"} else None,
         "event_type": event_type or None,
         "trace_id": trace_id or None,
+        "keyword": keyword or None,
+        "start_at": start_at or None,
+        "end_at": end_at or None,
+    }
+
+
+def _ai_call_query_kwargs(
+    feature: str | None = None,
+    operation: str | None = None,
+    model: str | None = None,
+    status: str | None = None,
+    degraded: bool | None = None,
+    keyword: str | None = None,
+    start_at: str | None = None,
+    end_at: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "feature": feature or None,
+        "operation": operation or None,
+        "model": model or None,
+        "status": status if status in {"success", "failed", "degraded"} else None,
+        "degraded": degraded,
         "keyword": keyword or None,
         "start_at": start_at or None,
         "end_at": end_at or None,
@@ -196,3 +287,61 @@ async def cleanup_event_logs(request: EventLogCleanupRequest):
         request.project_id or None,
         request.module or None,
     )
+
+
+@router.get("/ai-calls", response_model=AICallLogListResponse)
+async def list_ai_call_logs(
+    feature: str | None = None,
+    operation: str | None = None,
+    model: str | None = None,
+    status: str | None = None,
+    degraded: bool | None = None,
+    keyword: str | None = None,
+    start_at: str | None = None,
+    end_at: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, offset)
+    kwargs = _ai_call_query_kwargs(feature, operation, model, status, degraded, keyword, start_at, end_at)
+    return {
+        "total": api_execution_store.count_ai_call_logs(**kwargs),
+        "limit": safe_limit,
+        "offset": safe_offset,
+        "items": api_execution_store.list_ai_call_logs(limit=safe_limit, offset=safe_offset, **kwargs),
+    }
+
+
+@router.get("/ai-calls/summary", response_model=AICallLogSummaryResponse)
+async def summarize_ai_call_logs(
+    feature: str | None = None,
+    operation: str | None = None,
+    model: str | None = None,
+    status: str | None = None,
+    degraded: bool | None = None,
+    keyword: str | None = None,
+    start_at: str | None = None,
+    end_at: str | None = None,
+):
+    return api_execution_store.summarize_ai_call_logs(
+        **_ai_call_query_kwargs(feature, operation, model, status, degraded, keyword, start_at, end_at)
+    )
+
+
+@router.get("/ai-debug/settings", response_model=AIDebugSettingsResponse)
+async def get_ai_debug_config():
+    return get_ai_debug_settings()
+
+
+@router.put("/ai-debug/settings", response_model=AIDebugSettingsResponse)
+async def update_ai_debug_config(request: AIDebugSettingsRequest):
+    return update_ai_debug_settings(request.model_dump())
+
+
+@router.get("/ai-calls/{call_id}/debug-snapshot", response_model=AIDebugSnapshotResponse)
+async def get_ai_call_debug_snapshot(call_id: str):
+    snapshot = get_debug_snapshot(call_id)
+    if not snapshot:
+        raise NotFoundError(message="调试快照不存在、未开启或已过期")
+    return snapshot

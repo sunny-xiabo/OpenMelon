@@ -24,6 +24,11 @@
 - **前端治理/日志中心组件拆分**: 治理中心按模型、待办队列、知识库、模板库和资产健康拆分组件，日志中心按筛选、清理、统计、分页、表格和详情抽屉拆分视图，主组件收敛为数据加载和动作编排。
 - **API 自动化状态边界整理**: 明确 API 自动化 `ui/spec/project/dsl/execution/history` 六类状态归属，新增跨域状态协调工具，统一处理文档切换重置、历史执行载入和策略快照注入，减少 context 间直接依赖。
 - **空状态/错误态标准化**: 扩展统一 `EmptyState` 组件支持 loading、error、empty 和 retry，用于 API 执行概览、日志中心、治理中心、图谱和测试用例生成的加载失败、无数据和重试场景。
+- **AI/RAG 调用可观测**: 新增 AI 调用元数据记录表和设置页“AI/RAG 观测”面板，记录模型、耗时、字符/token 量、降级状态和失败原因；RAG 回答、Embedding 和测试用例生成已接入，且不保存 prompt 原文。
+- **AI/RAG 调试快照**: AI/RAG 观测新增默认关闭的调试快照开关，开启前需二次确认；仅短期保存脱敏后的 prompt/响应片段，并提供快照查看弹窗用于本机排障。
+- **前端测试基线**: 引入 Vitest 与 React Testing Library，补充 API 客户端 mock、API Execution 核心工具函数、统一空状态组件和 AI/RAG 观测关键状态测试。
+- **配置版本治理**: 后端 `pyproject.toml`、`uv.lock`、前端 `package.json/package-lock.json` 统一到 `0.2.8.3`，FastAPI 应用版本改为读取统一版本 helper，并新增版本契约测试防止版本漂移。
+- **版本同步脚本**: 新增 `scripts/sync_version.py`，支持一条命令同步 changelog、后端包版本、锁文件和前端包版本，并提供 `--check` 模式用于发版前检查。
 
 ### 修复 (Fixed)
 - **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
@@ -43,6 +48,11 @@
 - **前端治理/日志中心拆分回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **API 自动化状态边界回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **空状态/错误态标准化回归**: `npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **AI/RAG 调用观测回归**: `conda activate openmlon && python -m compileall backend/app/api/ai_observability_service.py backend/app/api/routers/logs.py backend/app/api_execution/sqlite_store.py backend/app/engine/rag/generator.py backend/app/main.py backend/app/services/indexer.py backend/app/testcase_gen/services/ai_service.py`、`conda activate openmlon && python -m pytest backend/tests/test_event_logs.py`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **AI/RAG 调试快照回归**: 调试快照设置接口开启/关闭验证通过，`conda activate openmlon && python -m pytest backend/tests/test_event_logs.py`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **前端测试基线回归**: `npm --prefix frontend run test`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **配置版本治理回归**: `conda activate openmlon && python -m pytest backend/tests/test_version_contract.py`、`npm --prefix frontend run test`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **版本同步脚本回归**: `python scripts/sync_version.py 0.2.8.3 --date 2026-05-13 --check` 与 `conda activate openmlon && python -m pytest backend/tests/test_version_contract.py` 通过。
 
 ## [0.2.8.2] - 2026-05-12
 
