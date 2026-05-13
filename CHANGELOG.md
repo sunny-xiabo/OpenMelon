@@ -8,7 +8,6 @@
 ## [0.2.8.3] - 2026-05-13
 
 ### 变更 (Changed)
-- **文档同步更新**: README、操作说明和 MANUAL 已补齐运行配置中心、Provider 管理、自定义 Provider 持久化位置和热更新/需重启边界说明，避免页面能力上线后文档仍停留在旧配置方式。
 - **API Execution 路由 service 化**: API 执行、项目环境、OpenAPI 解析、模板、任务中心、AI 草稿/修复和知识沉淀路由改为薄路由，聚合、写库、诊断、AI 上下文拼装和知识治理逻辑下沉到 service 层。
 - **列表分页协议统一**: 日志中心、任务中心、执行历史、知识治理和模板治理的列表接口统一暴露 `limit`、`offset`、`total`、`items` 字段，并保留旧字段兼容现有页面。
 - **治理中心筛选与操作增强**: 治理中心补充任务状态/类型/风险/关键词、知识状态/类型/关键词、模板状态/关键词筛选，并新增复制 ID、模板删除和清空筛选操作。
@@ -46,6 +45,7 @@
 - **LLM Provider Registry 2C-3B**: 运行配置新增重启后生效预览、Provider 配置模板快捷应用、provider/settings/config preview/testcase_gen 一致性验证，并为 Registry 增加模板导出和 future provider 注册入口，便于后续扩展大模型厂商。
 - **运行配置 Provider 管理初版**: 运行配置新增 `Provider 管理` 子分组，支持在设置页创建、编辑和删除自定义 LLM Provider，并单独持久化到 runtime 配置文件；主模块 LLM 分组可直接消费这些自定义 Provider 模板，不改变 `.env` 结构。
 - **运行配置热更新阶段一收尾**: 主模块 LLM 热更新进一步覆盖 testcase_gen 主模块回退链路、API 修复入口以及 embedding 相关检索/索引公共路径；运行配置卡片补充 `热更新/需重启` 标识，减少配置生效范围误判。
+- **文档同步更新**: README、操作说明和 MANUAL 已补齐运行配置中心、Provider 管理、自定义 Provider 持久化位置和热更新/需重启边界说明，避免页面能力上线后文档仍停留在旧配置方式。
 
 ### 修复 (Fixed)
 - **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
