@@ -19,6 +19,7 @@ class Reranker:
         if getattr(self, "_initialized", False):
             return
         self.model = None  # type: ignore
+        self._model_signature = None
         self._initialized = True
 
     @property
@@ -28,8 +29,10 @@ class Reranker:
         return settings.RERANKER_BACKEND.strip().lower() or "local"
 
     def _load_model(self):
-        if self.model is not None:
+        signature = (settings.RERANKER_MODEL_NAME, settings.RERANKER_DEVICE)
+        if self.model is not None and self._model_signature == signature:
             return
+        self.model = None
         try:
             from FlagEmbedding import FlagReranker
 
@@ -38,8 +41,10 @@ class Reranker:
                 use_fp16=False,
                 device=settings.RERANKER_DEVICE,
             )
+            self._model_signature = signature
         except Exception:
             self.model = None
+            self._model_signature = None
 
     async def rerank(
         self,

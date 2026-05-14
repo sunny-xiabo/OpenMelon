@@ -16,7 +16,7 @@
 - **动态图谱可视化**：vis.js 实时渲染，支持拖拽、缩放、节点高亮，支持多维筛选和 2 度关系子图探索。
 - **全链路数据仪表盘**：涵盖图谱覆盖率、API 自动化健康度及 UI 自动化（规划中）的多维度可视化聚合看板，快速定位高风险功能。
 - **全格式文档解析与管理**：支持 16 种文件格式的解析（PDF/Word/Markdown/XMind 等），提供异步上传、文件追踪、重新索引及批量管理。
-- **灵活的部署与配置**：支持 OpenAI / Qwen / DeepSeek / Mimo 等多 Provider；运行时产物统一存放在 backend/runtime/，支持 OPENMELON_DATA_DIR 自定义挂载；原生支持企业级通知 Webhook。
+- **灵活的部署与配置**：支持内置 Provider 模板、自定义 Provider 注册、设置页运行配置中心和阶段一热更新；运行时产物统一存放在 `backend/runtime/`，支持 `OPENMELON_DATA_DIR` 自定义挂载；原生支持企业级通知 Webhook。
 
 ---
 
@@ -37,11 +37,13 @@ cd OpenMelon
 
 # 配置环境变量
 cp .env.example .env
-# 必须编辑 .env 填写以下两项：
+# 至少填写：
 # LLM_PROVIDER=qwen
 # API_KEY=你的大模型密钥
 ```
 > 默认不提供 Embedding 的模型（如 DeepSeek）需额外配置 Embedding 参数，详见 [.env.example](.env.example)。
+>
+> 如果初始化阶段还没有 `.env`，也可以先启动前后端，再到“设置 -> 运行配置”里执行最小初始化或从模板初始化。
 
 ### 2. 启动服务（两种方式任选）
 
@@ -103,8 +105,39 @@ npm run dev
 - **API 自动化**：![API 自动化页面](docs/screenshots/api-execution-page.png)
 - **设置 - 节点类型配置**：![节点类型配置](docs/screenshots/node-page.png)
 - **设置 - 项目与环境**：![项目与环境](docs/screenshots/project-env-page.png)
+- **设置 - 运行配置**：统一管理 `.env`、主模块 LLM、热更新项和自定义 Provider 模板
 - **设置 - Prompt Hub**：![Prompt Hub 页面](docs/screenshots/prompt-hub-page.png)
 </details>
+
+---
+
+## 运行配置中心
+
+设置页中的“运行配置”已经是当前版本推荐的运行参数入口，适合处理这些事情：
+
+- 初始化缺失的 `.env`
+- 查看配置来源：已生效 `.env`、程序默认、模板示例或未设置
+- 编辑主模块 LLM、Embedding、检索、Reranker、生成和日志生命周期参数
+- 管理自定义 Provider 模板，并在主模块 LLM 分组里直接套用
+
+当前阶段的生效规则：
+
+- `热更新`：保存后会刷新进程内运行参数，只影响后续新请求，不会中途切换正在执行的任务
+- `需重启`：配置已经写入 `.env`，但路径、数据库、向量库主连接和启动期长期持有资源仍需服务重启
+
+当前已接入热更新的重点范围包括：
+
+- 主模块 `LLM_PROVIDER`、`API_KEY`、`API_BASE_URL`、`CHAT_MODEL`
+- `EMBEDDING_MODEL`、`EMBEDDING_DIM`
+- 检索、Reranker、生成参数
+- 日志生命周期参数 `EVENT_LOG_RETENTION_DAYS`、`EVENT_LOG_MAX_ROWS`
+
+以下仍建议按重启生效处理：
+
+- `OPENMELON_DATA_DIR`
+- `NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`NEO4J_DATABASE`
+- 向量库主连接参数
+- 启动时初始化并长期持有的路径、数据库连接、客户端实例
 
 ---
 
@@ -112,11 +145,22 @@ npm run dev
 
 | Provider | `.env` 值 | 默认 Chat 模型 | 默认 Embedding 模型 |
 |----------|-----------|---------------|-------------------|
-| 公司网关 | `openai_compat` | qwen-plus | text-embedding-v3 |
+| OpenAI-compatible 网关 | `openai_compat` | qwen-plus | text-embedding-v3 |
 | OpenAI | `openai` | gpt-4o-mini | text-embedding-3-small |
 | 通义千问 | `qwen` | qwen-plus | text-embedding-v3 |
 | DeepSeek | `deepseek` | deepseek-chat | — |
 | Mimo | `mimo` | mimo-v2-flash | — |
+
+除了内置 Provider 外，运行配置中心还支持：
+
+- 新增、编辑、删除自定义 Provider
+- 保存推荐模型、别名、默认 Base URL 和 Embedding 能力
+- 将自定义 Provider 持久化到运行时文件，而不是直接写入 `.env`
+
+需要注意：
+
+- Provider 管理维护的是“模板库”，不会直接替换当前运行中的主模块配置
+- 真正生效的 Provider / Base URL / 模型，仍以 `.env` 和主模块 LLM 分组中当前保存值为准
 
 ---
 
@@ -160,7 +204,7 @@ OpenMelon/
 
 | 文档 | 适用对象 | 核心内容 |
 |------|---------|---------|
-| **[MANUAL.md](MANUAL.md)** | 开发者、运维 | 完整操作手册：架构详解、环境配置、API 参考、运维排查与 Prompt Hub 指南 |
+| **[MANUAL.md](MANUAL.md)** | 开发者、运维 | 操作手册：环境初始化、运行配置中心、Provider 管理、热更新边界、页面运维与常见排查 |
 | **[CHANGELOG.md](CHANGELOG.md)** | 开发者 | 项目版本的变更记录与架构优化历史归档 |
 | **[docs/Knowledge/FRONTEND_DEPLOYMENT.md](docs/Knowledge/FRONTEND_DEPLOYMENT.md)** | 运维 | 前端独立部署 Nginx 配置示例与环境变量说明 |
 | **[docs/Knowledge/OPERATION_INTRO_GUIDE.md](docs/Knowledge/OPERATION_INTRO_GUIDE.md)** | 新用户、测试、产品 | 页面入口、操作路径和常见使用流程 |

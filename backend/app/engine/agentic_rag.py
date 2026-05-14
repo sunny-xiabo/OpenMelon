@@ -17,10 +17,16 @@ class AgenticRAG:
     ) -> None:
         self.llm_client = llm_client
         self.retriever = retriever
-        self.max_steps = max_steps if max_steps is not None else settings.AGENTIC_MAX_STEPS
-        self.confidence_threshold = (
-            confidence_threshold
-            if confidence_threshold is not None
+        self.max_steps = max_steps
+        self.confidence_threshold = confidence_threshold
+
+    def _runtime_max_steps(self) -> int:
+        return self.max_steps if self.max_steps is not None else settings.AGENTIC_MAX_STEPS
+
+    def _runtime_confidence_threshold(self) -> float:
+        return (
+            self.confidence_threshold
+            if self.confidence_threshold is not None
             else settings.AGENTIC_CONFIDENCE_THRESHOLD
         )
 
@@ -32,8 +38,9 @@ class AgenticRAG:
         )
         user_message = f"Question: {question}\nAnswer: {answer}\nConfidence:"
         try:
+            model_name = settings.CHAT_MODEL
             resp = await self.llm_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
@@ -59,8 +66,9 @@ class AgenticRAG:
         )
         user_message = f"Question: {question}\nPrevious Context:\n{previous_context}\nOptimized Query:"
         try:
+            model_name = settings.CHAT_MODEL
             resp = await self.llm_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
@@ -91,8 +99,9 @@ class AgenticRAG:
         )
         user_message = f"Question: {question}\n\nContext:\n{contexts_block}\n\n{reasoning_text}\n\nProvide a final answer based on the above."
         try:
+            model_name = settings.CHAT_MODEL
             resp = await self.llm_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message},
@@ -111,7 +120,9 @@ class AgenticRAG:
         all_sources: List[Dict[str, Any]] = []
         current_query = question
 
-        for step in range(1, self.max_steps + 1):
+        confidence_threshold = self._runtime_confidence_threshold()
+        max_steps = self._runtime_max_steps()
+        for step in range(1, max_steps + 1):
             if step > 1:
                 prior_context = "\n".join(all_contexts[-3:]) if all_contexts else ""
                 current_query = await self._rewrite_query(question, prior_context)
@@ -139,7 +150,7 @@ class AgenticRAG:
             reasoning_steps.append(
                 f"Step {step}: Retrieved {len(chunks)} chunks; sufficiency score={sufficient:.3f}"
             )
-            if sufficient >= self.confidence_threshold:
+            if sufficient >= confidence_threshold:
                 break
 
         if not all_contexts:

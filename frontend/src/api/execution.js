@@ -355,6 +355,9 @@ export const apiExecutionAPI = {
       body: JSON.stringify({ script, ...options }),
     }),
 
+  getRunProgressStreamUrl: (runId) =>
+    `${API_BASE}/api-execution/runs/${encodeURIComponent(runId)}/stream`,
+
   getRun: (runId) =>
     fetchJSON(`${API_BASE}/api-execution/runs/${encodeURIComponent(runId)}`),
 

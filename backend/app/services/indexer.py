@@ -7,6 +7,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from app.config import settings
 from app.api.ai_observability_service import build_usage_from_response, safe_record_ai_call
+from app.runtime_config import current_chat_config, current_embedding_config
 from app.services.file_tracker import file_tracker
 
 _ilog = logging.getLogger("app.services.indexer")
@@ -307,23 +308,23 @@ class DocumentIndexer:
         return chunks
 
     async def generate_embedding(self, text: str) -> List[float]:
-        dim = settings.EMBEDDING_DIM or 1024
-        if not self.openai_async_client or not settings.EMBEDDING_MODEL:
+        embedding_config = current_embedding_config()
+        dim = int(embedding_config["dimension"])
+        model_name = str(embedding_config["model"] or "")
+        provider = str(embedding_config["provider"] or "")
+        if not self.openai_async_client or not model_name:
             return [0.0] * dim
         started_at = time.perf_counter()
         try:
-            model_name = settings.EMBEDDING_MODEL
             kwargs = {
                 "input": [text],
-                "model": model_name,
+                **embedding_config["kwargs"],
             }
-            if settings.EMBEDDING_DIM and model_name and "text-embedding-3" in model_name:
-                kwargs["dimensions"] = settings.EMBEDDING_DIM
             resp = await self.openai_async_client.embeddings.create(**kwargs)
             safe_record_ai_call(
                 feature="embedding",
                 operation="document_index_embedding",
-                provider=settings.LLM_PROVIDER,
+                provider=provider,
                 model=model_name,
                 status="success",
                 latency_ms=round((time.perf_counter() - started_at) * 1000),
@@ -339,8 +340,8 @@ class DocumentIndexer:
             safe_record_ai_call(
                 feature="embedding",
                 operation="document_index_embedding",
-                provider=settings.LLM_PROVIDER,
-                model=settings.EMBEDDING_MODEL,
+                provider=provider,
+                model=model_name,
                 status="failed",
                 latency_ms=round((time.perf_counter() - started_at) * 1000),
                 prompt_chars=len(text),
@@ -398,7 +399,7 @@ class DocumentIndexer:
         chunk_data = []
         for chunk, embedding in zip(valid_chunks, embeddings):
             if isinstance(embedding, Exception):
-                embedding = [0.0] * (settings.EMBEDDING_DIM or 1024)
+                embedding = [0.0] * dim
 
             chunk_id = f"chunk:{doc_type}:{filename}:{chunk['chunk_index']}"
             chunk_data.append(
@@ -616,8 +617,9 @@ class DocumentIndexer:
         entities: List[Dict[str, Any]] = []
         if self.openai_async_client is not None:
             try:
+                chat_config = current_chat_config()
                 resp = await self.openai_async_client.chat.completions.create(
-                    model=settings.CHAT_MODEL,
+                    model=chat_config["model"],
                     messages=[
                         {
                             "role": "system",
@@ -656,8 +658,9 @@ class DocumentIndexer:
         if not self.openai_async_client:
             return []
         try:
+            chat_config = current_chat_config()
             resp = await self.openai_async_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=chat_config["model"],
                 messages=[
                     {
                         "role": "system",

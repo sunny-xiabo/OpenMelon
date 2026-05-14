@@ -7,7 +7,7 @@ from typing import List, Dict, Any, AsyncGenerator, Optional
 import time
 
 from app.api.ai_observability_service import safe_record_ai_call
-from app.config import settings
+from app.testcase_gen.utils.llms import get_model_runtime_info, get_testcase_llm_summary
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.utils.performance_optimizer import (
     response_cache,
@@ -59,6 +59,10 @@ class AIService:
         failed_reason = ""
         degraded = False
         recorded = False
+        file_extension = file_path.lower().split(".")[-1] if "." in file_path else ""
+        uses_vision_model = file_extension in {"png", "jpg", "jpeg", "gif", "bmp", "webp"}
+        runtime_model = get_model_runtime_info(use_vision=uses_vision_model)
+        llm_summary = get_testcase_llm_summary()
         with Timer("三阶段流程总耗时"):
             try:
                 logger.info(f"开始三阶段流程 - 文件: {file_path}")
@@ -86,8 +90,8 @@ class AIService:
                         safe_record_ai_call(
                             feature="testcase_generation",
                             operation="generate_test_cases_stream",
-                            provider=settings.LLM_PROVIDER,
-                            model=settings.CHAT_MODEL,
+                            provider=str(runtime_model["provider"]),
+                            model=str(runtime_model["model_name"]),
                             status="success",
                             latency_ms=round((time.perf_counter() - started_at) * 1000),
                             prompt_chars=prompt_chars,
@@ -97,7 +101,13 @@ class AIService:
                                 "context": context,
                                 "response": cached_response,
                             },
-                            data={"cached": True, "use_vector": use_vector},
+                            data={
+                                "cached": True,
+                                "use_vector": use_vector,
+                                "llm_source": runtime_model["source"],
+                                "llm_source_label": runtime_model["source_label"],
+                                "llm_summary": llm_summary,
+                            },
                         )
                         recorded = True
                         yield cached_response
@@ -214,8 +224,8 @@ class AIService:
                     safe_record_ai_call(
                         feature="testcase_generation",
                         operation="generate_test_cases_stream",
-                        provider=settings.LLM_PROVIDER,
-                        model=settings.CHAT_MODEL,
+                        provider=str(runtime_model["provider"]),
+                        model=str(runtime_model["model_name"]),
                         status="failed" if failed_reason else "success",
                         latency_ms=round((time.perf_counter() - started_at) * 1000),
                         prompt_chars=prompt_chars,
@@ -227,7 +237,14 @@ class AIService:
                             "context": context,
                             "response": full_response if not failed_reason else failed_reason,
                         },
-                        data={"cached": False, "use_vector": use_vector, "module": module or ""},
+                        data={
+                            "cached": False,
+                            "use_vector": use_vector,
+                            "module": module or "",
+                            "llm_source": runtime_model["source"],
+                            "llm_source_label": runtime_model["source_label"],
+                            "llm_summary": llm_summary,
+                        },
                     )
                 logger.info("三阶段流式过程结束")
 

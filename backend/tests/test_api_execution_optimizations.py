@@ -93,6 +93,65 @@ class TestRunQueueRecoverStaleRuns:
         assert store.get_run("r1")["status"] == "failed"
 
 
+class TestStoragePerformanceGuards:
+    def test_run_keyword_search_uses_indexed_summary_fields_only(self, tmp_path):
+        store = APIExecutionStore(tmp_path)
+        store.save_run({
+            "run_id": "run-1",
+            "status": "passed",
+            "case_id": "case-1",
+            "case_name": "订单查询",
+            "run_at": "2026-01-01T00:00:00Z",
+            "diagnostic": {"message": "deep-json-only-keyword"},
+        })
+
+        assert store.count_runs(keyword="订单") == 1
+        assert store.count_runs(keyword="run-1") == 1
+        assert store.count_runs(keyword="deep-json-only-keyword") == 0
+
+    def test_storage_list_methods_clamp_limit_and_offset(self, tmp_path):
+        store = APIExecutionStore(tmp_path)
+        for index in range(220):
+            store.save_event_log({
+                "event_id": f"event-{index}",
+                "created_at": f"2026-01-01T00:00:{index % 60:02d}Z",
+                "level": "info",
+                "module": "api_execution",
+                "event_type": "run_event",
+                "project_id": "project-1",
+                "trace_id": f"trace-{index}",
+                "source_id": f"run-{index}",
+                "title": "事件",
+                "message": "message",
+                "refs": [],
+                "data": {},
+            })
+
+        assert len(store.list_event_logs(limit=999, offset=-10)) == 200
+
+    def test_knowledge_review_filters_use_indexed_status_columns(self, tmp_path):
+        store = APIExecutionStore(tmp_path)
+        store.save_knowledge_item({
+            "knowledge_id": "knowledge-active",
+            "item_type": "api_failure",
+            "project_id": "project-1",
+            "status": "active",
+            "created_at": "2026-01-02T00:00:00Z",
+        })
+        store.save_knowledge_item({
+            "knowledge_id": "knowledge-invalid",
+            "item_type": "api_failure",
+            "project_id": "project-1",
+            "status": "invalid",
+            "created_at": "2026-01-01T00:00:00Z",
+        })
+
+        items = store.list_knowledge_items(project_id="project-1", status="active", limit=50)
+
+        assert [item["knowledge_id"] for item in items] == ["knowledge-active"]
+        assert store.count_knowledge_items(project_id="project-1", status="active") == 1
+
+
 def _make_rerun_request(max_reruns: int = 1) -> RunScriptRequest:
     return RunScriptRequest(
         script=APITestCaseDsl(

@@ -15,10 +15,8 @@ from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 
 from app.testcase_gen.utils.llms import (
-    model_client,
-    deepseek_model_client,
-    QWEN_MODEL_NAME,
-    DEEPSEEK_MODEL_NAME,
+    get_model_client,
+    get_model_display_name,
 )
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.prompt_assembler import build_generator_prompt
@@ -36,9 +34,9 @@ class TestCaseGenerator:
 
         # 图像文件使用支持视觉的模型
         if file_extension in ["png", "jpg", "jpeg", "gif", "bmp", "webp"]:
-            return model_client
+            return get_model_client(use_vision=True)
         else:
-            return deepseek_model_client
+            return get_model_client(use_vision=False)
 
     async def generate_test_cases_stream(
         self,
@@ -63,10 +61,10 @@ class TestCaseGenerator:
         """
         selected_model_client = self._get_model_client_for_file_type(file_path)
         file_extension = file_path.lower().split(".")[-1] if "." in file_path else ""
+        uses_vision_model = file_extension in ["png", "jpg", "jpeg", "gif", "bmp", "webp"]
+        model_name = get_model_display_name(use_vision=uses_vision_model)
 
-        logger.info(
-            f"测试用例生成 - 文件类型: {file_extension}, 模型: {DEEPSEEK_MODEL_NAME if selected_model_client == deepseek_model_client else QWEN_MODEL_NAME}"
-        )
+        logger.info(f"测试用例生成 - 文件类型: {file_extension}, 模型: {model_name}")
         if prompt_config:
             logger.info(
                 "生成器配置 - style_id=%s, skill_ids=%s, prompt_length=%s",
@@ -100,7 +98,7 @@ class TestCaseGenerator:
 
         yield "# 测试用例生成阶段\n\n"
         yield f"**文件类型**: {file_extension.upper()}\n"
-        yield f"**使用模型**: {DEEPSEEK_MODEL_NAME if selected_model_client == deepseek_model_client else QWEN_MODEL_NAME}\n"
+        yield f"**使用模型**: {model_name}\n"
         yield "\n---\n\n"
 
         test_cases_content = ""

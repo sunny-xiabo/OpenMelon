@@ -14,7 +14,7 @@ from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 
-from app.testcase_gen.utils.llms import deepseek_model_client, DEEPSEEK_MODEL_NAME
+from app.testcase_gen.utils.llms import get_model_client, get_model_display_name
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.prompt_assembler import build_reviewer_prompt
 
@@ -45,6 +45,7 @@ class TestCaseReviewer:
             评审报告和改进后的测试用例（Markdown格式）
         """
         logger.info("开始测试用例评审")
+        model_name = get_model_display_name(use_vision=False)
         if prompt_config:
             logger.info(
                 "评审器配置 - style_id=%s, skill_ids=%s",
@@ -83,13 +84,13 @@ class TestCaseReviewer:
 
         agent = AssistantAgent(
             name="test_case_reviewer",
-            model_client=deepseek_model_client,
+            model_client=get_model_client(use_vision=False),
             system_message=system_message,
             model_client_stream=True,
         )
 
         yield "# 测试用例评审阶段\n\n"
-        yield f"**使用模型**: {DEEPSEEK_MODEL_NAME}\n"
+        yield f"**使用模型**: {model_name}\n"
         yield "**评审内容**: 完整性、一致性、可执行性、覆盖度\n\n"
         yield "---\n\n"
 

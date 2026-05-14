@@ -29,6 +29,7 @@ from app.testcase_gen.services.prompt_assembler import (
     build_prompt_config_context,
     parse_skill_ids,
 )
+from app.runtime_config import current_embedding_config
 
 
 def _trace_id(prefix: str) -> str:
@@ -94,6 +95,28 @@ async def _stream_with_generation_log(stream, *, trace_id: str, module: str | No
             data={**data, "module": module or "", "error": str(exc)},
         )
         raise
+
+
+async def build_vector_context(llm_client, vector_ops, query_text: str) -> str:
+    embedding_config = current_embedding_config()
+    model_name = embedding_config["model"]
+    if not model_name:
+        return ""
+    kwargs = {
+        **embedding_config["kwargs"],
+        "input": [query_text],
+    }
+    emb_resp = await llm_client.embeddings.create(**kwargs)
+    query_embedding = emb_resp.data[0].embedding
+    similar_chunks = await vector_ops.similarity_search(query_embedding, top_k=3)
+    similar_tcs = await vector_ops.search_similar_test_cases(query_embedding, top_k=3)
+
+    vector_context = ""
+    if similar_chunks:
+        vector_context += "【相关参考文档片段】\n" + "\n\n".join([f"[{c.get('filename','')}]\n{c.get('content', '')}" for c in similar_chunks]) + "\n\n"
+    if similar_tcs:
+        vector_context += "【相似历史用例参考】\n" + "\n\n".join([f"[{tc.get('test_case_name', '')}]\n{tc.get('description', '')[:200]}..." for tc in similar_tcs]) + "\n\n"
+    return vector_context
 
 
 def validate_file_type(file_content: bytes, filename: str) -> bool:

@@ -46,8 +46,10 @@ Return ONLY a JSON object with format:
 {"intent": "graph_query|vector_query|hybrid_query|visualization", "confidence": 0.0-1.0}"""
 
         try:
+            model_name = settings.CHAT_MODEL
+            confidence_threshold = settings.INTENT_CONFIDENCE_THRESHOLD
             response = await self.openai_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": question},
@@ -61,7 +63,7 @@ Return ONLY a JSON object with format:
             confidence = float(result.get("confidence", 0.5))
 
             # Fallback to hybrid_query when confidence is low
-            if confidence < settings.INTENT_CONFIDENCE_THRESHOLD:
+            if confidence < confidence_threshold:
                 intent = "hybrid_query"
 
             return {"intent": intent, "confidence": confidence}

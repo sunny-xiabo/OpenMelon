@@ -22,14 +22,17 @@ class RAGGenerator:
         prompt_chars = len(prompt["system"]) + len(prompt["user"])
 
         try:
+            model_name = settings.CHAT_MODEL
+            temperature = settings.GENERATION_TEMPERATURE
+            max_tokens = settings.GENERATION_MAX_TOKENS
             response = await self.openai_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
+                model=model_name,
                 messages=[
                     {"role": "system", "content": prompt["system"]},
                     {"role": "user", "content": prompt["user"]},
                 ],
-                temperature=settings.GENERATION_TEMPERATURE,
-                max_tokens=settings.GENERATION_MAX_TOKENS,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
             answer = response.choices[0].message.content.strip()
             usage = build_usage_from_response(response)
@@ -37,7 +40,7 @@ class RAGGenerator:
                 feature="rag",
                 operation="generate_answer",
                 provider=settings.LLM_PROVIDER,
-                model=settings.CHAT_MODEL,
+                model=model_name,
                 status="success",
                 latency_ms=round((time.perf_counter() - started_at) * 1000),
                 prompt_chars=prompt_chars,

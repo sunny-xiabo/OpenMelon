@@ -29,6 +29,23 @@
 - **前端测试基线**: 引入 Vitest 与 React Testing Library，补充 API 客户端 mock、API Execution 核心工具函数、统一空状态组件和 AI/RAG 观测关键状态测试。
 - **配置版本治理**: 后端 `pyproject.toml`、`uv.lock`、前端 `package.json/package-lock.json` 统一到 `0.2.8.3`，FastAPI 应用版本改为读取统一版本 helper，并新增版本契约测试防止版本漂移。
 - **版本同步脚本**: 新增 `scripts/sync_version.py`，支持一条命令同步 changelog、后端包版本、锁文件和前端包版本，并提供 `--check` 模式用于发版前检查。
+- **性能边界优化**: 设置页内部重面板继续按需加载；后端列表/聚合接口增加 `limit/offset` 参数约束，SQLite 补充 runs、任务、日志、AI 调用和知识治理复合索引，并收窄执行历史关键词查询，避免全表 JSON 扫描。
+- **模块级领域边界**: 新增 `app.domain_boundaries` 领域清单和领域边界文档，明确 API 自动化、测试用例生成、知识库/RAG、治理中心、日志中心的后端 package 与前端 feature 归属；日志中心新增 `app.log_center` facade，前端治理/日志/AI 观测/执行仪表盘补齐 feature 根入口。
+- **日志中心领域迁包**: 日志中心路由实现迁入 `app.log_center.router`，响应模型拆入 `app.log_center.schemas`，旧 `app.api.routers.logs` 保留兼容 re-export，后续日志中心新增能力统一落到领域包。
+- **治理中心 service facade**: 新增 `app.governance_center.services`，统一承接待办队列、知识治理和模板治理服务入口；原 API 自动化路由路径保持不变，内部调用改走治理中心领域 facade。
+- **知识库/RAG facade**: 新增 `app.knowledge_rag` 领域入口，集中暴露图谱/向量操作、检索器、RAG 生成器、索引器、覆盖率和文件追踪，并将后端启动装配收敛到 `build_knowledge_rag_components`。
+- **环境配置模板补齐**: `.env.example` 补充运行时数据目录、节点类型配置路径、上传大小和事件日志生命周期配置，并新增契约测试防止后续配置项遗漏模板说明。
+- **运行配置中心初版**: 设置页新增“运行配置”模块，按 `.env.example` 分组展示当前 `.env` 状态，支持缺失 `.env` 时最小初始化/从模板初始化、敏感值遮蔽、可编辑项保存前校验和自动备份；配置来源区分“已生效 .env / 程序默认 / 模板示例 / 未设置”，避免把注释配置误判为已打开。
+- **testcase_gen LLM 生效关系收口**: testcase_gen 统一按 `CUSTOM > QWEN/DEEPSEEK > 主模块` 判定实际调用模型，生成/分析/评审展示真实模型名，AI/RAG 观测记录真实 provider、model 和来源，并在运行配置中心展示视觉模型与文本模型当前来源。
+- **LLM Provider Registry 阶段一**: 新增统一 Provider Registry，集中维护 `openai_compat/openai/qwen/deepseek/mimo` 默认值、别名和运行配置下拉选项；`Settings.apply_provider_defaults` 与运行配置中心统一读取 registry，保持 unknown provider 兼容回退，不改变当前 `.env` 运行语义。
+- **运行配置 LLM 展示优化**: testcase_gen LLM 摘要改为展示最终生效模型、Base URL 和来源说明；独立 LLM 配置区改为“统一自定义模型 / 视觉分析模型 / 文本生成评审模型”三张用途卡片，Base URL 支持复用主模块、官方默认或自定义，模型名支持推荐选项和手动输入。
+- **运行配置卡片化**: 运行配置左侧目录统一为卡片按钮，普通配置项改为两列卡片网格，状态、说明和输入区分层展示，和 testcase_gen LLM 用途卡片保持一致。
+- **LLM Provider Registry 2A**: Provider Registry 补充 provider 能力、默认地址标签、推荐聊天模型和推荐 Embedding 模型；运行配置中心主模块 LLM 分组展示当前 provider 能力与推荐模型快捷选择，不改变当前启动和 `.env` 语义。
+- **LLM Provider Registry 2B**: 运行配置校验新增非阻断 warning，提示未知 provider 兼容回退、无默认 Embedding、主模块 Key 缺失和 testcase_gen 独立 LLM 复用默认模型/Base URL 等风险；保存流程会展示提示但不改变 `.env` 格式和现有运行语义。
+- **LLM Provider Registry 2C-3B**: 运行配置新增重启后生效预览、Provider 配置模板快捷应用、provider/settings/config preview/testcase_gen 一致性验证，并为 Registry 增加模板导出和 future provider 注册入口，便于后续扩展大模型厂商。
+- **运行配置 Provider 管理初版**: 运行配置新增 `Provider 管理` 子分组，支持在设置页创建、编辑和删除自定义 LLM Provider，并单独持久化到 runtime 配置文件；主模块 LLM 分组可直接消费这些自定义 Provider 模板，不改变 `.env` 结构。
+- **运行配置热更新阶段一收尾**: 主模块 LLM 热更新进一步覆盖 testcase_gen 主模块回退链路、API 修复入口以及 embedding 相关检索/索引公共路径；运行配置卡片补充 `热更新/需重启` 标识，减少配置生效范围误判。
+- **文档同步更新**: README、操作说明和 MANUAL 已补齐运行配置中心、Provider 管理、自定义 Provider 持久化位置和热更新/需重启边界说明，避免页面能力上线后文档仍停留在旧配置方式。
 
 ### 修复 (Fixed)
 - **日志中心运行时崩溃**: 修复设置页日志中心直接调用 `formatRunTime` 但未导入导致 `ReferenceError: formatRunTime is not defined` 的问题，日志中心统计卡片、表格时间和详情抽屉可正常渲染。
@@ -53,6 +70,20 @@
 - **前端测试基线回归**: `npm --prefix frontend run test`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **配置版本治理回归**: `conda activate openmlon && python -m pytest backend/tests/test_version_contract.py`、`npm --prefix frontend run test`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
 - **版本同步脚本回归**: `python scripts/sync_version.py 0.2.8.3 --date 2026-05-13 --check` 与 `conda activate openmlon && python -m pytest backend/tests/test_version_contract.py` 通过。
+- **性能边界回归**: `conda activate openmlon && python -m pytest backend/tests/test_api_execution_optimizations.py backend/tests/test_event_logs.py backend/tests/test_api_execution_dashboard.py`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **模块级领域边界回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_event_logs.py`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过。
+- **日志中心领域迁包回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_event_logs.py` 通过。
+- **治理中心 service facade 回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_api_execution_dashboard.py backend/tests/test_api_execution_knowledge.py` 通过。
+- **知识库/RAG facade 回归**: `conda activate openmlon && python -m pytest backend/tests/test_domain_boundaries.py backend/tests/test_coverage_service.py backend/tests/test_file_tracker_sqlite.py`、`conda activate openmlon && python -m compileall backend/app/knowledge_rag backend/app/main.py` 通过。
+- **环境配置模板回归**: `conda activate openmlon && python -m pytest backend/tests/test_env_example_contract.py` 通过。
+- **运行配置中心回归**: `conda activate openmlon && python -m pytest backend/tests/test_env_example_contract.py backend/tests/test_config_center_service.py`、`conda activate openmlon && python -m compileall backend/app/config_center backend/app/api/routes.py`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `npm --prefix frontend run test` 通过。
+- **testcase_gen LLM 生效关系回归**: `conda activate openmlon && python -m pytest backend/tests/test_config_center_service.py backend/tests/test_env_example_contract.py`、`conda activate openmlon && python -m compileall backend/app/testcase_gen backend/app/config_center`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `npm --prefix frontend run test` 通过。
+- **LLM Provider Registry 回归**: `conda activate openmlon && python -m pytest backend/tests/test_llm_provider_registry.py backend/tests/test_config_center_service.py backend/tests/test_env_example_contract.py`、`conda activate openmlon && python -m compileall backend/app/llm_provider_registry.py backend/app/config.py backend/app/config_center` 通过。
+- **运行配置 LLM 展示回归**: `conda activate openmlon && python -m pytest backend/tests/test_config_center_service.py backend/tests/test_llm_provider_registry.py backend/tests/test_env_example_contract.py`、`conda activate openmlon && python -m compileall backend/app/config_center backend/app/testcase_gen/utils/llms.py`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `npm --prefix frontend run test` 通过。
+- **运行配置卡片化回归**: `npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `npm --prefix frontend run test` 通过。
+- **LLM Provider Registry 2A 回归**: `conda activate openmlon && python -m pytest backend/tests/test_llm_provider_registry.py backend/tests/test_config_center_service.py backend/tests/test_env_example_contract.py`、`conda activate openmlon && python -m compileall backend/app/llm_provider_registry.py backend/app/config_center`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `npm --prefix frontend run test` 通过。
+- **LLM Provider Registry 2B 回归**: `conda activate openmlon && python -m pytest backend/tests/test_config_center_service.py backend/tests/test_llm_provider_registry.py backend/tests/test_env_example_contract.py`、`conda activate openmlon && python -m compileall backend/app/config_center backend/app/llm_provider_registry.py`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `npm --prefix frontend run test` 通过。
+- **LLM Provider Registry 2C-3B 回归**: `conda activate openmlon && python -m pytest backend/tests/test_config_center_service.py backend/tests/test_llm_provider_registry.py backend/tests/test_env_example_contract.py`、`conda activate openmlon && python -m compileall backend/app/config_center backend/app/llm_provider_registry.py`、`npm --prefix frontend run lint`、`npm --prefix frontend run build` 与 `npm --prefix frontend run test` 通过。
 
 ## [0.2.8.2] - 2026-05-12
 

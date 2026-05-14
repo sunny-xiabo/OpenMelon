@@ -11,8 +11,7 @@ from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 
 from app.testcase_gen.utils.llms import (
-    model_client,
-    deepseek_model_client,
+    get_model_client,
 )
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.pdf_service import pdf_service
@@ -39,9 +38,9 @@ class BaseAgent(ABC):
 
         # 图像文件使用支持视觉的模型客户端
         if file_extension in ["png", "jpg", "jpeg", "gif", "bmp", "webp"]:
-            return model_client  # 支持视觉的模型
+            return get_model_client(use_vision=True)
         else:
-            return deepseek_model_client
+            return get_model_client(use_vision=False)
 
     def get_file_extension(self, file_path: str) -> str:
         """获取文件扩展名"""
@@ -99,7 +98,7 @@ class BaseAgent(ABC):
         返回:
             AssistantAgent实例
         """
-        client = model_client_instance or deepseek_model_client
+        client = model_client_instance or get_model_client(use_vision=False)
 
         return AssistantAgent(
             name=self.name,

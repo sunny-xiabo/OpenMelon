@@ -68,6 +68,9 @@ class MultiChannelRetriever:
         """Retrieve relevant document chunks using vector similarity."""
         if top_k is None:
             top_k = settings.RETRIEVAL_TOP_K
+        reranker_enabled = settings.USE_RERANKER
+        reranker_top_k = settings.RERANKER_TOP_K
+        reranker_score_threshold = settings.RERANKER_SCORE_THRESHOLD
         embedding = await self._get_embedding(question)
         results = await self.vector_ops.similarity_search(embedding, top_k=top_k)
 
@@ -76,14 +79,14 @@ class MultiChannelRetriever:
             test_case_results = await self.vector_ops.search_similar_test_cases(embedding, top_k=max(2, top_k // 2))
 
         # Apply reranking first if available
-        if use_reranker and results and settings.USE_RERANKER:
+        if use_reranker and results and reranker_enabled:
             doc_contents = [r.get("content", "") for r in results]
-            rerank_top_k = min(settings.RERANKER_TOP_K, len(results))
+            rerank_top_k = min(reranker_top_k, len(results))
             rerank_results = await reranker.rerank(
                 question,
                 doc_contents,
                 top_k=rerank_top_k,
-                score_threshold=settings.RERANKER_SCORE_THRESHOLD,
+                score_threshold=reranker_score_threshold,
             )
             if rerank_results:
                 reranked_indices = [idx for idx, _ in rerank_results]
@@ -123,14 +126,13 @@ class MultiChannelRetriever:
             depth = settings.RETRIEVAL_DEPTH
         if top_k is None:
             top_k = settings.RETRIEVAL_TOP_K
+        graph_weight = settings.HYBRID_GRAPH_WEIGHT
+        vector_weight = settings.HYBRID_VECTOR_WEIGHT
 
         graph_result = await self.graph_retrieve(entities, depth=depth)
         vector_result = await self.vector_retrieve(question, top_k=top_k)
 
         # Apply hybrid weights to context ordering
-        graph_weight = settings.HYBRID_GRAPH_WEIGHT
-        vector_weight = settings.HYBRID_VECTOR_WEIGHT
-
         # Weighted context: put higher-weight source first
         if vector_weight >= graph_weight:
             merged_context = f"Document Context (weight={vector_weight}):\n{vector_result['context_text']}\n\nGraph Context (weight={graph_weight}):\n{graph_result['context_text']}"
@@ -187,17 +189,19 @@ class MultiChannelRetriever:
         }
 
     async def _get_embedding(self, text: str) -> List[float]:
-        if not settings.EMBEDDING_MODEL:
-            return [0.0] * max(settings.EMBEDDING_DIM, 1024)
+        embedding_model = settings.EMBEDDING_MODEL
+        embedding_dim = settings.EMBEDDING_DIM
+        if not embedding_model:
+            return [0.0] * max(embedding_dim, 1024)
         try:
-            model_name = settings.EMBEDDING_MODEL
+            model_name = embedding_model
             kwargs = {
                 "model": model_name,
                 "input": [text],
             }
-            if settings.EMBEDDING_DIM and model_name and "text-embedding-3" in model_name:
-                kwargs["dimensions"] = settings.EMBEDDING_DIM
+            if embedding_dim and model_name and "text-embedding-3" in model_name:
+                kwargs["dimensions"] = embedding_dim
             response = await self.openai_client.embeddings.create(**kwargs)
             return response.data[0].embedding
         except Exception:
-            return [0.0] * max(settings.EMBEDDING_DIM, 1024)
+            return [0.0] * max(embedding_dim, 1024)

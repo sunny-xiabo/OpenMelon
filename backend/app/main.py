@@ -15,16 +15,7 @@ from app.testcase_gen.routers import router as testcase_router
 from app.services.metrics import metrics_collector
 from app.services.session_manager import session_manager
 from app.services.enterprise_webhook import enterprise_integration
-from app.storage.neo4j_client import Neo4jClient
-from app.storage.graph_ops import GraphOperations
-from app.storage.vector_ops import VectorOperations
-from app.engine.intent.router import IntentRouter
-from app.engine.retrieval.multi_channel import MultiChannelRetriever
-from app.engine.rag.generator import RAGGenerator
-from app.engine.agentic_rag import AgenticRAG
-from app.services.indexer import DocumentIndexer
-from app.services.coverage import CoverageService
-from app.services.file_tracker import file_tracker
+from app.knowledge_rag import build_knowledge_rag_components, file_tracker
 from app.api.routes import router
 from app.testcase_gen.services.neo4j_writer import init_neo4j_writer
 from app.testcase_gen.services.graph_context_retriever import (
@@ -63,73 +54,29 @@ async def lifespan(app: FastAPI):
         enforce_dimensions,
     )
 
-    neo4j_client = Neo4jClient()
-    neo4j_available = False
-    driver = None
-    graph_ops = None
-    vector_ops = None
-    indexer = None
-    coverage_service = None
-
-    try:
-        await neo4j_client.connect()
-        await neo4j_client.initialize_indexes()
-        logger.info("Neo4j 连接成功: %s", settings.NEO4J_URI)
-        neo4j_available = True
-    except Exception as exc:
-        logger.warning(
-            "Neo4j 当前不可用，OpenMelon 将以降级模式启动；图谱、覆盖率、导入索引和 RAG 检索暂不可用。"
-            "请启动 Neo4j 后重启后端。URI=%s, error=%s",
-            settings.NEO4J_URI,
-            exc,
-        )
-
-    if neo4j_available:
-        driver = neo4j_client.driver
-        graph_ops = GraphOperations(driver)
-        vector_ops = VectorOperations(driver)
-
-        if settings.USE_EXTERNAL_VECTOR:
-            await vector_ops.init_external_collections()
-
     llm_client = AsyncOpenAI(
         api_key=settings.API_KEY,
         base_url=settings.API_BASE_URL,
     )
 
-    # ==========================
-    # 核心引擎与服务初始化
-    # ==========================
-    # 意图识别：分析用户提问意图（是要找功能、问缺陷还是看覆盖率？）
-    intent_router = IntentRouter(llm_client, graph_ops) if graph_ops else None
-    # 多路召回器：综合图谱搜索与向量搜索，拼装最终检索结果
-    retriever = MultiChannelRetriever(graph_ops, vector_ops, llm_client) if graph_ops and vector_ops else None
-    # 文本生成器：根据召回的上下文回答问题
-    generator = RAGGenerator(llm_client)
-    # Agentic RAG（高级玩法）：带有思考、计划和自我纠错能力的 RAG
-    agentic_rag = AgenticRAG(llm_client, retriever) if retriever else None
-    # 文档索引器：负责把文件拆 Chunk，写向量库，提炼实体并写入图数据库
-    if neo4j_available:
-        indexer = DocumentIndexer(neo4j_client, graph_ops, vector_ops, llm_client)
-    # 覆盖率服务：分析知识图谱里的 Module->Feature->TestCase 关系网计算覆盖率
-        coverage_service = CoverageService(graph_ops)
+    knowledge_rag = await build_knowledge_rag_components(llm_client, logger)
 
-    app.state.neo4j_client = neo4j_client
-    app.state.graph_ops = graph_ops
-    app.state.vector_ops = vector_ops
+    app.state.neo4j_client = knowledge_rag.neo4j_client
+    app.state.graph_ops = knowledge_rag.graph_ops
+    app.state.vector_ops = knowledge_rag.vector_ops
     app.state.llm_client = llm_client
-    app.state.intent_router = intent_router
-    app.state.retriever = retriever
-    app.state.generator = generator
-    app.state.agentic_rag = agentic_rag
-    app.state.indexer = indexer
-    app.state.coverage_service = coverage_service
+    app.state.intent_router = knowledge_rag.intent_router
+    app.state.retriever = knowledge_rag.retriever
+    app.state.generator = knowledge_rag.generator
+    app.state.agentic_rag = knowledge_rag.agentic_rag
+    app.state.indexer = knowledge_rag.indexer
+    app.state.coverage_service = knowledge_rag.coverage_service
     app.state.file_tracker = file_tracker
     app.state.metrics_collector = metrics_collector
     app.state.session_manager = session_manager
     app.state.enterprise_integration = enterprise_integration
-    app.state.neo4j_driver = driver
-    app.state.neo4j_available = neo4j_available
+    app.state.neo4j_driver = knowledge_rag.driver
+    app.state.neo4j_available = knowledge_rag.neo4j_available
 
     async def generate_embedding(text: str):
         # 兼容 bge 模型 512 tokens 限制，安全截断至 400 字符。对于其他模型也截断以防越界。
@@ -172,9 +119,9 @@ async def lifespan(app: FastAPI):
             raise
 
     writer_instance = None
-    if neo4j_available:
-        writer_instance = init_neo4j_writer(driver, generate_embedding, vector_ops)
-        init_graph_context_retriever(graph_ops)
+    if knowledge_rag.neo4j_available:
+        writer_instance = init_neo4j_writer(knowledge_rag.driver, generate_embedding, knowledge_rag.vector_ops)
+        init_graph_context_retriever(knowledge_rag.graph_ops)
 
     app.state._neo4j_writer = writer_instance
 
@@ -193,8 +140,8 @@ async def lifespan(app: FastAPI):
 
     logger.info("OpenMelon 服务关闭中...")
     try:
-        if neo4j_available:
-            await asyncio.wait_for(neo4j_client.close(), timeout=5.0)
+        if knowledge_rag.neo4j_available:
+            await asyncio.wait_for(knowledge_rag.neo4j_client.close(), timeout=5.0)
     except asyncio.TimeoutError:
         logger.warning("Neo4j 关闭超时，强制退出")
     logger.info("OpenMelon 服务已关闭")
