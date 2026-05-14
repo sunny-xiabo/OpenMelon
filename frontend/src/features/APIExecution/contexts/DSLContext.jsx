@@ -4,11 +4,11 @@ import { apiExecutionAPI } from '../../../api/execution';
 import {
   buildDownloadTimestamp,
   buildReportFilename,
-  buildRunReportHtml,
   downloadBlob,
   mergeScriptVariables,
   toRunRequestOptions,
 } from '../utils';
+import { buildRunReportHtml } from '../utils/reportHtml';
 import {
   ASSERTION_TYPES_WITH_PATH,
   ASSERTION_TYPES_WITHOUT_EXPECTED,

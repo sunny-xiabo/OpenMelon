@@ -1,69 +1,132 @@
-import { Box, Button, CircularProgress, Typography } from '@mui/material';
-import {
-  ErrorOutlineOutlined,
-  InboxOutlined,
-  RefreshOutlined,
-} from '@mui/icons-material';
+import { Box, Button, Typography, Fade } from '@mui/material';
+import { RefreshOutlined, ArrowForwardRounded } from '@mui/icons-material';
+import defaultEmptyStateImg from '../assets/empty-state-default.svg';
+import searchEmptyStateImg from '../assets/empty-state-search.svg';
+import loadingEmptyStateImg from '../assets/empty-state-loading.svg';
+import errorEmptyStateImg from '../assets/empty-state-error.svg';
+import chatEmptyStateImg from '../assets/chat-empty-state.svg';
 
+/**
+ * 极致空状态组件 (Sprite 版)
+ * 使用 AI 生成的高清等轴测插画
+ */
 export default function EmptyState({
   title = '暂无数据',
   description = '',
   actionLabel = '',
   onAction,
   compact = false,
-  variant = 'empty',
+  variant = 'empty', // 'empty' | 'search' | 'loading' | 'error' | 'process' | 'chat'
   loading = false,
 }) {
-  const isLoading = loading || variant === 'loading';
+  const isLoading = loading || variant === 'loading' || variant === 'process';
   const isError = variant === 'error';
-  const fallbackTitle = isLoading ? '加载中' : isError ? '加载失败' : title;
-  const fallbackDescription = isLoading ? description || '正在获取最新数据，请稍候。' : description;
-  const icon = isLoading
-    ? <CircularProgress size={24} />
-    : isError
-      ? <ErrorOutlineOutlined color="error" />
-      : <InboxOutlined color="disabled" />;
+  const isSearch = variant === 'search';
+  const isChat = variant === 'chat';
+
+  // 映射文案
+  const displayTitle = isLoading 
+    ? (variant === 'process' ? '正在执行智能任务' : '正在同步数据') 
+    : (isError ? '发生了点小意外' : (isSearch ? '未找到相关线索' : title));
+    
+  const displayDesc = description || (
+    isLoading 
+      ? 'AI 正在全力以赴，请耐心等待结果产生。' 
+      : (isSearch ? '试着精简关键词，或者更换筛选维度再试试。' : '这里目前还是一片处女地，点击下方按钮开启新旅程。')
+  );
+
+  const getIllustrationStyle = () => {
+    let bgImg = defaultEmptyStateImg;
+    if (isChat) bgImg = chatEmptyStateImg;
+    else if (isSearch) bgImg = searchEmptyStateImg;
+    else if (isLoading) bgImg = loadingEmptyStateImg;
+    else if (isError) bgImg = errorEmptyStateImg;
+
+    return {
+      backgroundImage: `url(${bgImg})`,
+      backgroundSize: 'contain',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+    };
+  };
+
   return (
-    <Box
-      sx={{
-        flex: 1,
-        minHeight: compact ? 220 : 260,
-        border: '1px dashed',
-        borderColor: 'divider',
-        borderRadius: 2.5,
-        bgcolor: 'slate.50',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column',
-        gap: 1.25,
-        color: 'text.secondary',
-        textAlign: 'center',
-        px: 3,
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 28 }}>
-        {icon}
-      </Box>
-      <Typography variant="body2" fontWeight={600} color="text.primary">
-        {fallbackTitle}
-      </Typography>
-      {fallbackDescription && (
-        <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 360, lineHeight: 1.6 }}>
-          {fallbackDescription}
+    <Fade in timeout={1000}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: compact ? 300 : 460,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          p: 4,
+          borderRadius: 8,
+          background: 'rgba(255, 255, 255, 0.25)',
+          border: '1px solid rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(16px)',
+          textAlign: 'center',
+          boxShadow: '0 20px 40px rgba(15, 23, 42, 0.05)',
+        }}
+      >
+        {/* 插画区域 */}
+        <Box
+          sx={{
+            width: compact ? 160 : 220,
+            height: compact ? 160 : 220,
+            mb: 2,
+            ...getIllustrationStyle(),
+            // 关键：正片叠底过滤掉白色背景，使其与毛玻璃完美融合
+            mixBlendMode: 'multiply', 
+            filter: 'drop-shadow(0 8px 16px rgba(99, 102, 241, 0.1))',
+            animation: isLoading ? 'pulse 2.5s infinite ease-in-out' : 'float 5s infinite ease-in-out',
+            '@keyframes float': {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%': { transform: 'translateY(-15px)' },
+            },
+            '@keyframes pulse': {
+              '0%, 100%': { transform: 'scale(1)', opacity: 0.9 },
+              '50%': { transform: 'scale(1.03)', opacity: 0.7 },
+            }
+          }}
+        />
+
+        <Typography variant="h6" fontWeight={800} sx={{ color: 'slate.800', mb: 1, letterSpacing: '-0.02em' }}>
+          {displayTitle}
         </Typography>
-      )}
-      {actionLabel && onAction && (
-        <Button
-          size="small"
-          variant="outlined"
-          onClick={onAction}
-          startIcon={isError ? <RefreshOutlined /> : null}
-          sx={{ borderRadius: 2, minWidth: 96 }}
-        >
-          {actionLabel}
-        </Button>
-      )}
-    </Box>
+        
+        <Typography variant="body2" sx={{ color: 'slate.500', maxWidth: 460, mb: 4, lineHeight: 1.7 }}>
+          {displayDesc}
+        </Typography>
+
+        {actionLabel && onAction && (
+          <Button
+            variant="contained"
+            onClick={onAction}
+            endIcon={isError ? <RefreshOutlined /> : <ArrowForwardRounded />}
+            sx={{
+              borderRadius: 4,
+              px: 5,
+              py: 1.25,
+              fontSize: '0.95rem',
+              background: (theme) => isError ? theme.palette.error.main : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+              boxShadow: (theme) => `0 10px 25px ${isError ? theme.palette.error.main : '#6366f1'}44`,
+              textTransform: 'none',
+              fontWeight: 700,
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              '&:hover': {
+                transform: 'translateY(-3px)',
+                boxShadow: (theme) => `0 15px 30px ${isError ? theme.palette.error.main : '#6366f1'}66`,
+              },
+              '&:active': {
+                transform: 'translateY(-1px)',
+              }
+            }}
+          >
+            {actionLabel}
+          </Button>
+        )}
+      </Box>
+    </Fade>
   );
 }

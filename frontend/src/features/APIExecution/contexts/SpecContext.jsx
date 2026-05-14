@@ -1,8 +1,10 @@
 import { createContext, useContext, useMemo, useRef, useState } from 'react';
 import { useSnackbar } from '../../../components/SnackbarProvider';
-import { apiExecutionAPI } from '../../../api/execution';
 import { getTagNames } from '../utils';
 import { useUIContext } from './UIContext';
+
+// Hooks
+import { useParseSpecMutation } from '../hooks/useAPIExecutionQueries';
 
 const SpecContext = createContext();
 
@@ -23,7 +25,10 @@ export const SpecProvider = ({ children }) => {
   const [searchText, setSearchText] = useState('');
   const [selectedOperationIds, setSelectedOperationIds] = useState(new Set());
 
-  // Callbacks for cross-domain reset -- set by CombinedProvider
+  // 解析 Mutation
+  const parseMutation = useParseSpecMutation();
+
+  // Callbacks for cross-domain reset
   const resetCallbacksRef = useRef([]);
 
   const registerResetCallback = (cb) => {
@@ -35,23 +40,23 @@ export const SpecProvider = ({ children }) => {
 
   const tagOptions = useMemo(() => {
     const names = new Set(getTagNames(spec?.tags || []));
-    for (const operation of spec?.operations || []) {
-      for (const tag of operation.tags || []) names.add(tag);
+    for (const op of spec?.operations || []) {
+      for (const tag of op.tags || []) names.add(tag);
     }
     return Array.from(names).sort();
   }, [spec]);
 
   const filteredOperations = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
-    return (spec?.operations || []).filter((operation) => {
+    return (spec?.operations || []).filter((op) => {
       if (!keyword) return true;
-      return [operation.path, operation.summary, operation.operation_id, operation.method]
+      return [op.path, op.summary, op.operation_id, op.method]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword));
+        .some((v) => String(v).toLowerCase().includes(keyword));
     });
   }, [spec, searchText]);
 
-  const visibleOperationIds = filteredOperations.map((operation) => operation.id);
+  const visibleOperationIds = filteredOperations.map((op) => op.id);
 
   const toggleOperation = (operationId) => {
     setSelectedOperationIds((prev) => {
@@ -76,24 +81,20 @@ export const SpecProvider = ({ children }) => {
     setSpec(data);
     setSearchText('');
     setSelectedOperationIds(new Set());
-    // Cross-domain resets handled via callbacks
     for (const cb of resetCallbacksRef.current) cb(data);
     setActiveStep(1);
   };
 
   const parseFile = async () => {
     if (!selectedFile) {
-      showSnackbar('请先选择 API 文档文件', 'warning');
+      showSnackbar('请先选择 API 文档文件', { severity: 'warning' });
       return;
     }
     setLoadingMessage('正在解析 API 文档...');
     setLoading(true);
     try {
-      const data = await apiExecutionAPI.parseOpenApiFile(selectedFile);
+      const data = await parseMutation.mutateAsync({ type: 'file', payload: selectedFile });
       resetAfterSpecChange(data);
-      showSnackbar(`解析成功，共 ${data.operation_count || 0} 个接口`, 'success');
-    } catch (error) {
-      showSnackbar(error.message || 'API 文档解析失败', 'error');
     } finally {
       setLoading(false);
       setLoadingMessage('');
@@ -103,17 +104,14 @@ export const SpecProvider = ({ children }) => {
   const parseUrl = async (forceRefresh = false) => {
     const url = sourceUrl.trim();
     if (!url) {
-      showSnackbar('请输入 API 文档 URL', 'warning');
+      showSnackbar('请输入 API 文档 URL', { severity: 'warning' });
       return;
     }
     setLoadingMessage('正在获取并解析 API 文档...');
     setLoading(true);
     try {
-      const data = await apiExecutionAPI.parseOpenApiUrl(url, forceRefresh);
+      const data = await parseMutation.mutateAsync({ type: 'url', payload: { url, forceRefresh } });
       resetAfterSpecChange(data);
-      showSnackbar(`解析成功，共 ${data.operation_count || 0} 个接口`, 'success');
-    } catch (error) {
-      showSnackbar(error.message || 'API 文档 URL 解析失败', 'error');
     } finally {
       setLoading(false);
       setLoadingMessage('');
@@ -124,11 +122,8 @@ export const SpecProvider = ({ children }) => {
     setLoadingMessage('正在加载 Demo API 资产...');
     setLoading(true);
     try {
-      const data = await apiExecutionAPI.loadDemoOpenApi();
+      const data = await parseMutation.mutateAsync({ type: 'demo' });
       resetAfterSpecChange(data);
-      showSnackbar(`Demo 加载成功，共 ${data.operation_count || 0} 个接口`, 'success');
-    } catch (error) {
-      showSnackbar(error.message || 'Demo API 资产加载失败', 'error');
     } finally {
       setLoading(false);
       setLoadingMessage('');

@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <!-- Background Pedestal Gradient -->
+    <linearGradient id="pedestal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E2E8F0" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#F8FAFC" stop-opacity="0.1"/>
+    </linearGradient>
+
+    <!-- AI Core Gradient -->
+    <linearGradient id="core" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#818CF8" />
+      <stop offset="50%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#4F46E5" />
+    </linearGradient>
+
+    <!-- Chat Bubble Gradient -->
+    <linearGradient id="bubble1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60A5FA" />
+      <stop offset="100%" stop-color="#3B82F6" />
+    </linearGradient>
+
+    <!-- Accent Gradient -->
+    <linearGradient id="accent" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#A855F7" />
+      <stop offset="100%" stop-color="#D946EF" />
+    </linearGradient>
+
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#4F46E5" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <!-- Pedestal Base -->
+  <g transform="translate(0, 40)">
+    <!-- Base Plate -->
+    <ellipse cx="200" cy="300" rx="140" ry="45" fill="url(#pedestal)" />
+    <!-- 3D Edge -->
+    <path d="M 60 300 C 60 325, 122 345, 200 345 C 278 345, 340 325, 340 300 C 340 308, 278 355, 200 355 C 122 355, 60 308, 60 300 Z" fill="#CBD5E1" opacity="0.3" />
+    <!-- Holographic Rings -->
+    <ellipse cx="200" cy="300" rx="110" ry="32" fill="none" stroke="#818CF8" stroke-width="1.5" stroke-dasharray="8 6" opacity="0.4" />
+    <ellipse cx="200" cy="300" rx="65" ry="18" fill="none" stroke="#A855F7" stroke-width="2" opacity="0.6" filter="url(#glow)" />
+  </g>
+
+  <!-- Main AI Sphere -->
+  <circle cx="200" cy="180" r="48" fill="url(#core)" filter="url(#glow)" />
+  <!-- Sphere Highlight -->
+  <ellipse cx="185" cy="155" rx="15" ry="10" fill="#FFFFFF" opacity="0.4" transform="rotate(-30 185 155)" />
+  
+  <!-- Outer Orbiting Rings -->
+  <ellipse cx="200" cy="180" rx="85" ry="25" fill="none" stroke="url(#accent)" stroke-width="2.5" transform="rotate(-25 200 180)" filter="url(#glow)" opacity="0.75" />
+  <ellipse cx="200" cy="180" rx="100" ry="30" fill="none" stroke="#60A5FA" stroke-width="1.5" transform="rotate(35 200 180)" opacity="0.5" />
+
+  <!-- Orbiting Data Particles -->
+  <circle cx="120" cy="150" r="4" fill="#A855F7" filter="url(#glow)" />
+  <circle cx="285" cy="205" r="5" fill="#60A5FA" filter="url(#glow)" />
+  <circle cx="165" cy="240" r="3" fill="#3B82F6" />
+  <circle cx="230" cy="115" r="5" fill="#D946EF" filter="url(#glow)" />
+
+  <!-- Left Chat Bubble (Bot Output) -->
+  <g transform="translate(45, 120)" filter="url(#softShadow)">
+    <rect x="0" y="0" width="110" height="65" rx="16" fill="#FFFFFF" />
+    <polygon points="25,62 10,85 45,62" fill="#FFFFFF" />
+    <!-- Text Lines -->
+    <rect x="20" y="22" width="70" height="6" rx="3" fill="#CBD5E1" />
+    <rect x="20" y="38" width="45" height="6" rx="3" fill="#E2E8F0" />
+  </g>
+
+  <!-- Right Chat Bubble (User Input) -->
+  <g transform="translate(235, 70)" filter="url(#softShadow)">
+    <rect x="0" y="0" width="125" height="70" rx="18" fill="url(#bubble1)" opacity="0.95" />
+    <polygon points="100,68 115,95 80,68" fill="url(#bubble1)" opacity="0.95" />
+    <!-- Typing Dots -->
+    <circle cx="40" cy="35" r="6" fill="#FFFFFF" opacity="0.9" />
+    <circle cx="62" cy="35" r="6" fill="#FFFFFF" opacity="0.6" />
+    <circle cx="84" cy="35" r="6" fill="#FFFFFF" opacity="0.3" />
+  </g>
+
+  <!-- Floating Holographic Stars -->
+  <path d="M 330 220 L 334 205 L 349 201 L 334 197 L 330 182 L 326 197 L 311 201 L 326 205 Z" fill="#818CF8" opacity="0.6" />
+  <path d="M 80 270 L 83 260 L 93 257 L 83 254 L 80 244 L 77 254 L 67 257 L 77 260 Z" fill="#D946EF" opacity="0.5" />
+</svg>

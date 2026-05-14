@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Box, Typography, Paper, IconButton, Tooltip } from '@mui/material';
 import { ZoomIn, ZoomOut, FitScreen, Download, Fullscreen, FullscreenExit } from '@mui/icons-material';
-import { Transformer } from 'markmap-lib';
-import { Markmap } from 'markmap-view';
-
-const transformer = new Transformer();
 
 function buildMindMapData(testCases) {
   if (!testCases?.length) return { name: '暂无测试用例', children: [] };
@@ -63,29 +59,56 @@ function toMarkdown(data, level = 1) {
 export default function TestCaseMindMap({ testCases }) {
   const svgRef = useRef(null);
   const mmRef = useRef(null);
+  const markmapRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     if (!svgRef.current || !testCases?.length) return;
-    const data = buildMindMapData(testCases);
-    const md = toMarkdown(data);
-    const { root } = transformer.transform(md);
+    let cancelled = false;
 
-    if (mmRef.current) mmRef.current.destroy();
-    mmRef.current = Markmap.create(svgRef.current, {
-      initialExpandLevel: 3,
-      maxWidth: 350,
-      spacingVertical: 10,
-      spacingHorizontal: 100,
-    });
-    mmRef.current.setData(root);
-    setTimeout(() => {
-      if (mmRef.current) {
-        mmRef.current.fit();
+    async function renderMindMap() {
+      if (!markmapRef.current) {
+        const [{ Transformer }, { Markmap }] = await Promise.all([
+          import('markmap-lib'),
+          import('markmap-view'),
+        ]);
+        markmapRef.current = {
+          transformer: new Transformer(),
+          Markmap,
+        };
       }
-    }, 100);
+      if (cancelled || !svgRef.current) return;
 
-    return () => { if (mmRef.current) { mmRef.current.destroy(); mmRef.current = null; } };
+      const data = buildMindMapData(testCases);
+      const md = toMarkdown(data);
+      const { root } = markmapRef.current.transformer.transform(md);
+
+      if (mmRef.current) mmRef.current.destroy();
+      mmRef.current = markmapRef.current.Markmap.create(svgRef.current, {
+        initialExpandLevel: 3,
+        maxWidth: 350,
+        spacingVertical: 10,
+        spacingHorizontal: 100,
+      });
+      mmRef.current.setData(root);
+      setTimeout(() => {
+        if (mmRef.current) {
+          mmRef.current.fit();
+        }
+      }, 100);
+    }
+
+    renderMindMap().catch((error) => {
+      console.error('Failed to render test case mind map:', error);
+    });
+
+    return () => {
+      cancelled = true;
+      if (mmRef.current) {
+        mmRef.current.destroy();
+        mmRef.current = null;
+      }
+    };
   }, [testCases]);
 
   useEffect(() => {

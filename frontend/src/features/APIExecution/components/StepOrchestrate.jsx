@@ -1,10 +1,6 @@
 import React from 'react';
 import { Stack, Box, Typography, Button, Alert, CircularProgress, Paper } from '@mui/material';
 import { AutoAwesomeOutlined, ContentCopyOutlined, DataObjectOutlined, FormatAlignLeftOutlined, PlayCircleOutlineOutlined } from '@mui/icons-material';
-import { autocompletion } from '@codemirror/autocomplete';
-import { EditorView } from '@codemirror/view';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { tags } from '@lezer/highlight';
 import { useAPIExecution } from '../context';
 import {
   applyRepairOperationsToScript,
@@ -24,52 +20,6 @@ const EXTRACTION_FIELDS = ['name', 'source', 'path'];
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const ASSERTION_TYPE_VALUES = ASSERTION_TYPES.map((item) => item.value);
 const EXTRACTION_SOURCE_VALUES = EXTRACTION_SOURCES.map((item) => item.value);
-
-const apiJsonEditorTheme = EditorView.theme({
-  '&': {
-    backgroundColor: '#ffffff',
-    color: '#202124',
-  },
-  '.cm-content': {
-    caretColor: '#1a73e8',
-  },
-  '.cm-gutters': {
-    backgroundColor: '#f8f9fa',
-    color: '#9aa0a6',
-    borderRight: '1px solid #e8eaed',
-  },
-  '.cm-activeLine': {
-    backgroundColor: '#e8f0fe66',
-  },
-  '.cm-activeLineGutter': {
-    backgroundColor: '#e8f0fe',
-    color: '#1a73e8',
-  },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    backgroundColor: '#d2e3fc',
-  },
-  '&.cm-focused': {
-    outline: 'none',
-  },
-  '.cm-tooltip': {
-    border: '1px solid #e8eaed',
-    borderRadius: '6px',
-    boxShadow: '0 8px 24px rgba(60,64,67,0.16)',
-  },
-  '.cm-tooltip-autocomplete ul li[aria-selected]': {
-    backgroundColor: '#e8f0fe',
-    color: '#202124',
-  },
-});
-
-const apiJsonHighlightStyle = HighlightStyle.define([
-  { tag: tags.propertyName, color: '#1a73e8', fontWeight: '600' },
-  { tag: tags.string, color: '#188038' },
-  { tag: tags.number, color: '#b06000' },
-  { tag: tags.bool, color: '#9334e6' },
-  { tag: tags.null, color: '#5f6368', fontStyle: 'italic' },
-  { tag: tags.punctuation, color: '#5f6368' },
-]);
 
 const quotedFieldCompletion = (field) => ({ label: field, type: 'property', apply: `${field}": ` });
 const quotedValueCompletion = (value) => ({ label: value, type: 'constant', apply: value });
@@ -320,8 +270,6 @@ export default function StepOrchestrate() {
                   requestConfirm={requestConfirm}
                   selectedProjectId={selectedProjectId}
                   projectName={projectName}
-                  editorTheme={apiJsonEditorTheme}
-                  editorHighlightStyle={syntaxHighlighting(apiJsonHighlightStyle)}
                   completionSource={dslCompletionSource}
                 />
               </Paper>

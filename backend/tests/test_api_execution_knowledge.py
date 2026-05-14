@@ -231,6 +231,17 @@ def test_save_run_report_creates_knowledge_candidate(tmp_path, monkeypatch):
     assert "可确认沉淀" in tasks[0]["reason"]
 
 
+def test_save_run_report_skips_failed_knowledge_candidate(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+
+    saved = routers._save_run_report(_run(status="failed"))
+
+    tasks = store.list_automation_tasks(status="pending")
+    assert saved["run_id"] == "run-1"
+    assert tasks == []
+
+
 def test_approve_knowledge_candidate_ingests_and_resolves_task(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
     monkeypatch.setattr(routers, "api_execution_store", store)

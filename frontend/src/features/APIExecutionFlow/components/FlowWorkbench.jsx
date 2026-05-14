@@ -49,8 +49,6 @@ export default function FlowWorkbench({
   requestConfirm,
   selectedProjectId,
   projectName,
-  editorTheme,
-  editorHighlightStyle,
   completionSource,
 }) {
   const showSnackbar = useSnackbar();
@@ -555,8 +553,6 @@ export default function FlowWorkbench({
         open={advancedOpen}
         dslText={dslText}
         setDslText={setDslText}
-        editorTheme={editorTheme}
-        editorHighlightStyle={editorHighlightStyle}
         completionSource={completionSource}
         onToggle={setAdvancedVisible}
       />

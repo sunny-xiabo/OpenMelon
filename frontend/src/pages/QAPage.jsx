@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Box,
   Button,
@@ -7,437 +7,366 @@ import {
   Paper,
   Checkbox,
   FormControlLabel,
-  Divider,
   useMediaQuery,
-  Stack,
 } from '@mui/material';
-import { AutoAwesome, AccountTree, Forum } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
-import { Network } from 'vis-network';
-import { DataSet } from 'vis-data';
-import { chatAPI, graphAPI, webhookAPI } from '../services/api';
-import { useSession } from '../hooks/useSession';
+import { graphAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
-import {
-  buildNodeTypeHelpers,
-  loadNodeTypeOverrides,
-  mergeNodeTypeConfigs,
-  NODE_TYPE_OVERRIDES_UPDATED_EVENT,
-} from '../theme/nodeTypes';
+import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
-import { GRAPH_DATA_UPDATED_EVENT } from '../constants/events';
-import { on } from '../utils/eventBus';
+
+// Hooks
+import { 
+  useSessions, 
+  useChatHistory, 
+  useGraphStatus, 
+  useChatQuery, 
+  useSessionActions 
+} from '../features/QA/hooks/useQA';
+import { useGraphFilters } from '../features/Graph/hooks/useGraph';
+import { useNodeTypeLegend } from '../features/NodeType/hooks/useNodeTypes';
+
+// Components
 import SessionHistoryPanel from '../features/QA/components/SessionHistoryPanel';
 import MessageBubble from '../features/QA/components/MessageBubble';
 import GraphInsightPanel from '../features/QA/components/GraphInsightPanel';
 
-export default function QAPage() {
-  const { sessions, currentSession, createSession, switchSession, deleteSession, renameSession, updateSessionTitle, loadHistory, loadSessions } = useSession();
+export default function QAPage({ isActive = true }) {
   const theme = useTheme();
-  const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const messagesEndRef = useRef(null);
   const showSnackbar = useSnackbar();
+  const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
+  
+  // 1. UI 交互状态 (找回被遗漏的状态)
+  const [inputText, setInputText] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [includeHistory, setIncludeHistory] = useState(true);
+  const [sessionListExpanded, setSessionListExpanded] = useState(true);
+  
+  // 对话框/编辑状态
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, sessionId: null, title: '' });
+  const [editingSession, setEditingSession] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
 
-  const containerRef = useRef(null);
-  const networkRef = useRef(null);
+  // 图谱筛选状态
   const [searchText, setSearchText] = useState('');
   const [docType, setDocType] = useState('');
   const [moduleFilter, setModuleFilter] = useState('');
   const [showChunks, setShowChunks] = useState(false);
-  const [filters, setFilters] = useState({ doc_types: [], modules: [] });
   const [graphLoading, setGraphLoading] = useState(false);
-  const [graphExpanded, setGraphExpanded] = useState(true);
-  const [includeHistory, setIncludeHistory] = useState(true);
-  const [graphReady, setGraphReady] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, sessionId: null, title: '' });
-  const [editingSession, setEditingSession] = useState(null);
-  const [editTitle, setEditTitle] = useState('');
-  const [sessionListExpanded, setSessionListExpanded] = useState(true);
-  const [nodeTypeConfigs, setNodeTypeConfigs] = useState([]);
-  const [nodeTypeOverrides, setNodeTypeOverrides] = useState({});
-  const { legend, getVisualMeta } = useMemo(
-    () => buildNodeTypeHelpers(mergeNodeTypeConfigs(nodeTypeConfigs, nodeTypeOverrides)),
-    [nodeTypeConfigs, nodeTypeOverrides],
-  );
+  const [graphError, setGraphError] = useState(null);
+  const [graphEngineReady, setGraphEngineReady] = useState(false);
 
-  const scrollDown = () => setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  const containerRef = useRef(null);
+  const networkRef = useRef(null);
+  const graphLibRef = useRef(null);
+  const initialGraphLoadedRef = useRef(false);
+  const scrollRef = useRef(null);
 
+  // 2. 使用 TanStack Query Hooks
+  const { data: sessions = [] } = useSessions();
+  const { data: history = [] } = useChatHistory(currentSessionId);
+  const { data: status, refetch: refetchGraphStatus } = useGraphStatus();
+  const { data: filters = { doc_types: [], modules: [] } } = useGraphFilters();
+  const { data: legend = [] } = useNodeTypeLegend();
+  
+  const chatMutation = useChatQuery();
+  const { deleteSession, renameSession } = useSessionActions();
+
+  const graphReady = !!status?.has_data;
+
+  // 3. 核心逻辑处理
+  const scrollDown = () => {
+    setTimeout(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }, 100);
+  };
+
+  // 同步历史记录到消息列表
   useEffect(() => {
-    if (containerRef.current && !networkRef.current) {
-      networkRef.current = new Network(containerRef.current, { nodes: new DataSet([]), edges: new DataSet([]) }, {
-        physics: { enabled: true, stabilization: { iterations: 100 } },
-        interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true, dragNodes: true },
-        edges: { smooth: { type: 'curvedCW', roundness: 0.2 }, color: '#ccc', font: { size: 10, align: 'top' } },
-      });
-      networkRef.current.on('stabilizationIterationsDone', () => {
-        networkRef.current.setOptions({ physics: false });
-        networkRef.current.fit({ animation: false });
-      });
+    if (history.length > 0) {
+      setMessages(history.map(m => ({ 
+        role: m.role, 
+        content: m.content, 
+        citations: m.citations || [] 
+      })));
+      scrollDown();
+    } else {
+      setMessages([]);
     }
-    return () => {
-      if (networkRef.current) {
-        networkRef.current.destroy();
-        networkRef.current = null;
-      }
-    };
-  }, []);
+  }, [history]);
 
-  useEffect(() => { checkGraphStatus(); }, []);
-  useEffect(() => {
-    setNodeTypeOverrides(loadNodeTypeOverrides());
-    graphAPI.getNodeTypes()
-      .then((data) => setNodeTypeConfigs(data.node_types || []))
-      .catch((err) => { console.error('Failed to load node types:', err); setNodeTypeConfigs([]); });
-  }, []);
-  useEffect(() => {
-    const handleGraphDataUpdated = () => {
-      checkGraphStatus();
-    };
-    const handleStorage = (event) => {
-      if (event.key === 'graphDataVersion') {
-        checkGraphStatus();
-      }
-      if (event.key === 'graph-node-type-overrides') {
-        setNodeTypeOverrides(loadNodeTypeOverrides());
-      }
-    };
-    const handleNodeTypeOverridesUpdated = () => {
-      setNodeTypeOverrides(loadNodeTypeOverrides());
-    };
-    const offGraph = on(GRAPH_DATA_UPDATED_EVENT, handleGraphDataUpdated);
-    const offOverrides = on(NODE_TYPE_OVERRIDES_UPDATED_EVENT, handleNodeTypeOverridesUpdated);
-    window.addEventListener('storage', handleStorage);
-    return () => {
-      offGraph();
-      offOverrides();
-      window.removeEventListener('storage', handleStorage);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (networkRef.current && graphReady) loadFullGraph();
-  }, [docType, moduleFilter, showChunks, graphReady]);
-
-  useEffect(() => {
-    if (!graphExpanded || !networkRef.current || !graphReady) return;
-
-    const timer = window.setTimeout(() => {
-      networkRef.current?.redraw();
-      networkRef.current?.fit({ animation: false });
-      loadFullGraph();
-    }, 180);
-
-    return () => window.clearTimeout(timer);
-  }, [graphExpanded, graphReady]);
-
-  const checkGraphStatus = async () => {
-    setGraphLoading(true);
+  const renderGraph = useCallback((data) => {
+    const DataSet = graphLibRef.current?.DataSet;
+    if (!networkRef.current?.body || !DataSet || !data) return false;
     try {
-      const status = await graphAPI.getStatus();
-      const hasData = Boolean(status?.has_data);
-      setGraphReady(hasData);
-      if (hasData) {
-        const graphFilters = await graphAPI.getFilters();
-        setFilters(graphFilters);
-      } else {
-        setFilters({ doc_types: [], modules: [] });
-        if (networkRef.current) {
-          networkRef.current.setData({ nodes: new DataSet([]), edges: new DataSet([]) });
-        }
+      const nodes = (data.nodes || []).map(n => {
+        const g = n.group || n.labels?.[0] || 'Entity';
+        const visual = legend.find(l => l.type === g) || { color: { bg: '#94a3b8', border: '#64748b' }, size: 20 };
+        return { 
+          id: n.id, label: n.label || n.id, group: g, 
+          color: { background: visual.color.bg, border: visual.color.border }, 
+          size: visual.size, font: { color: '#fff', size: 11 } 
+        };
+      });
+      const edges = (data.relationships || []).map((r, i) => ({ 
+        id: i, from: r.source || r.from, to: r.target || r.to, label: r.label || r.type 
+      }));
+      networkRef.current.setData({ nodes: new DataSet(nodes), edges: new DataSet(edges) });
+      networkRef.current.setOptions({ physics: { enabled: true, stabilization: { iterations: 100 } } });
+      setTimeout(() => {
+        networkRef.current?.redraw();
+        networkRef.current?.fit({ animation: true });
+      }, 80);
+      return true;
+    } catch (e) {
+      console.error('Graph render error:', e);
+      setGraphError(e);
+      return false;
+    }
+  }, [legend]);
+
+  const loadFullGraph = useCallback(async () => {
+    setGraphLoading(true);
+    setGraphError(null);
+    try {
+      const d = await graphAPI.getFullGraph({ doc_type: docType, module: moduleFilter, include_chunks: showChunks });
+      if (!d || !d.nodes?.length) {
+        const DataSet = graphLibRef.current?.DataSet;
+        if (networkRef.current && DataSet) networkRef.current.setData({ nodes: new DataSet([]), edges: new DataSet([]) });
+        showSnackbar('图谱中暂无符合条件的数据', { severity: 'info' });
+        return;
       }
-    } catch (err) {
-      console.error(err);
-      setGraphReady(false);
+      if (renderGraph(d)) {
+        initialGraphLoadedRef.current = true;
+      } else {
+        setTimeout(() => {
+          initialGraphLoadedRef.current = renderGraph(d);
+        }, 250);
+      }
+    } catch (e) {
+      setGraphError(e);
+      showSnackbar('加载全图失败: ' + (e.message || '未知错误'), { severity: 'error' });
     } finally {
       setGraphLoading(false);
     }
+  }, [docType, moduleFilter, renderGraph, showChunks, showSnackbar]);
+
+  // 1. 初始化图谱。graphReady 可能异步变化，容器出现后再创建实例。
+  useEffect(() => {
+    let cancelled = false;
+    async function initNetwork() {
+      if (!containerRef.current || networkRef.current) return;
+      const [{ Network }, { DataSet }] = await Promise.all([
+        import('vis-network'),
+        import('vis-data'),
+      ]);
+      if (cancelled || !containerRef.current || networkRef.current) return;
+      graphLibRef.current = { DataSet };
+      networkRef.current = new Network(containerRef.current, { nodes: new DataSet([]), edges: new DataSet([]) }, {
+        physics: { enabled: true, stabilization: { iterations: 100 } },
+        interaction: { hover: true, zoomView: true, dragView: true },
+        edges: { smooth: { type: 'curvedCW', roundness: 0.2 }, color: '#cbd5e1' },
+      });
+      networkRef.current.on('stabilizationIterationsDone', () => {
+        networkRef.current?.setOptions({ physics: { enabled: false } });
+        networkRef.current?.fit();
+      });
+      setGraphEngineReady(true);
+    }
+    initNetwork().catch((error) => {
+      console.error('Failed to load QA graph engine:', error);
+      setGraphError(error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [graphError, graphReady]);
+
+  useEffect(() => {
+    return () => {
+      networkRef.current?.destroy();
+      networkRef.current = null;
+      graphLibRef.current = null;
+      setGraphEngineReady(false);
+      initialGraphLoadedRef.current = false;
+    };
+  }, []);
+
+  // 2. 状态就绪后再加载全图，避免 status 或容器尺寸还没准备好时喂数据
+  useEffect(() => {
+    if (!isActive || !graphReady || !graphEngineReady || !networkRef.current || initialGraphLoadedRef.current) return;
+    const timer = setTimeout(() => {
+      loadFullGraph();
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [graphEngineReady, graphReady, isActive, loadFullGraph]);
+
+  // 3. 当页面重新激活时，仅触发布局刷新，不销毁实例
+  useEffect(() => {
+    if (isActive && networkRef.current) {
+      // 给一点延迟，确保 display: flex 已经生效
+      const timer = setTimeout(() => {
+        networkRef.current?.redraw();
+        networkRef.current?.fit();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isActive]);
+
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || chatMutation.isPending) return;
+    const q = inputText;
+    setInputText('');
+    const sid = currentSessionId || `new_${Date.now()}`;
+    
+    // 乐观更新 UI
+    setMessages(prev => [...prev, { role: 'user', content: q }]);
+    scrollDown();
+
+    try {
+      const r = await chatMutation.mutateAsync({ question: q, sessionId: sid, includeHistory });
+      if (!currentSessionId) setCurrentSessionId(r.session_id);
+      if (r.graph_data?.nodes?.length > 0) renderGraph(r.graph_data);
+    } catch (e) {}
   };
 
-  const loadFullGraph = async () => {
-    if (!graphReady) return;
-    setGraphLoading(true);
-    try {
-      const data = await graphAPI.getFullGraph({ doc_type: docType, module: moduleFilter, include_chunks: showChunks });
-      renderGraph(data);
-    } catch (err) { console.error(err); setGraphLoading(false); }
+  const handleNewSession = () => {
+    setCurrentSessionId(null);
+    setMessages([]);
+    const DataSet = graphLibRef.current?.DataSet;
+    if (networkRef.current && DataSet) networkRef.current.setData({ nodes: new DataSet([]), edges: new DataSet([]) });
+  };
+
+  // 监听会话切换，自动清空或尝试恢复图谱
+  useEffect(() => {
+    if (!currentSessionId) return;
+    // 如果切换了会话，先清空当前图谱，避免看到上个会话的残留
+    const DataSet = graphLibRef.current?.DataSet;
+    if (networkRef.current && DataSet) {
+      networkRef.current.setData({ nodes: new DataSet([]), edges: new DataSet([]) });
+    }
+  }, [currentSessionId]);
+
+  const handleStartRename = (id, title) => {
+    setEditingSession(id);
+    setEditTitle(title);
+  };
+
+  const handleSaveRename = async () => {
+    if (!editingSession || !editTitle.trim()) return;
+    await renameSession.mutateAsync({ sid: editingSession, title: editTitle });
+    setEditingSession(null);
+  };
+
+  const handleDeleteClick = (id, title) => {
+    setDeleteConfirm({ open: true, sessionId: id, title });
+  };
+
+  const confirmDelete = async () => {
+    if (deleteConfirm.sessionId) {
+      await deleteSession.mutateAsync(deleteConfirm.sessionId);
+      if (currentSessionId === deleteConfirm.sessionId) handleNewSession();
+      setDeleteConfirm({ open: false, sessionId: null, title: '' });
+    }
   };
 
   const searchEntity = async () => {
-    if (!graphReady) return;
     if (!searchText.trim()) return;
-    setGraphLoading(true);
     try {
-      const data = await graphAPI.searchEntity(searchText);
-      renderGraph(data, searchText);
-    } catch (err) { console.error(err); setGraphLoading(false); }
-  };
-
-  const renderGraph = (data, focusLabel) => {
-    if (!networkRef.current) return;
-    const nodes = (data.nodes || []).map(n => {
-      const g = n.group || n.labels?.[0] || 'Entity';
-      const meta = getVisualMeta(g);
-      return { id: n.id, label: n.label || n.id, group: g, color: { background: meta.color.bg, border: meta.color.border }, size: meta.size, title: n.title || n.label, font: { color: '#fff', size: 12 } };
-    });
-    const edges = (data.relationships || []).map((r, i) => ({ id: i, from: r.source || r.from, to: r.target || r.to, label: r.label || r.type }));
-    networkRef.current.setOptions({ physics: { enabled: true, stabilization: { iterations: 100 } } });
-    const onStabilized = () => {
-      networkRef.current.off('stabilized', onStabilized);
-      networkRef.current.setOptions({ physics: false });
-      setGraphLoading(false);
-      if (focusLabel) {
-        const t = nodes.find(n => n.label === focusLabel || n.id === focusLabel);
-        if (t) { networkRef.current.focus(t.id, { scale: 1.2, animation: true }); return; }
+      const d = await graphAPI.searchEntity(searchText);
+      if (!d || !d.nodes?.length) {
+        showSnackbar('未找到相关实体', { severity: 'info' });
+        return;
       }
-      networkRef.current.fit({ animation: false });
-    };
-    networkRef.current.on('stabilized', onStabilized);
-    networkRef.current.setData({ nodes: new DataSet(nodes), edges: new DataSet(edges) });
-  };
-
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
-    const q = input.trim();
-    // Auto-create session if none
-    let sid = currentSession;
-    if (!sid) {
-      sid = createSession();
-    }
-    setMessages(prev => [...prev, { role: 'user', content: q }]);
-    // Optimistically update session title from first message
-    updateSessionTitle(sid, q.slice(0, 50));
-    setInput(''); setLoading(true);
-    try {
-      const r = await chatAPI.query(q, sid, includeHistory);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: r.answer,
-        citations: r.citations,
-        retrieval_method: r.retrieval_method,
-        reasoning_steps: r.reasoning_steps,
-        context_chunks: r.context_chunks,
-        history_used: r.history_used,
-      }]);
-      if (r.graph_data?.nodes?.length > 0) renderGraph(r.graph_data);
-      scrollDown();
-    } catch (err) {
-      setMessages(prev => [...prev, { role: 'error', content: '请求失败: ' + err.message }]);
-      showSnackbar('查询失败: ' + err.message, 'error');
-    } finally { setLoading(false); }
-  };
-
-  const handleNewSession = () => { createSession(); setMessages([]); };
-  const handleSwitchSession = async (sid) => {
-    switchSession(sid);
-    const h = await loadHistory(sid);
-    setMessages(h.map(m => ({ role: m.role, content: m.content })));
-  };
-  const handleDeleteSession = (sid, title) => {
-    setDeleteConfirm({ open: true, sessionId: sid, title: title || sid.slice(0, 8) });
-  };
-  const confirmDeleteSession = async () => {
-    const { sessionId } = deleteConfirm;
-    setDeleteConfirm({ open: false, sessionId: null, title: '' });
-    await deleteSession(sessionId);
-    if (currentSession === sessionId) setMessages([]);
-    showSnackbar('会话已删除', 'success');
-  };
-  const handleStartRename = (sid, currentTitle) => {
-    setEditingSession(sid);
-    setEditTitle(currentTitle);
-  };
-  const handleSaveRename = async () => {
-    if (editingSession && editTitle.trim()) {
-      await renameSession(editingSession, editTitle.trim());
-    }
-    setEditingSession(null);
-    setEditTitle('');
-  };
-
-  const handlePushToWecom = async (answer) => {
-    const question = messages.find(m => m.role === 'user' && messages.indexOf(m) < messages.indexOf(messages.find(m => m.role === 'assistant' && m.content === answer)))?.content || '';
-    try {
-      await webhookAPI.send('wecom', question, answer);
-      showSnackbar('已推送到企微', 'success');
-    } catch (err) {
-      showSnackbar('推送失败: ' + err.message, 'error');
+      renderGraph(d);
+    } catch (e) {
+      showSnackbar('搜索失败: ' + (e.message || '未知错误'), { severity: 'error' });
     }
   };
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent', flexDirection: isNarrow ? 'column' : 'row' }}>
-      <Paper
-        elevation={0}
-        sx={{
-          width: isNarrow ? '100%' : (graphExpanded ? '58%' : '100%'),
-          minWidth: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          border: '1px solid rgba(255, 255, 255, 0.4)',
-          borderRadius: 4,
-          overflow: 'hidden',
-          background: 'rgba(255, 255, 255, 0.65)',
-          backdropFilter: 'blur(20px)',
-          boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)',
-          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-      >
-        <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider', background: (theme) => theme.palette.gradients.headerBlue }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <Box sx={{ width: 38, height: 38, borderRadius: '10px', background: 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)', color: 'accent.indigoDark', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.7), 0 4px 8px rgba(99,102,241,0.1)' }}>
-                <Forum fontSize="small" />
-              </Box>
-              <Box>
-                <Typography variant="subtitle1" fontWeight={700} sx={{ color: 'slate.800' }}>智能问答</Typography>
-                <Typography variant="caption" sx={{ color: 'slate.500' }}>在检索上下文中提问，右侧可同步查看图谱线索</Typography>
-              </Box>
-            </Box>
-            <Button size="small" variant="outlined" startIcon={graphExpanded ? <AccountTree fontSize="small" /> : <Forum fontSize="small" />} onClick={() => setGraphExpanded(!graphExpanded)}>
-              {graphExpanded ? '收起图谱' : '展开图谱'}
-            </Button>
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <PageHeader title="智能问答" subtitle="基于 RAG 架构的图谱增强问答系统，支持多维线索回溯。" />
+      
+      <Box sx={{ flex: 1, display: 'flex', minHeight: 0, flexDirection: isNarrow ? 'column' : 'row', gap: 2, p: 2, overflow: isNarrow ? 'auto' : 'hidden' }}>
+        {/* 左侧：会话历史 */}
+        <Paper elevation={0} sx={{ width: isNarrow ? '100%' : 280, flex: isNarrow ? '0 0 auto' : '0 0 280px', display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
+          <SessionHistoryPanel
+            sessions={sessions}
+            currentSession={currentSessionId}
+            sessionListExpanded={sessionListExpanded}
+            setSessionListExpanded={setSessionListExpanded}
+            handleNewSession={handleNewSession}
+            handleSwitchSession={setCurrentSessionId}
+            handleStartRename={handleStartRename}
+            handleDeleteSession={handleDeleteClick}
+            editingSession={editingSession}
+            editTitle={editTitle}
+            setEditTitle={setEditTitle}
+            handleSaveRename={handleSaveRename}
+            setEditingSession={setEditingSession}
+            deleteConfirm={deleteConfirm}
+            setDeleteConfirm={setDeleteConfirm}
+            confirmDeleteSession={confirmDelete}
+          />
+        </Paper>
+
+        {/* 中间：聊天窗口 */}
+        <Paper elevation={0} sx={{ flex: isNarrow ? '0 0 420px' : 1, minHeight: isNarrow ? 420 : 0, display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
+          <Box ref={scrollRef} sx={{ flex: 1, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {messages.length === 0 ? (
+              <EmptyState variant="chat" title="开始新的对话" description="您可以询问关于项目架构、API 定义或业务逻辑的问题。" />
+            ) : (
+              messages.map((m, i) => <MessageBubble key={i} message={m} />)
+            )}
+            {chatMutation.isPending && <MessageBubble message={{ role: 'assistant', content: 'AI 正在思考中...', loading: true }} />}
           </Box>
-        </Box>
 
-        <SessionHistoryPanel
-          currentSession={currentSession}
-          deleteConfirm={deleteConfirm}
-          editTitle={editTitle}
-          editingSession={editingSession}
-          handleDeleteSession={handleDeleteSession}
-          handleNewSession={handleNewSession}
-          handleSaveRename={handleSaveRename}
-          handleStartRename={handleStartRename}
-          handleSwitchSession={handleSwitchSession}
-          sessions={sessions}
-          sessionListExpanded={sessionListExpanded}
-          setDeleteConfirm={setDeleteConfirm}
-          setEditTitle={setEditTitle}
-          setEditingSession={setEditingSession}
-          setSessionListExpanded={setSessionListExpanded}
-          confirmDeleteSession={confirmDeleteSession}
-        />
-
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.5, md: 3 }, display: 'flex', flexDirection: 'column', gap: 2, background: 'transparent' }}>
-          {messages.length === 0 ? (
-            <EmptyState
-              title="开始提问吧"
-              description="可以直接问模块功能、设计思路、覆盖关系或上下文追问。"
-              compact
+          <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField
+                fullWidth size="small" placeholder="输入您的问题..."
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                disabled={chatMutation.isPending}
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5 } }}
+              />
+              <Button variant="contained" onClick={handleSendMessage} disabled={chatMutation.isPending || !inputText.trim()} sx={{ borderRadius: 2.5, px: 3 }}>
+                发送
+              </Button>
+            </Box>
+            <FormControlLabel
+              control={<Checkbox size="small" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />}
+              label={<Typography variant="caption" color="text.secondary">携带历史上下文</Typography>}
+              sx={{ mt: 1, ml: 0 }}
             />
-          ) : (
-            messages.map((msg, i) => (
-              <MessageBubble key={i} msg={msg} onPush={handlePushToWecom} />
-            ))
-          )}
-          {loading && (
-            <Box sx={{ display: 'flex', gap: 0.5, p: 1, alignItems: 'center' }}>
-              {[0, 1, 2].map(i => (
-                <Box key={i} sx={{
-                  width: 7,
-                  height: 7,
-                  bgcolor: 'primary.main',
-                  borderRadius: '50%',
-                  animation: 'bounce 1.4s infinite ease-in-out both',
-                  animationDelay: `${-0.32 + i * 0.16}s`,
-                }} />
-              ))}
-            </Box>
-          )}
-          <div ref={messagesEndRef} />
-        </Box>
-
-        <Divider sx={{ opacity: 0.5 }} />
-        <Box sx={{ p: { xs: 1.5, md: 2.5 }, background: 'rgba(255, 255, 255, 0.4)' }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, flex: 1 }}>
-                <TextField
-                  multiline
-                  minRows={2}
-                  maxRows={5}
-                  fullWidth
-                  size="small"
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  placeholder="你想了解什么？..."
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: 3,
-                      fontSize: 13.5,
-                      bgcolor: 'background.paper',
-                      boxShadow: 'inset 0 2px 6px rgba(15,23,42,0.02)',
-                      transition: 'all 0.2s',
-                      '&.Mui-focused': {
-                        bgcolor: 'background.paper',
-                        boxShadow: '0 0 0 3px rgba(99,102,241,0.15)',
-                      }
-                    },
-                  }}
-                />
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                  <FormControlLabel
-                    control={<Checkbox size="small" checked={includeHistory} onChange={e => setIncludeHistory(e.target.checked)} sx={{ color: 'slate.400', '&.Mui-checked': { color: 'accent.indigo' } }} />}
-                    label={<Typography variant="caption" color="text.secondary">带上历史上下文</Typography>}
-                    sx={{ ml: 0.25 }}
-                  />
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, ml: 'auto' }}>
-                    <Typography variant="caption" sx={{ color: 'slate.400' }}>Enter 发送，Shift + Enter 换行</Typography>
-                    <Button
-                      variant="contained"
-                      onClick={sendMessage}
-                      disabled={loading || !input.trim()}
-                      sx={{ 
-                        minWidth: 92, 
-                        minHeight: 38, 
-                        borderRadius: 2.5,
-                        background: (theme) => theme.palette.gradients.primary,
-                        boxShadow: '0 4px 12px rgba(99,102,241,0.25)',
-                        fontWeight: 600,
-                        '&:hover': {
-                          background: (theme) => theme.palette.gradients.primaryHover,
-                          boxShadow: '0 6px 16px rgba(99,102,241,0.3)',
-                        },
-                        '&.Mui-disabled': {
-                          background: 'slate.200',
-                          color: 'slate.400',
-                          boxShadow: 'none'
-                        }
-                      }}
-                    >
-                      发送
-                    </Button>
-                  </Box>
-                </Box>
-            </Box>
           </Box>
-        </Box>
-      </Paper>
+        </Paper>
 
-      {graphExpanded && (
+        {/* 右侧：图谱 */}
         <GraphInsightPanel
-          checkGraphStatus={checkGraphStatus}
           containerRef={containerRef}
-          docType={docType}
-          filters={filters}
-          graphLoading={graphLoading}
           graphReady={graphReady}
-          isNarrow={isNarrow}
+          graphLoading={graphLoading}
+          graphError={graphError}
           legend={legend}
-          loadFullGraph={loadFullGraph}
-          moduleFilter={moduleFilter}
-          searchEntity={searchEntity}
-          searchText={searchText}
+          filters={filters}
+          docType={docType}
           setDocType={setDocType}
+          moduleFilter={moduleFilter}
           setModuleFilter={setModuleFilter}
-          setSearchText={setSearchText}
-          setShowChunks={setShowChunks}
           showChunks={showChunks}
+          setShowChunks={setShowChunks}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          searchEntity={searchEntity}
+          loadFullGraph={loadFullGraph}
+          checkGraphStatus={refetchGraphStatus}
+          isNarrow={isNarrow}
         />
-      )}
+      </Box>
     </Box>
   );
 }

@@ -132,6 +132,29 @@ export function Toolbar({ projects, projectId, setProjectId, loadSummary, loadin
   );
 }
 
+export function DashboardSkeleton() {
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Metrics Skeletons */}
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+        {[1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} variant="rectangular" height={94} sx={{ flex: '1 1 180px', borderRadius: 3 }} />
+        ))}
+      </Box>
+      
+      {/* Charts Skeletons */}
+      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+        <Skeleton variant="rectangular" height={260} sx={{ flex: '1 1 320px', borderRadius: 3 }} />
+        <Skeleton variant="rectangular" height={260} sx={{ flex: '1 1 320px', borderRadius: 3 }} />
+        <Skeleton variant="rectangular" height={260} sx={{ flex: '1 1 320px', borderRadius: 3 }} />
+      </Box>
+
+      {/* Table Skeleton */}
+      <Skeleton variant="rectangular" height={400} sx={{ borderRadius: 3 }} />
+    </Box>
+  );
+}
+
 export function TopList({ title, items = [], emptyText }) {
   const max = Math.max(...items.map((item) => item.count || 0), 1);
   return (
