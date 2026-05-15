@@ -6,7 +6,9 @@ import {
   Stack,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { RefreshOutlined } from '@mui/icons-material';
 import ConfirmDialog from '../../../components/ConfirmDialog';
 import {
@@ -36,6 +38,7 @@ import {
 } from '../hooks/useLogs';
 
 export default function LogCenter() {
+  const theme = useTheme();
   // 筛选状态
   const [projectId, setProjectId] = React.useState('');
   const [moduleFilter, setModuleFilter] = React.useState('');
@@ -166,25 +169,29 @@ export default function LogCenter() {
   };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} gap={1.5} sx={{ mb: 2 }}>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>日志中心</Typography>
-          <Typography variant="body2" color="text.secondary">查看执行、策略、任务和知识写入的关键事件。</Typography>
-          {usingFallback && <Typography variant="caption" color="warning.main">当前为聚合日志 fallback 模式</Typography>}
-        </Box>
-        <Tooltip title="刷新日志">
-          <span>
-            <IconButton onClick={() => refetchLogs()} disabled={isLogsFetching}>
-              <RefreshOutlined />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Stack>
+    <Box sx={{ p: 0 }}>
+      <Box sx={{ px: 3, py: 2, borderBottom: '1px solid', borderColor: 'rgba(255, 255, 255, 0.4)', bgcolor: 'rgba(255, 255, 255, 0.1)' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} gap={1.5}>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>日志中心</Typography>
+            <Typography variant="caption" color="text.secondary">查看执行、策略、任务和知识写入的关键事件。</Typography>
+            {usingFallback && <Typography variant="caption" color="warning.main" sx={{ display: 'block' }}>当前为聚合日志 fallback 模式</Typography>}
+          </Box>
+          <Tooltip title="刷新日志">
+            <span>
+              <IconButton onClick={() => refetchLogs()} disabled={isLogsFetching} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <RefreshOutlined fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+      </Box>
 
-      <Alert severity="info" sx={{ mb: 2 }}>
-        默认展示最近 7 天日志；后端会自动保留 Error 日志并裁剪过期非 Error 日志，历史排障可切换时间范围或按需清理。
-      </Alert>
+      <Box sx={{ p: 2.5 }}>
+
+        <Alert severity="info" sx={{ mb: 2, borderRadius: 2.5, bgcolor: alpha(theme.palette.info.main, 0.05), border: '1px solid', borderColor: alpha(theme.palette.info.main, 0.1) }}>
+          默认展示最近 7 天日志；后端会自动保留 Error 日志并裁剪过期非 Error 日志。
+        </Alert>
 
       <LogFilters
         projects={projects}
@@ -246,6 +253,7 @@ export default function LogCenter() {
         onConfirm={handleCleanup}
         onCancel={() => setCleanupDialogOpen(false)}
       />
+      </Box>
     </Box>
   );
 }

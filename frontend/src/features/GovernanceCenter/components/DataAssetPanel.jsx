@@ -9,6 +9,7 @@ import {
   Metric,
   TASK_LABELS,
 } from './governanceModel';
+import StatusIllustration from '../../../components/StatusIllustration';
 
 export function DataAssetPanel({ taskCenter, knowledgeItems, templates }) {
   const failedWrites = (taskCenter?.type_counts || []).find((item) => item.task_type === 'knowledge_write_failure')?.pending_count || 0;
@@ -35,9 +36,21 @@ export function DataAssetPanel({ taskCenter, knowledgeItems, templates }) {
           </Box>
         ))}
       </Box>
-      <Alert severity={failedWrites ? 'warning' : 'success'}>
-        {failedWrites ? '存在知识写入失败任务，请在任务中心处理图谱或向量库写入问题。' : '当前没有知识写入失败任务。'}
-      </Alert>
+      {!failedWrites && (
+        <Box sx={{ py: 2, bgcolor: 'rgba(16, 185, 129, 0.05)', borderRadius: 4, border: '1px dashed rgba(16, 185, 129, 0.3)' }}>
+          <StatusIllustration 
+            size={160}
+            title="系统状态：稳健"
+            description="当前所有知识资产同步正常，自动化流程引擎运行平稳，未检测到显著的一致性冲突或写入阻塞。"
+          />
+        </Box>
+      )}
+      
+      {failedWrites > 0 && (
+        <Alert severity="warning">
+          存在知识写入失败任务，请在任务中心处理图谱或向量库写入问题。
+        </Alert>
+      )}
     </Stack>
   );
 }

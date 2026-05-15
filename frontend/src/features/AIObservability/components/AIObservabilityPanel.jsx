@@ -26,7 +26,9 @@ import {
   Tooltip,
   Typography,
   LinearProgress,
+  useTheme,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   BoltOutlined,
   ErrorOutlineOutlined,
@@ -82,21 +84,22 @@ const getRangeParams = (timeRange) => {
 };
 
 function Metric({ label, value, helper = '', tone = 'info', icon = null }) {
-  const colors = {
-    info: { bg: 'rgba(14,165,233,0.10)', color: 'info.main' },
-    success: { bg: 'rgba(34,197,94,0.10)', color: 'success.main' },
-    warning: { bg: 'rgba(245,158,11,0.10)', color: 'warning.main' },
-    error: { bg: 'rgba(239,68,68,0.10)', color: 'error.main' },
+  const theme = useTheme();
+  const tones = {
+    info: { bg: alpha(theme.palette.info.main, 0.1), color: theme.palette.info.main },
+    success: { bg: alpha(theme.palette.success.main, 0.1), color: theme.palette.success.main },
+    warning: { bg: alpha(theme.palette.warning.main, 0.1), color: theme.palette.warning.main },
+    error: { bg: alpha(theme.palette.error.main, 0.1), color: theme.palette.error.main },
   };
-  const theme = colors[tone] || colors.info;
+  const config = tones[tone] || tones.info;
   return (
-    <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: theme.bg, minWidth: 0 }}>
-      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-        <Typography variant="caption" color="text.secondary">{label}</Typography>
-        {icon && <Box sx={{ display: 'flex', color: theme.color }}>{icon}</Box>}
+    <Box sx={{ p: 2, borderRadius: 3, border: '1px solid', borderColor: alpha(config.color, 0.1), bgcolor: config.bg, minWidth: 0 }}>
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 0.5 }}>
+        <Typography variant="caption" sx={{ fontWeight: 700, color: alpha(config.color, 0.8) }}>{label}</Typography>
+        {icon && <Box sx={{ display: 'flex', color: config.color }}>{icon}</Box>}
       </Stack>
-      <Typography variant="h6" sx={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</Typography>
-      {helper && <Typography variant="caption" color="text.secondary" noWrap>{helper}</Typography>}
+      <Typography variant="h6" sx={{ fontWeight: 800, color: config.color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</Typography>
+      {helper && <Typography variant="caption" color="text.secondary" sx={{ opacity: 0.7 }} noWrap>{helper}</Typography>}
     </Box>
   );
 }
@@ -197,20 +200,24 @@ export default function AIObservabilityPanel() {
   ].filter(i => i.count > 0);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="center" gap={1.5} sx={{ mb: 2 }}>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>AI/RAG 调用观测</Typography>
-          <Typography variant="body2" color="text.secondary">分析模型效能、耗时与稳定性指标。</Typography>
-        </Box>
-        <Tooltip title="刷新数据">
-          <span>
-            <IconButton onClick={() => refetchSummary()} disabled={isSummaryLoading}>
-              <RefreshOutlined />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Stack>
+    <Box sx={{ p: 0 }}>
+      <Box sx={{ px: 3, py: 2, borderBottom: '1px solid', borderColor: 'rgba(255, 255, 255, 0.4)', bgcolor: 'rgba(255, 255, 255, 0.1)' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="center" gap={1.5}>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>AI/RAG 调用观测</Typography>
+            <Typography variant="caption" color="text.secondary">分析模型效能、耗时与稳定性指标。</Typography>
+          </Box>
+          <Tooltip title="刷新数据">
+            <span>
+              <IconButton onClick={() => refetchSummary()} disabled={isSummaryLoading} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                <RefreshOutlined fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+      </Box>
+
+      <Box sx={{ p: 2.5 }}>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
         <FormControl size="small" sx={{ minWidth: 160 }}>
@@ -348,6 +355,7 @@ export default function AIObservabilityPanel() {
         </DialogContent>
         <DialogActions><Button onClick={() => setSnapshotContent(null)}>关闭</Button></DialogActions>
       </Dialog>
+      </Box>
     </Box>
   );
 }

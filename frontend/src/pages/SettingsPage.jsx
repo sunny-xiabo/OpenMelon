@@ -89,6 +89,9 @@ export default function SettingsPage() {
       <Paper 
         elevation={0} 
         sx={{ 
+          minHeight: '100%',
+          display: 'flex',
+          flexDirection: 'column',
           border: '1px solid rgba(255, 255, 255, 0.4)', 
           borderRadius: 4, 
           overflow: 'hidden',
@@ -98,55 +101,66 @@ export default function SettingsPage() {
         }}
       >
         <PageHeader
-          title="设置"
-          subtitle="统一管理系统配置项。当前已接入节点类型配置，后续可继续扩展更多设置模块。"
+          title="设置中心"
+          subtitle="统一维护图谱节点、Prompt 模板、环境变量及系统运行状态。"
         />
 
-        <Box sx={{ display: 'flex', minHeight: 0, flexDirection: { xs: 'column', lg: 'row' } }}>
+        <Box sx={{ display: 'flex', flex: 1, minHeight: 0, flexDirection: { xs: 'column', lg: 'row' } }}>
           <Box
             sx={{
-              width: { xs: '100%', lg: 260 },
+              width: { xs: '100%', lg: 240 },
               minWidth: 0,
               borderRight: { xs: 'none', lg: '1px solid' },
               borderBottom: { xs: '1px solid', lg: 'none' },
-              borderColor: 'rgba(255, 255, 255, 0.5)',
-              background: 'transparent',
+              borderColor: 'rgba(255, 255, 255, 0.4)',
+              background: 'rgba(255, 255, 255, 0.2)',
             }}
           >
             <Box sx={{ p: 1.5, position: 'sticky', top: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                <Box sx={{ width: 34, height: 34, borderRadius: '10px', background: 'linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%)', color: 'accent.indigoDark', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: (theme) => `inset 0 2px 4px ${alpha(theme.palette.common.white, 0.7)}, 0 4px 8px ${alpha(theme.palette.accent.indigo, 0.1)}` }}>
-                  <SettingsSuggestOutlined fontSize="small" />
-                </Box>
-              <Box>
-                <Typography variant="subtitle2">配置目录</Typography>
-                <Typography variant="caption" color="text.secondary">选择要维护的设置项</Typography>
+              <Box sx={{ px: 1.5, mb: 2 }}>
+                <Typography variant="overline" sx={{ fontWeight: 800, color: 'text.secondary', letterSpacing: '0.1em' }}>配置目录</Typography>
               </Box>
-            </Box>
 
-            <Box sx={{ display: 'flex', flexDirection: { xs: 'row', lg: 'column' }, gap: 0.75, flexWrap: 'wrap' }}>
-              {SECTIONS.map((section) => (
-                <NavMenuButton
-                  key={section.key}
-                  active={activeSection === section.key}
-                  icon={section.icon}
-                  label={section.label}
-                  description={section.description}
-                  onClick={() => selectSection(section.key)}
-                />
-              ))}
-            </Box>
+              <Box sx={{ display: 'flex', flexDirection: { xs: 'row', lg: 'column' }, gap: 0.5, flexWrap: 'wrap' }}>
+                {SECTIONS.map((section) => (
+                  <NavMenuButton
+                    key={section.key}
+                    active={activeSection === section.key}
+                    icon={section.icon}
+                    label={section.label}
+                    description={section.description}
+                    onClick={() => selectSection(section.key)}
+                    sx={{
+                      borderRadius: 2.5,
+                      transition: 'all 0.2s',
+                      '&:hover': {
+                        bgcolor: 'rgba(255, 255, 255, 0.5)',
+                      }
+                    }}
+                  />
+                ))}
+              </Box>
             </Box>
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 0, background: 'transparent' }}>
-            {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
-            {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
-            {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
-            {activeSection === 'governance' && <GovernanceCenter />}
-            {activeSection === 'logs' && <LogCenter />}
-            {activeSection === 'ai-observability' && <AIObservabilityPanel />}
-            {activeSection === 'runtime-config' && <ConfigCenter />}
+          <Box sx={{ flex: 1, minWidth: 0, overflow: 'auto', p: 3 }}>
+            <Box sx={{ 
+              height: '100%',
+              borderRadius: 3, 
+              bgcolor: 'rgba(255, 255, 255, 0.4)', 
+              border: '1px solid rgba(255, 255, 255, 0.5)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
+              {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
+              {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
+              {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
+              {activeSection === 'governance' && <GovernanceCenter />}
+              {activeSection === 'logs' && <LogCenter />}
+              {activeSection === 'ai-observability' && <AIObservabilityPanel />}
+              {activeSection === 'runtime-config' && <ConfigCenter />}
+            </Box>
           </Box>
         </Box>
       </Paper>

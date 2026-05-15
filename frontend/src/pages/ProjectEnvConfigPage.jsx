@@ -203,9 +203,9 @@ export default function ProjectEnvConfigPage({ embedded = false }) {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, bgcolor: 'transparent' }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2.5, py: 1.5, borderBottom: '1px solid', borderColor: 'rgba(255, 255, 255, 0.4)' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
           <FolderOpenOutlined fontSize="small" color="primary" />
           <Box>
@@ -222,7 +222,7 @@ export default function ProjectEnvConfigPage({ embedded = false }) {
       {/* Main content */}
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {/* Left: Projects */}
-        <Paper elevation={0} sx={{ width: 240, borderRight: '1px solid', borderColor: 'divider', overflow: 'auto' }}>
+        <Paper elevation={0} sx={{ width: 240, borderRight: '1px solid', borderColor: 'rgba(255, 255, 255, 0.4)', overflow: 'auto', bgcolor: 'rgba(255, 255, 255, 0.1)' }}>
           <List dense sx={{ p: 1 }}>
             {projects.map((p) => (
               <ListItemButton 
@@ -246,7 +246,16 @@ export default function ProjectEnvConfigPage({ embedded = false }) {
             </Box>
           ) : (
             <>
-              <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)} sx={{ px: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Tabs 
+                value={activeTab} 
+                onChange={(_, v) => setActiveTab(v)} 
+                sx={{ 
+                  px: 2, 
+                  borderBottom: '1px solid', 
+                  borderColor: 'rgba(255, 255, 255, 0.4)',
+                  bgcolor: 'rgba(255, 255, 255, 0.3)'
+                }}
+              >
                 <Tab label="项目配置" value="project" />
                 <Tab label={`环境管理 (${environments.length})`} value="environments" />
               </Tabs>

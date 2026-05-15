@@ -81,8 +81,8 @@ export default function NodeTypeConfigPage({ embedded = false }) {
   };
 
   return (
-    <Box sx={{ flex: 1, p: embedded ? 0 : 1.5, overflow: embedded ? 'visible' : 'auto', bgcolor: embedded ? 'transparent' : 'background.default' }}>
-      <Paper elevation={0} sx={{ border: embedded ? 'none' : '1px solid', borderColor: 'divider', borderRadius: embedded ? 0 : 3, overflow: 'hidden', bgcolor: 'background.paper' }}>
+    <Box sx={{ flex: 1, p: embedded ? 0 : 1.5, overflow: embedded ? 'visible' : 'auto', bgcolor: 'transparent' }}>
+      <Paper elevation={0} sx={{ border: embedded ? 'none' : '1px solid', borderColor: 'divider', borderRadius: embedded ? 0 : 3, overflow: 'hidden', bgcolor: 'transparent' }}>
         {!embedded && (
           <PageHeader title="节点类型配置" subtitle="管理图谱节点类型的配置与前端样式。">
             <Box sx={{ display: 'flex', gap: 1 }}>

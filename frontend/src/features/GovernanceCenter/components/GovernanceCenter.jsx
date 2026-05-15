@@ -14,7 +14,9 @@ import {
   Tabs,
   Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   ContentCopyOutlined,
   FactCheckOutlined,
@@ -61,6 +63,7 @@ const EMPTY_CONFIRM_DIALOG = {
 };
 
 export default function GovernanceCenter() {
+  const theme = useTheme();
   const showSnackbar = useSnackbar();
   
   // 核心 UI 状态
@@ -179,36 +182,40 @@ export default function GovernanceCenter() {
   }, [templateKeyword, templateStatus, templates]);
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} gap={1.5} sx={{ mb: 2 }}>
-        <Box>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>治理中心</Typography>
-          <Typography variant="body2" color="text.secondary">统一处理知识、任务、模板和数据资产状态。</Typography>
-        </Box>
-        <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-          <FormControl size="small" sx={{ minWidth: 220 }}>
-            <InputLabel>项目</InputLabel>
-            <Select label="项目" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              <MenuItem value="">全部项目</MenuItem>
-              {projects.map((p) => <MenuItem key={p.project_id} value={p.project_id}>{p.name}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <Tooltip title="刷新治理中心">
-            <span>
-              <IconButton onClick={handleRefresh} disabled={isGlobalLoading || isActionPending}>
-                <RefreshOutlined />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="清空筛选">
-            <span>
-              <IconButton onClick={resetFilters} disabled={isGlobalLoading}>
-                <FilterAltOffOutlined />
-              </IconButton>
-            </span>
-          </Tooltip>
+    <Box sx={{ p: 0 }}>
+      <Box sx={{ px: 3, py: 2, borderBottom: '1px solid', borderColor: 'rgba(255, 255, 255, 0.4)', bgcolor: 'rgba(255, 255, 255, 0.1)' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} gap={1.5}>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>治理中心</Typography>
+            <Typography variant="caption" color="text.secondary">处理知识一致性、自动化任务队列与模板库。</Typography>
+          </Box>
+          <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel>项目过滤</InputLabel>
+              <Select label="项目过滤" value={projectId} onChange={(e) => setProjectId(e.target.value)} sx={{ borderRadius: 2 }}>
+                <MenuItem value="">全部项目</MenuItem>
+                {projects.map((p) => <MenuItem key={p.project_id} value={p.project_id}>{p.name}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <Tooltip title="刷新治理中心">
+              <span>
+                <IconButton onClick={handleRefresh} disabled={isGlobalLoading || isActionPending} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                  <RefreshOutlined fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="清空筛选">
+              <span>
+                <IconButton onClick={resetFilters} disabled={isGlobalLoading} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                  <FilterAltOffOutlined fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
         </Stack>
-      </Stack>
+      </Box>
+
+      <Box sx={{ p: 2.5 }}>
 
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1, mb: 2 }}>
         <Metric label="待确认知识" value={tasks.filter((t) => t.task_type === 'knowledge_ingest_candidate' && t.status === 'pending').length} tone="warning" />
@@ -217,37 +224,51 @@ export default function GovernanceCenter() {
         <Metric label="当前项目" value={selectedProject?.name || '全部'} tone="info" compact />
         <Metric label="流程模板" value={filteredTemplates.length} tone="success" />
       </Box>
-
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1, mb: 2 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 1.5, mb: 3 }}>
         {GOVERNANCE_STEPS.map((step, index) => (
           <Box
             key={step.key}
             sx={{
-              p: 1.25, borderRadius: 2, border: '1px solid',
-              borderColor: tab === step.key ? 'primary.main' : 'divider',
-              bgcolor: tab === step.key ? 'rgba(25,118,210,0.08)' : 'rgba(255,255,255,0.46)',
-              cursor: 'pointer',
-            }}
-            onClick={() => setTab(step.key)}
-          >
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Chip size="small" label={index + 1} color={tab === step.key ? 'primary' : 'default'} />
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>{step.label}</Typography>
-                <Typography variant="caption" color="text.secondary" noWrap>{step.caption}</Typography>
-              </Box>
-            </Stack>
-          </Box>
-        ))}
-      </Box>
+              p: 1.5, borderRadius: 3, border: '1px solid',
+                borderColor: tab === step.key ? 'primary.main' : 'rgba(255, 255, 255, 0.4)',
+                bgcolor: tab === step.key ? alpha(theme.palette.primary.main, 0.08) : 'rgba(255, 255, 255, 0.4)',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                '&:hover': {
+                  bgcolor: tab === step.key ? alpha(theme.palette.primary.main, 0.12) : 'rgba(255, 255, 255, 0.6)',
+                }
+              }}
+              onClick={() => setTab(step.key)}
+            >
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ width: 24, height: 24, borderRadius: '50%', bgcolor: tab === step.key ? 'primary.main' : 'rgba(0,0,0,0.1)', color: tab === step.key ? 'white' : 'text.secondary', display: 'grid', placeItems: 'center', fontSize: '0.75rem', fontWeight: 800 }}>
+                  {index + 1}
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 800 }}>{step.label}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>{step.caption}</Typography>
+                </Box>
+              </Stack>
+            </Box>
+          ))}
+        </Box>
 
-      <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.52)' }}>
-        <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ px: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Tab value="tasks" label="待办队列" icon={<FactCheckOutlined />} iconPosition="start" />
-          <Tab value="knowledge" label="知识库" icon={<RuleOutlined />} iconPosition="start" />
-          <Tab value="templates" label="模板库" icon={<ContentCopyOutlined />} iconPosition="start" />
-          <Tab value="assets" label="资产健康" icon={<WarningAmberOutlined />} iconPosition="start" />
-        </Tabs>
+        <Paper variant="outlined" sx={{ borderRadius: 3, overflow: 'hidden', bgcolor: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.4)' }}>
+          <Tabs 
+            value={tab} 
+            onChange={(_e, v) => setTab(v)} 
+            sx={{ 
+              px: 2, 
+              borderBottom: '1px solid', 
+              borderColor: 'divider',
+              bgcolor: 'rgba(255, 255, 255, 0.4)'
+            }}
+          >
+            <Tab label="待办队列" value="tasks" icon={<FactCheckOutlined />} iconPosition="start" />
+            <Tab label="知识库" value="knowledge" icon={<RuleOutlined />} iconPosition="start" />
+            <Tab label="模板库" value="templates" icon={<ContentCopyOutlined />} iconPosition="start" />
+            <Tab label="资产健康" value="assets" icon={<WarningAmberOutlined />} iconPosition="start" />
+          </Tabs>
         {(isGlobalLoading || isActionPending) && <LinearProgress />}
         <Box sx={{ p: 2 }}>
           {!isGlobalLoading && tab === 'tasks' && (
@@ -297,6 +318,7 @@ export default function GovernanceCenter() {
         onConfirm={confirmDialog.onConfirm || (() => {})}
         onCancel={() => setConfirmDialog(EMPTY_CONFIRM_DIALOG)}
       />
+      </Box>
     </Box>
   );
 }

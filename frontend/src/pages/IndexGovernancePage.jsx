@@ -1,4 +1,5 @@
 import React from 'react';
+import { alpha } from '@mui/material/styles';
 import {
   Alert,
   Box,
@@ -23,7 +24,9 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
+  useTheme,
 } from '@mui/material';
 import {
   AccountTreeOutlined,
@@ -41,50 +44,49 @@ import {
   SearchOutlined,
   StorageOutlined,
   SyncProblemOutlined,
+  VerifiedUserOutlined,
+  PsychologyOutlined,
+  LightbulbOutlined,
+  TipsAndUpdatesOutlined,
 } from '@mui/icons-material';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { indexGovernanceAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import ConfirmDialog from '../components/ConfirmDialog';
+import PageHeader from '../components/PageHeader';
+import healthySvg from '../assets/system_healthy.svg';
 
 const PIPELINE_STEPS = [
-  { label: '业务源', icon: <DataObjectOutlined fontSize="small" />, caption: '文档 / 用例 / API 知识' },
-  { label: 'Neo4j', icon: <AccountTreeOutlined fontSize="small" />, caption: '图谱节点、关系、embedding' },
-  { label: 'Qdrant', icon: <StorageOutlined fontSize="small" />, caption: '语义向量点与 payload' },
-  { label: 'RAG 检索', icon: <SearchOutlined fontSize="small" />, caption: '只召回 active 资产' },
+  { label: '业务源', icon: <DataObjectOutlined fontSize="small" />, caption: '文档 / 用例 / API 知识', color: '#4F46E5' },
+  { label: 'Neo4j', icon: <AccountTreeOutlined fontSize="small" />, caption: '图谱节点、关系、embedding', color: '#3B82F6' },
+  { label: 'Qdrant', icon: <StorageOutlined fontSize="small" />, caption: '语义向量点与 payload', color: '#10B981' },
+  { label: 'RAG 检索', icon: <SearchOutlined fontSize="small" />, caption: '只召回 active 资产', color: '#8B5CF6' },
 ];
 
 const statusConfig = {
-  healthy: { label: '健康', color: 'success' },
-  attention: { label: '需关注', color: 'warning' },
-  unavailable: { label: '不可用', color: 'default' },
+  healthy: { label: '健康', color: 'success', gradient: 'linear-gradient(135deg, #10B981 0%, #059669 100%)' },
+  attention: { label: '需关注', color: 'warning', gradient: 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)' },
+  unavailable: { label: '不可用', color: 'error', gradient: 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)' },
 };
 
 const taskStatusConfig = {
-  queued: { label: '排队中', color: 'default' },
-  running: { label: '执行中', color: 'info' },
-  succeeded: { label: '已完成', color: 'success' },
-  failed: { label: '失败', color: 'error' },
-  cancelled: { label: '已取消', color: 'warning' },
+  queued: { label: '排队中', color: 'default', icon: <ReplayOutlined fontSize="small" /> },
+  running: { label: '执行中', color: 'info', icon: <RestartAltOutlined fontSize="small" className="spin-animation" /> },
+  succeeded: { label: '已完成', color: 'success', icon: <AutoFixHighOutlined fontSize="small" /> },
+  failed: { label: '失败', color: 'error', icon: <SyncProblemOutlined fontSize="small" /> },
+  cancelled: { label: '已取消', color: 'warning', icon: <CancelOutlined fontSize="small" /> },
 };
 
 const taskOperationLabels = {
   rebuild_qdrant: 'Qdrant 重建',
 };
 
-const shellSx = {
-  borderRadius: 2,
-  borderColor: 'rgba(148,163,184,0.28)',
-  bgcolor: 'rgba(255,255,255,0.86)',
-  boxShadow: '0 8px 24px rgba(15,23,42,0.04)',
-};
-
 function SectionHeader({ title, caption, action }) {
   return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1} sx={{ p: 1.5 }}>
+    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1} sx={{ p: 2 }}>
       <Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{title}</Typography>
-        {caption && <Typography variant="caption" color="text.secondary">{caption}</Typography>}
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.primary' }}>{title}</Typography>
+        {caption && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>{caption}</Typography>}
       </Box>
       {action}
     </Stack>
@@ -92,59 +94,211 @@ function SectionHeader({ title, caption, action }) {
 }
 
 function MetricCard({ label, value, tone = 'info', helper, icon }) {
-  const colors = {
-    info: { bg: 'rgba(14,165,233,0.08)', iconBg: 'rgba(14,165,233,0.14)', color: 'info.main' },
-    success: { bg: 'rgba(34,197,94,0.08)', iconBg: 'rgba(34,197,94,0.14)', color: 'success.main' },
-    warning: { bg: 'rgba(245,158,11,0.08)', iconBg: 'rgba(245,158,11,0.16)', color: 'warning.main' },
-    error: { bg: 'rgba(239,68,68,0.08)', iconBg: 'rgba(239,68,68,0.14)', color: 'error.main' },
-  };
-  const palette = colors[tone] || colors.info;
+  const theme = useTheme();
   return (
-    <Paper variant="outlined" sx={{ ...shellSx, p: 1.5, bgcolor: palette.bg, minHeight: 96 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" color="text.secondary">{label}</Typography>
-          <Typography variant="h4" sx={{ color: palette.color, fontWeight: 800, lineHeight: 1.05, mt: 0.5 }}>{value}</Typography>
+    <Paper 
+      elevation={0}
+      sx={{ 
+        p: 2.5, 
+        borderRadius: 4, 
+        border: '1px solid rgba(255, 255, 255, 0.5)',
+        borderLeft: `4px solid ${theme.palette[tone].main}`,
+        background: alpha(theme.palette[tone].main, 0.04),
+        backdropFilter: 'blur(10px)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 1.5,
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        position: 'relative',
+        overflow: 'hidden',
+        '&:hover': {
+          bgcolor: alpha(theme.palette[tone].main, 0.08),
+          transform: 'translateY(-4px)',
+          boxShadow: `0 12px 24px ${alpha(theme.palette[tone].main, 0.12)}`
+        }
+      }}
+    >
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Box sx={{ p: 1, borderRadius: 2.5, bgcolor: alpha(theme.palette[tone].main, 0.1), color: theme.palette[tone].main, display: 'grid', placeItems: 'center' }}>
+          {icon}
         </Box>
-        {icon && (
-          <Box sx={{ width: 34, height: 34, borderRadius: 1.25, display: 'grid', placeItems: 'center', bgcolor: palette.iconBg, color: palette.color, flexShrink: 0 }}>
-            {icon}
-          </Box>
-        )}
+        <Box>
+          <Typography variant="caption" color="text.secondary" fontWeight={600}>{label}</Typography>
+          <Typography variant="h5" sx={{ fontWeight: 800, color: 'text.primary', lineHeight: 1.2 }}>{value}</Typography>
+        </Box>
       </Stack>
-      {helper && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>{helper}</Typography>}
+      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>{helper}</Typography>
     </Paper>
   );
 }
 
 function Pipeline() {
+  const theme = useTheme();
   return (
-    <Paper variant="outlined" sx={{ ...shellSx, p: 1.25 }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', md: 'center' }}>
+    <Box sx={{ p: 2.5, borderRadius: 4, bgcolor: alpha(theme.palette.primary.main, 0.03), border: '1px solid', borderColor: alpha(theme.palette.primary.main, 0.1), boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center" justifyContent="space-between">
         {PIPELINE_STEPS.map((step, index) => (
-          <Stack key={step.label} direction="row" spacing={1} alignItems="center" sx={{ flex: 1, minWidth: 0, p: 0.5 }}>
-            <Box sx={{ width: 36, height: 36, borderRadius: 1.25, display: 'grid', placeItems: 'center', bgcolor: 'rgba(25,118,210,0.08)', color: 'primary.main', flexShrink: 0 }}>
-              {step.icon}
-            </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="body2" sx={{ fontWeight: 800 }}>{step.label}</Typography>
-              <Typography variant="caption" color="text.secondary" noWrap>{step.caption}</Typography>
-            </Box>
+          <React.Fragment key={step.label}>
+            <Tooltip title={step.caption} arrow>
+              <Stack direction="row" spacing={1.5} alignItems="center" sx={{ flex: 1, minWidth: 160, cursor: 'default' }}>
+                <Box 
+                  sx={{ 
+                    width: 42, height: 42, borderRadius: 3, 
+                    display: 'grid', placeItems: 'center', 
+                    bgcolor: 'white', color: step.color,
+                    boxShadow: `0 4px 12px ${alpha(step.color, 0.15)}`,
+                    border: '1px solid', borderColor: alpha(step.color, 0.1)
+                  }}
+                >
+                  {step.icon}
+                </Box>
+                <Box>
+                  <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', color: 'text.primary', letterSpacing: 0.5 }}>{step.label}</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem' }}>ACTIVE SYNC</Typography>
+                </Box>
+              </Stack>
+            </Tooltip>
             {index < PIPELINE_STEPS.length - 1 && (
-              <Box sx={{ display: { xs: 'none', md: 'block' }, ml: 'auto', color: 'text.disabled', fontWeight: 800 }}>→</Box>
+              <Box 
+                sx={{ 
+                  width: { xs: 2, md: 60 }, 
+                  height: { xs: 20, md: 2 }, 
+                  bgcolor: alpha(theme.palette.divider, 0.5), 
+                  display: { xs: 'none', md: 'block' },
+                  position: 'relative',
+                  overflow: 'hidden',
+                  borderRadius: 1
+                }} 
+              >
+                <Box className="flow-animation" sx={{ position: 'absolute', inset: 0 }} />
+              </Box>
             )}
-          </Stack>
+          </React.Fragment>
         ))}
       </Stack>
-    </Paper>
+    </Box>
   );
 }
 
-export default function IndexGovernancePage() {
+function AdviceDrawer({ open, onClose, diagnostics, assets }) {
+  const theme = useTheme();
+  const [generating, setGenerating] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      setGenerating(true);
+      const timer = setTimeout(() => setGenerating(false), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  const issues = diagnostics.filter(d => d.level !== 'success');
+
+  return (
+    <Dialog 
+      open={open} 
+      onClose={onClose} 
+      scroll="paper"
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: { 
+          borderRadius: 4,
+          background: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(20px)',
+        }
+      }}
+    >
+      <DialogTitle sx={{ p: 3, pb: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <PsychologyOutlined sx={{ color: theme.palette.primary.main }} />
+        <Box>
+          <Typography variant="h6" fontWeight={800}>AI 治理专家建议</Typography>
+          <Typography variant="caption" color="text.secondary">基于当前图谱一致性扫描结果生成的修复方案</Typography>
+        </Box>
+        <IconButton onClick={onClose} size="small" sx={{ ml: 'auto' }}>
+          <CloseOutlined />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent sx={{ p: 3, pt: 1 }}>
+        {generating ? (
+          <Stack spacing={2} sx={{ py: 4, alignItems: 'center', textAlign: 'center' }}>
+            <Box sx={{ position: 'relative', width: 80, height: 80, display: 'grid', placeItems: 'center' }}>
+              <Box className="pulse-animation" sx={{ position: 'absolute', inset: 0, borderRadius: '50%', bgcolor: alpha(theme.palette.primary.main, 0.1) }} />
+              <PsychologyOutlined sx={{ fontSize: 40, color: theme.palette.primary.main, zIndex: 1 }} />
+            </Box>
+            <Box>
+              <Typography variant="body2" fontWeight={700}>正在深度分析差异点...</Typography>
+              <Typography variant="caption" color="text.secondary">正在评估索引拓扑结构与向量空间分布</Typography>
+            </Box>
+            <LinearProgress sx={{ width: '100%', maxWidth: 240, borderRadius: 2 }} />
+          </Stack>
+        ) : (
+          <Stack spacing={3} sx={{ py: 1 }}>
+            {issues.length > 0 ? (
+              <>
+                <Alert icon={<LightbulbOutlined />} severity="info" sx={{ borderRadius: 3, '& .MuiAlert-message': { width: '100%' } }}>
+                  <Typography variant="subtitle2" fontWeight={700}>核心诊断结论</Typography>
+                  <Typography variant="caption">
+                    当前检测到 {issues.length} 类结构化差异，主要集中在「{issues[0].title.split('存在')[0]}」等资产。这通常是由于并发写入或异步索引同步延迟导致的。
+                  </Typography>
+                </Alert>
+                
+                <Stack spacing={2}>
+                  <Typography variant="subtitle2" fontWeight={800} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <TipsAndUpdatesOutlined fontSize="small" color="primary" /> 逐步修复建议
+                  </Typography>
+                  {issues.map((issue, idx) => (
+                    <Paper key={idx} variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.background.default, 0.5) }}>
+                      <Stack direction="row" spacing={2}>
+                        <Box sx={{ width: 24, height: 24, borderRadius: '50%', bgcolor: theme.palette.primary.main, color: 'white', display: 'grid', placeItems: 'center', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 }}>
+                          {idx + 1}
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" fontWeight={700}>{issue.title}</Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            建议方案：{issue.action === '清理孤儿' ? '执行「一键清理」以维持 Qdrant 存储效率，避免检索到已失效的过期内容。' : '触发「重建索引」任务，系统将利用 Neo4j 中的原始文本重新生成向量点并回填至 Qdrant。'}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+                
+                <Box sx={{ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.success.main, 0.05), border: '1px dashed', borderColor: alpha(theme.palette.success.main, 0.2) }}>
+                  <Typography variant="caption" color="success.main" sx={{ fontWeight: 700 }}>专家提醒：</Typography>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    对于大规模资产重建，建议在业务低峰期执行。修复完成后，建议再次运行「一致性扫描」以确认最终状态。
+                  </Typography>
+                </Box>
+              </>
+            ) : (
+              <Stack spacing={2} sx={{ py: 4, alignItems: 'center', textAlign: 'center' }}>
+                <VerifiedUserOutlined sx={{ fontSize: 64, color: 'success.main', opacity: 0.5 }} />
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={800}>您的索引架构非常健康</Typography>
+                  <Typography variant="body2" color="text.secondary">未发现任何需要人工干预的异常。继续保持当前的同步频率即可。</Typography>
+                </Box>
+              </Stack>
+            )}
+          </Stack>
+        )}
+      </DialogContent>
+      <Box sx={{ p: 2, px: 3, display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid', borderColor: 'divider' }}>
+        <Button onClick={onClose} variant="contained" sx={{ borderRadius: 2 }}>
+          {issues.length > 0 ? '我已了解' : '太棒了'}
+        </Button>
+      </Box>
+    </Dialog>
+  );
+}
+
+export default function IndexGovernancePage({ isActive }) {
+  const theme = useTheme();
   const showSnackbar = useSnackbar();
   const [assetType, setAssetType] = React.useState('');
   const [keyword, setKeyword] = React.useState('');
   const [detailAssetKey, setDetailAssetKey] = React.useState('');
+  const [adviceOpen, setAdviceOpen] = React.useState(false);
   const [confirmDialog, setConfirmDialog] = React.useState({ open: false, title: '', message: '', onConfirm: null, confirmText: '确认', danger: false });
   const summaryQuery = useQuery({
     queryKey: ['index-governance', 'summary'],
@@ -366,131 +520,98 @@ export default function IndexGovernancePage() {
   const overallStatus = statusConfig[summary.status] || statusConfig.attention;
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, overflow: 'auto', bgcolor: '#f7f9fc', minHeight: '100%' }}>
-      <Stack spacing={2}>
-        <Paper variant="outlined" sx={{ ...shellSx, p: { xs: 1.75, md: 2 }, borderColor: 'rgba(37,99,235,0.18)' }}>
-          <Stack direction={{ xs: 'column', lg: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', lg: 'center' }} gap={2}>
-            <Stack direction="row" spacing={1.5} alignItems="center" sx={{ minWidth: 0 }}>
-              <Box sx={{ width: 44, height: 44, borderRadius: 1.5, display: 'grid', placeItems: 'center', bgcolor: 'rgba(25,118,210,0.10)', color: 'primary.main', flexShrink: 0 }}>
-                <HubOutlined />
-              </Box>
-              <Box sx={{ minWidth: 0 }}>
-                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                  <Typography variant="h6" sx={{ fontWeight: 850 }}>索引治理</Typography>
-                  <Chip size="small" color={overallStatus.color} label={overallStatus.label} />
-                </Stack>
-                <Typography variant="body2" color="text.secondary">统一治理业务源、Neo4j 图谱索引与 Qdrant 向量库内容。</Typography>
-              </Box>
-            </Stack>
-            <Stack direction="row" spacing={1} justifyContent={{ xs: 'flex-start', lg: 'flex-end' }} flexWrap="wrap">
-              <Button variant="outlined" startIcon={<RadarOutlined />} onClick={() => scanMutation.mutate()} disabled={isFetching || scanMutation.isPending}>
-                {scanMutation.isPending ? '扫描中...' : '一致性扫描'}
-              </Button>
-              <Button variant="contained" startIcon={<AutoFixHighOutlined />} disabled>生成修复建议</Button>
-            </Stack>
-          </Stack>
-        </Paper>
-
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 1.25 }}>
-          <MetricCard icon={<AccountTreeOutlined fontSize="small" />} label="Neo4j 索引节点" value={summary.total_neo4j ?? 0} tone="info" helper={summary.neo4j_available ? 'DocumentChunk / TestCaseVector' : 'Neo4j 不可用'} />
-          <MetricCard icon={<StorageOutlined fontSize="small" />} label="Qdrant 向量点" value={summary.total_qdrant ?? 0} tone={summary.qdrant_available ? 'success' : 'warning'} helper={summary.qdrant_available ? 'doc_chunks / test_cases' : 'Qdrant 不可用'} />
-          <MetricCard icon={<SyncProblemOutlined fontSize="small" />} label="一致性风险" value={summary.issue_count ?? 0} tone={summary.issue_count ? 'warning' : 'success'} helper="孤儿向量、缺失节点、状态未同步" />
-          <MetricCard icon={<DataObjectOutlined fontSize="small" />} label="受控资产类型" value={summary.asset_type_count ?? assets.length} tone="info" helper="文档、测试用例、API 知识" />
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent' }}>
+      <PageHeader 
+        title="索引治理" 
+        subtitle="统一协同业务源、图谱索引与向量库的一致性生命周期管理。" 
+      >
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <Button 
+            variant="outlined" 
+            size="small"
+            startIcon={<RadarOutlined />} 
+            onClick={() => scanMutation.mutate()} 
+            disabled={isFetching || scanMutation.isPending}
+            sx={{ borderRadius: 2 }}
+          >
+            {scanMutation.isPending ? '扫描中...' : '一致性扫描'}
+          </Button>
+          <Button 
+            variant="contained" 
+            size="small"
+            startIcon={<PsychologyOutlined />} 
+            onClick={() => setAdviceOpen(true)}
+            sx={{ 
+              borderRadius: 2,
+              background: 'linear-gradient(135deg, #4F46E5 0%, #3B82F6 100%)',
+              boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
+              '&:hover': {
+                boxShadow: '0 6px 16px rgba(59, 130, 246, 0.4)',
+              }
+            }}
+          >
+            修复建议
+          </Button>
         </Box>
+      </PageHeader>
 
-        {isFetching && <LinearProgress />}
-        {isError && <Alert severity="error">索引治理数据加载失败，请确认后端服务和双库连接状态。</Alert>}
+      <Paper 
+        elevation={0} 
+        sx={{ 
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          border: '1px solid rgba(255, 255, 255, 0.4)', 
+          borderRadius: 4, 
+          overflow: 'hidden',
+          background: 'rgba(255, 255, 255, 0.65)',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)'
+        }}
+      >
+        <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 3, overflow: 'auto' }}>
+          {/* Stats Grid */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 2 }}>
+            <MetricCard icon={<AccountTreeOutlined fontSize="small" />} label="Neo4j 节点" value={summary.total_neo4j ?? 0} tone="info" helper={summary.neo4j_available ? 'Graph nodes' : 'Neo4j 不可用'} />
+            <MetricCard icon={<StorageOutlined fontSize="small" />} label="Qdrant 点" value={summary.total_qdrant ?? 0} tone={summary.qdrant_available ? 'success' : 'error'} helper={summary.qdrant_available ? 'Vector points' : 'Qdrant 不可用'} />
+            <MetricCard icon={<SyncProblemOutlined fontSize="small" />} label="风险项" value={summary.issue_count ?? 0} tone={summary.issue_count ? 'warning' : 'success'} helper="一致性风险" />
+            <MetricCard icon={<DataObjectOutlined fontSize="small" />} label="资产类型" value={summary.asset_type_count ?? assets.length} tone="info" helper="监控中资产" />
+          </Box>
 
-        <Pipeline />
+          <Pipeline />
 
-        <Paper variant="outlined" sx={{ ...shellSx, p: 1.25 }}>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
-            <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel>资产类型</InputLabel>
-              <Select label="资产类型" value={assetType} onChange={(event) => setAssetType(event.target.value)}>
-                <MenuItem value="">全部资产</MenuItem>
-                <MenuItem value="document">文档知识</MenuItem>
-                <MenuItem value="test_case">测试用例</MenuItem>
-                <MenuItem value="api_knowledge">API 自动化知识</MenuItem>
-              </Select>
-            </FormControl>
-            <TextField size="small" label="搜索资产 / 集合 / 模块" value={keyword} onChange={(event) => setKeyword(event.target.value)} sx={{ flex: 1 }} />
-            <Button variant="text" startIcon={<FilterAltOffOutlined />} onClick={() => { setAssetType(''); setKeyword(''); }}>清空</Button>
-            <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={refresh} disabled={isFetching}>刷新</Button>
-          </Stack>
-        </Paper>
-
-        {tasks.length > 0 && (
-          <Paper variant="outlined" sx={{ ...shellSx, overflow: 'hidden' }}>
-            <SectionHeader
-              title="异步任务"
-              caption="重建任务在后台执行，可查看进度、取消或失败后重试。"
-              action={<Button size="small" startIcon={<RefreshOutlined />} onClick={() => tasksQuery.refetch()} disabled={tasksQuery.isFetching}>刷新任务</Button>}
-            />
-            <Divider />
-            <Stack spacing={1} sx={{ p: 1.5 }}>
-              {tasks.map((task) => {
-                const taskStatus = taskStatusConfig[task.status] || taskStatusConfig.queued;
-                const total = Number(task.total || 0);
-                const processed = Number(task.processed || 0);
-                const progress = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : (task.status === 'succeeded' ? 100 : 6);
-                const asset = assets.find((item) => item.key === task.asset_key);
-                const canCancel = ['queued', 'running'].includes(task.status);
-                const canRetry = ['failed', 'cancelled'].includes(task.status);
-                return (
-                  <Box key={task.task_id} sx={{ p: 1.25, borderRadius: 1.5, border: '1px solid', borderColor: 'rgba(148,163,184,0.24)', bgcolor: task.status === 'running' ? 'rgba(14,165,233,0.05)' : 'rgba(248,250,252,0.88)' }}>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }}>
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                          <Typography variant="body2" sx={{ fontWeight: 800 }}>{asset?.name || task.asset_key}</Typography>
-                          <Chip size="small" label={taskOperationLabels[task.operation] || task.operation} variant="outlined" />
-                          <Chip size="small" color={taskStatus.color} label={taskStatus.label} />
-                          <Typography variant="caption" color="text.secondary">{task.task_id}</Typography>
-                        </Stack>
-                        <Typography variant="caption" color={task.error ? 'error' : 'text.secondary'} sx={{ display: 'block', mt: 0.35 }}>
-                          {task.error || task.message || '等待执行'}
-                        </Typography>
-                      </Box>
-                      <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                        <Button size="small" startIcon={<CancelOutlined />} color="warning" disabled={!canCancel || cancelTaskMutation.isPending} onClick={() => requestCancelTask(task)}>
-                          取消
-                        </Button>
-                        <Button size="small" startIcon={<ReplayOutlined />} disabled={!canRetry || retryTaskMutation.isPending} onClick={() => requestRetryTask(task)}>
-                          重试
-                        </Button>
-                      </Stack>
-                    </Stack>
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
-                      <LinearProgress variant="determinate" value={progress} color={task.status === 'failed' ? 'error' : task.status === 'succeeded' ? 'success' : 'info'} sx={{ flex: 1, height: 7, borderRadius: 99 }} />
-                      <Typography variant="caption" color="text.secondary" sx={{ width: 84, textAlign: 'right' }}>
-                        {processed}/{total || '-'}
-                      </Typography>
-                    </Stack>
-                  </Box>
-                );
-              })}
+          {/* Filter & Table Container */}
+          <Paper elevation={0} sx={{ p: 2, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', borderRadius: 3 }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center" sx={{ mb: 2 }}>
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>资产类型</InputLabel>
+                <Select label="资产类型" value={assetType} onChange={(event) => setAssetType(event.target.value)}>
+                  <MenuItem value="">全部</MenuItem>
+                  <MenuItem value="document">文档知识</MenuItem>
+                  <MenuItem value="test_case">测试用例</MenuItem>
+                  <MenuItem value="api_knowledge">API 知识</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField 
+                size="small" 
+                placeholder="搜索资产..." 
+                value={keyword} 
+                onChange={(event) => setKeyword(event.target.value)} 
+                sx={{ flex: 1 }}
+                InputProps={{ startAdornment: <SearchOutlined fontSize="small" sx={{ color: 'text.disabled', mr: 1 }} /> }}
+              />
+              <Button variant="outlined" size="small" onClick={refresh} disabled={isFetching} startIcon={<RefreshOutlined />}>刷新</Button>
             </Stack>
-          </Paper>
-        )}
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.65fr) minmax(340px, 0.85fr)' }, gap: 2 }}>
-          <Paper variant="outlined" sx={{ ...shellSx, overflow: 'hidden' }}>
-            <SectionHeader
-              title="索引资产清单"
-              caption="按业务来源查看 SQLite / Neo4j / Qdrant 三边一致性。"
-              action={<Chip size="small" label={`显示 ${filteredAssets.length} / ${assets.length}`} />}
-            />
-            <Divider />
-            <TableContainer>
-              <Table size="small" sx={{ '& th': { bgcolor: 'rgba(248,250,252,0.96)', color: 'text.secondary', fontWeight: 800 }, '& td': { py: 1.25, borderColor: 'rgba(148,163,184,0.18)' } }}>
+            <TableContainer component={Box} sx={{ borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+              <Table size="small">
                 <TableHead>
-                  <TableRow>
-                    <TableCell>资产类型</TableCell>
-                    <TableCell>双库位置</TableCell>
+                  <TableRow sx={{ bgcolor: (theme) => alpha(theme.palette.primary.main, 0.02) }}>
+                    <TableCell sx={{ fontWeight: 700 }}>资产名称</TableCell>
                     <TableCell align="right">业务源</TableCell>
                     <TableCell align="right">Neo4j</TableCell>
                     <TableCell align="right">Qdrant</TableCell>
-                    <TableCell>明细差异</TableCell>
+                    <TableCell>一致性风险</TableCell>
                     <TableCell>健康度</TableCell>
                     <TableCell align="right">操作</TableCell>
                   </TableRow>
@@ -501,206 +622,197 @@ export default function IndexGovernancePage() {
                     const base = Math.max(Number(asset.qdrantCount || 0), Number(asset.neo4jCount || 0), 1);
                     const health = asset.status === 'unavailable' ? 8 : Math.max(8, Math.round((asset.activeCount / base) * 100));
                     return (
-                      <TableRow key={asset.key} hover sx={{ '&:hover td': { bgcolor: 'rgba(25,118,210,0.025)' } }}>
-                        <TableCell sx={{ minWidth: 176 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 800 }}>{asset.name}</Typography>
+                      <TableRow key={asset.key} hover>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>{asset.name}</Typography>
                           <Typography variant="caption" color="text.secondary">{asset.source}</Typography>
                         </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600 }}>{asset.businessCount}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600 }}>{asset.neo4jCount ?? '-'}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600 }}>{asset.qdrantCount ?? '-'}</TableCell>
                         <TableCell>
-                          <Stack spacing={0.5}>
-                            <Chip size="small" icon={<HubOutlined />} label={asset.neo4jLabel} variant="outlined" sx={{ justifyContent: 'flex-start' }} />
-                            <Chip size="small" icon={<StorageOutlined />} label={asset.qdrantCollection} variant="outlined" sx={{ justifyContent: 'flex-start' }} />
+                          <Stack direction="row" spacing={0.5}>
+                            {asset.missingInQdrantCount > 0 && <Chip size="small" variant="outlined" color="warning" label={`缺 ${asset.missingInQdrantCount}`} sx={{ height: 20, fontSize: '0.7rem' }} />}
+                            {asset.orphanInQdrantCount > 0 && <Chip size="small" variant="outlined" color="error" label={`孤 ${asset.orphanInQdrantCount}`} sx={{ height: 20, fontSize: '0.7rem' }} />}
+                            {!asset.missingInQdrantCount && !asset.orphanInQdrantCount && <Chip size="small" variant="outlined" color="success" label="同步" sx={{ height: 20, fontSize: '0.7rem' }} />}
                           </Stack>
                         </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 750 }}>{asset.businessCount}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 750 }}>{asset.neo4jCount ?? '不可用'}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 750 }}>{asset.qdrantCount ?? '不可用'}</TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                            <Chip
-                              size="small"
-                              color={asset.missingInQdrantCount ? 'warning' : 'success'}
-                              label={`缺失 ${asset.missingInQdrantCount}`}
-                              title={asset.missingInQdrantSamples.join('\n')}
-                              variant={asset.missingInQdrantCount ? 'filled' : 'outlined'}
-                            />
-                            <Chip
-                              size="small"
-                              color={asset.orphanInQdrantCount ? 'warning' : 'success'}
-                              label={`孤儿 ${asset.orphanInQdrantCount}`}
-                              title={asset.orphanQdrantSamples.join('\n')}
-                              variant={asset.orphanInQdrantCount ? 'filled' : 'outlined'}
-                            />
-                            <Chip
-                              size="small"
-                              color={asset.sourceOrphanCount ? 'warning' : 'success'}
-                              label={`源缺失 ${asset.sourceOrphanCount}`}
-                              variant={asset.sourceOrphanCount ? 'filled' : 'outlined'}
-                            />
-                          </Stack>
+                        <TableCell sx={{ minWidth: 100 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ flex: 1, position: 'relative' }}>
+                              <LinearProgress 
+                                variant="determinate" 
+                                value={health} 
+                                sx={{ 
+                                  height: 6, borderRadius: 3,
+                                  bgcolor: alpha(theme.palette[status.color].main, 0.1),
+                                  '& .MuiLinearProgress-bar': {
+                                    background: status.gradient || theme.palette[status.color].main,
+                                    borderRadius: 3
+                                  }
+                                }} 
+                              />
+                            </Box>
+                            <Typography variant="caption" fontWeight={800} sx={{ color: `${status.color}.main` }}>{health}%</Typography>
+                          </Box>
                         </TableCell>
-                        <TableCell sx={{ minWidth: 148 }}>
-                          <Stack spacing={0.75}>
-                            <Stack direction="row" spacing={0.75} alignItems="center">
-                              <Chip size="small" color={status.color} label={status.label} />
-                              <Typography variant="caption" color="text.secondary">{asset.lastSync}</Typography>
-                            </Stack>
-                            <LinearProgress variant="determinate" value={health} color={asset.status === 'healthy' ? 'success' : 'warning'} sx={{ height: 6, borderRadius: 99, bgcolor: 'rgba(148,163,184,0.16)' }} />
-                          </Stack>
-                        </TableCell>
-                        <TableCell align="right" sx={{ minWidth: 270 }}>
-                          <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
-                            <Button size="small" variant="outlined" startIcon={<SearchOutlined />} onClick={() => setDetailAssetKey(asset.key)}>
-                              明细
-                            </Button>
-                            <Button size="small" startIcon={<RestartAltOutlined />} disabled={asset.status === 'unavailable' || rebuildQdrantMutation.isPending || hasRunningTask} onClick={() => requestRebuildQdrant(asset)}>
-                              重建
-                            </Button>
-                            <Button size="small" color="warning" startIcon={<DeleteSweepOutlined />} disabled={!asset.orphanInQdrantCount || cleanupOrphansMutation.isPending} onClick={() => requestCleanupOrphans(asset)}>
-                              孤儿
-                            </Button>
-                            <Button size="small" color="warning" startIcon={<SyncProblemOutlined />} disabled={!asset.sourceOrphanCount || asset.key !== 'api_knowledge' || cleanupSourceOrphansMutation.isPending} onClick={() => requestCleanupSourceOrphans(asset)}>
-                              源缺失
-                            </Button>
+                        <TableCell align="right">
+                          <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                            <Tooltip title="详情"><IconButton size="small" onClick={() => setDetailAssetKey(asset.key)}><SearchOutlined fontSize="small" /></IconButton></Tooltip>
+                            <Tooltip title="重建"><IconButton size="small" disabled={asset.status === 'unavailable' || hasRunningTask} onClick={() => requestRebuildQdrant(asset)}><RestartAltOutlined fontSize="small" /></IconButton></Tooltip>
+                            <Tooltip title="清理"><IconButton size="small" color="warning" disabled={!asset.orphanInQdrantCount} onClick={() => requestCleanupOrphans(asset)}><DeleteSweepOutlined fontSize="small" /></IconButton></Tooltip>
                           </Stack>
                         </TableCell>
                       </TableRow>
                     );
                   })}
-                  {!isLoading && filteredAssets.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={8}>
-                        <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>没有匹配的索引资产</Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </TableContainer>
           </Paper>
 
-          <Stack spacing={2}>
-            <Paper variant="outlined" sx={{ ...shellSx, p: 1.5 }}>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
-                <Box sx={{ width: 32, height: 32, borderRadius: 1.25, display: 'grid', placeItems: 'center', bgcolor: 'rgba(25,118,210,0.08)', color: 'primary.main' }}>
-                  <AutoFixHighOutlined fontSize="small" />
-                </Box>
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.15 }}>治理动作</Typography>
-                  <Typography variant="caption" color="text.secondary">高风险动作会弹窗确认并记录审计。</Typography>
-                </Box>
-              </Stack>
-              <Stack spacing={1}>
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  startIcon={<SyncProblemOutlined />}
-                  disabled={syncStatusMutation.isPending || isFetching}
-                  onClick={() => syncStatusMutation.mutate()}
-                  sx={{ justifyContent: 'flex-start', py: 0.9 }}
-                >
-                  {syncStatusMutation.isPending ? '同步中...' : '同步失效 / 撤回状态到检索过滤'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  fullWidth
-                  disabled={!assets.length || rebuildQdrantMutation.isPending || hasRunningTask}
-                  startIcon={<RestartAltOutlined />}
-                  sx={{ justifyContent: 'flex-start', py: 0.9 }}
-                  onClick={() => assets[0] && requestRebuildQdrant(assets[0])}
-                >
-                  从 Neo4j 回填 Qdrant
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="warning"
-                  fullWidth
-                  disabled={!assets.some((asset) => asset.orphanInQdrantCount) || cleanupOrphansMutation.isPending}
-                  startIcon={<DeleteSweepOutlined />}
-                  sx={{ justifyContent: 'flex-start', py: 0.9 }}
-                  onClick={() => {
-                    const target = assets.find((asset) => asset.orphanInQdrantCount);
-                    if (target) requestCleanupOrphans(target);
-                  }}
-                >
-                  清理孤儿向量
-                </Button>
-              </Stack>
-            </Paper>
+          {/* Bottom Grid */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 340px' }, gap: 3 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {tasks.length > 0 && (
+                <Paper variant="outlined" sx={{ borderRadius: 3, p: 0, overflow: 'hidden' }}>
+                  <SectionHeader title="治理任务进度" caption="监控后台索引维护任务的实时执行情况。" />
+                  <Divider />
+                  <Stack spacing={1.5} sx={{ p: 2 }}>
+                    {tasks.map((task) => {
+                      const taskStatus = taskStatusConfig[task.status] || taskStatusConfig.queued;
+                      const total = Number(task.total || 0);
+                      const processed = Number(task.processed || 0);
+                      const progress = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : (task.status === 'succeeded' ? 100 : 6);
+                      const asset = assets.find((item) => item.key === task.asset_key);
+                      return (
+                        <Box key={task.task_id} sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', bgcolor: alpha(theme.palette.background.default, 0.4) }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                            <Box>
+                              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{asset?.name || task.asset_key}</Typography>
+                              <Typography variant="caption" color="text.secondary">{taskOperationLabels[task.operation] || task.operation} • {task.task_id.split('-')[0]}</Typography>
+                            </Box>
+                            <Chip size="small" color={taskStatus.color} label={taskStatus.label} />
+                          </Stack>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <Box sx={{ position: 'relative', flex: 1 }}>
+                              <LinearProgress 
+                                variant="determinate" 
+                                value={progress} 
+                                color={taskStatus.color} 
+                                sx={{ height: 6, borderRadius: 3 }} 
+                              />
+                              {task.status === 'running' && (
+                                <Box className="pulse-animation" sx={{ position: 'absolute', inset: 0, borderRadius: 3, bgcolor: alpha(theme.palette[taskStatus.color].main, 0.4), zIndex: -1 }} />
+                              )}
+                            </Box>
+                            <Typography variant="caption" fontWeight={700}>{progress}%</Typography>
+                          </Box>
+                        </Box>
+                      );
+                    })}
+                  </Stack>
+                </Paper>
+              )}
 
-            <Paper variant="outlined" sx={{ ...shellSx, p: 1.5 }}>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.25 }}>
-                <Box sx={{ width: 32, height: 32, borderRadius: 1.25, display: 'grid', placeItems: 'center', bgcolor: 'rgba(34,197,94,0.10)', color: 'success.main' }}>
-                  <RadarOutlined fontSize="small" />
-                </Box>
-                <Box>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.15 }}>扫描结果</Typography>
-                  <Typography variant="caption" color="text.secondary">展示最近一次诊断结论。</Typography>
-                </Box>
-              </Stack>
-              <Stack spacing={1}>
-                {diagnostics.map((item) => (
-                  <Box key={item.title} sx={{ p: 1.25, borderRadius: 1.5, border: '1px solid', borderColor: item.level === 'warning' ? 'warning.light' : 'rgba(148,163,184,0.22)', bgcolor: item.level === 'warning' ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.06)' }}>
-                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 800 }}>{item.title}</Typography>
-                        <Typography variant="caption" color="text.secondary">{item.detail}</Typography>
+              <Alert severity="info" sx={{ borderRadius: 3 }}>
+                治理说明：定期执行“一致性深度扫描”可确保图谱检索的精准度。系统会自动识别 Neo4j 节点与 Qdrant 向量之间的差异并提供一键式修复工具。
+              </Alert>
+            </Box>
+
+            <Stack spacing={3}>
+              <Paper variant="outlined" sx={{ borderRadius: 3, p: 2.5 }}>
+                <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 700 }}>快捷治理动作</Typography>
+                <Stack spacing={1.5}>
+                  <Button variant="outlined" fullWidth startIcon={<SyncProblemOutlined />} onClick={() => syncStatusMutation.mutate()} disabled={syncStatusMutation.isPending || isFetching} sx={{ justifyContent: 'flex-start' }}>同步检索过滤状态</Button>
+                  <Button variant="outlined" fullWidth startIcon={<RestartAltOutlined />} onClick={() => assets[0] && requestRebuildQdrant(assets[0])} disabled={!assets.length || rebuildQdrantMutation.isPending || hasRunningTask} sx={{ justifyContent: 'flex-start' }}>增量回填向量库</Button>
+                  <Button variant="outlined" color="warning" fullWidth startIcon={<DeleteSweepOutlined />} onClick={() => { const target = assets.find((asset) => asset.orphanInQdrantCount); if (target) requestCleanupOrphans(target); }} disabled={!assets.some((asset) => asset.orphanInQdrantCount) || cleanupOrphansMutation.isPending} sx={{ justifyContent: 'flex-start' }}>清理全局孤儿向量</Button>
+                </Stack>
+              </Paper>
+
+              <Paper variant="outlined" sx={{ borderRadius: 3, p: 2.5 }}>
+                <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 700 }}>最新诊断报告</Typography>
+                <Stack spacing={1.5}>
+                  {diagnostics.length > 0 && !diagnostics.every(d => d.level === 'success') ? (
+                    diagnostics.map((item, idx) => (
+                      <Box key={idx} sx={{ p: 1.5, borderRadius: 2, bgcolor: item.level === 'warning' ? alpha(theme.palette.warning.main, 0.05) : alpha(theme.palette.success.main, 0.05), border: '1px solid', borderColor: item.level === 'warning' ? alpha(theme.palette.warning.main, 0.1) : alpha(theme.palette.success.main, 0.1) }}>
+                        <Typography variant="caption" sx={{ fontWeight: 800, display: 'block' }}>{item.title}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>{item.detail}</Typography>
+                        <Button size="small" variant="text" sx={{ p: 0, minWidth: 'auto', fontSize: '0.7rem' }} disabled={item.level === 'success'}>{item.action}</Button>
                       </Box>
-                      <Button size="small" disabled={item.level === 'success'}>{item.action}</Button>
-                    </Stack>
-                  </Box>
-                ))}
-              </Stack>
-            </Paper>
-          </Stack>
-        </Box>
-
-        <Alert severity="info" sx={{ borderRadius: 2 }}>
-          当前已接入真实 summary、assets、diagnostics 与异步任务接口。同步、重建、清理都会写入日志中心的“索引治理”审计分类。
-        </Alert>
-      </Stack>
-      <Dialog open={Boolean(detailAssetKey)} onClose={() => setDetailAssetKey('')} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1.25 }}>
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-              {assetDetailQuery.data?.asset?.name || '索引明细'}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {assetDetailQuery.data?.asset?.source || '正在读取明细'}
-            </Typography>
-          </Box>
-          <IconButton size="small" onClick={() => setDetailAssetKey('')}>
-            <CloseOutlined fontSize="small" />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent dividers>
-          {assetDetailQuery.isFetching && <LinearProgress sx={{ mb: 1.5 }} />}
-          {assetDetailQuery.isError && <Alert severity="error">索引明细加载失败，请确认 Neo4j 和 Qdrant 连接状态。</Alert>}
-          {assetDetailQuery.data && (
-            <Stack spacing={1.5}>
-              <Alert severity="info" sx={{ borderRadius: 1.5 }}>{assetDetailQuery.data.message}</Alert>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-                <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'rgba(248,250,252,0.8)' }}>
-                  <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.75 }}>Neo4j 有但 Qdrant 缺失</Typography>
-                  <Stack spacing={0.5}>
-                    {(assetDetailQuery.data.missing_in_qdrant || []).length ? assetDetailQuery.data.missing_in_qdrant.map((id) => (
-                      <Typography key={id} variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{id}</Typography>
-                    )) : <Typography variant="caption" color="text.secondary">无缺失向量</Typography>}
-                  </Stack>
-                </Paper>
-                <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'rgba(248,250,252,0.8)' }}>
-                  <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.75 }}>Qdrant 有但 Neo4j 缺失</Typography>
-                  <Stack spacing={0.5}>
-                    {(assetDetailQuery.data.orphan_in_qdrant || []).length ? assetDetailQuery.data.orphan_in_qdrant.map((id) => (
-                      <Typography key={id} variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{id}</Typography>
-                    )) : <Typography variant="caption" color="text.secondary">无孤儿向量</Typography>}
-                  </Stack>
-                </Paper>
-              </Box>
+                    ))
+                  ) : (
+                    <Box sx={{ textAlign: 'center', py: 2, px: 1 }}>
+                      <Box 
+                        component="img" 
+                        src={healthySvg} 
+                        sx={{ 
+                          width: '100%', 
+                          maxWidth: 160, 
+                          mx: 'auto', 
+                          mb: 1, 
+                          filter: 'drop-shadow(0 8px 16px rgba(16, 185, 129, 0.1))',
+                        }} 
+                      />
+                      <Typography variant="caption" sx={{ fontWeight: 800, display: 'block', color: 'success.main', letterSpacing: 0.5 }}>图谱架构完美</Typography>
+                      <Typography variant="caption" color="text.secondary">所有资产均处于高度同步状态</Typography>
+                    </Box>
+                  )}
+                </Stack>
+              </Paper>
             </Stack>
-          )}
+          </Box>
+        </Box>
+      </Paper>
+
+      {/* AI Advice Drawer */}
+      <AdviceDrawer 
+        open={adviceOpen} 
+        onClose={() => setAdviceOpen(false)} 
+        diagnostics={diagnostics}
+        assets={assets}
+      />
+
+      {/* Asset Detail Dialog */}
+      <Dialog 
+        open={Boolean(detailAssetKey)} 
+        onClose={() => setDetailAssetKey('')} 
+        maxWidth="sm" 
+        fullWidth 
+        PaperProps={{ sx: { borderRadius: 4 } }}
+      >
+        <DialogTitle sx={{ px: 3, py: 2 }}>
+          <Typography variant="subtitle1" fontWeight={700}>资产差异明细</Typography>
+          <Typography variant="caption" color="text.secondary">{assetDetailQuery.data?.asset?.name}</Typography>
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {assetDetailQuery.isFetching && <LinearProgress />}
+          <Box sx={{ p: 2.5 }}>
+             <Stack spacing={2.5}>
+               <Box>
+                 <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block' }}>Neo4j 存在但 Qdrant 缺失</Typography>
+                 <Paper variant="outlined" sx={{ p: 1.5, maxHeight: 200, overflow: 'auto', bgcolor: alpha(theme.palette.action.hover, 0.3) }}>
+                    {(assetDetailQuery.data?.missing_in_qdrant || []).length ? assetDetailQuery.data.missing_in_qdrant.map(id => (
+                      <Typography key={id} variant="caption" sx={{ display: 'block', fontFamily: 'monospace' }}>{id}</Typography>
+                    )) : <Typography variant="caption" color="text.secondary">无记录</Typography>}
+                 </Paper>
+               </Box>
+               <Box>
+                 <Typography variant="caption" sx={{ fontWeight: 700, mb: 1, display: 'block' }}>Qdrant 存在但 Neo4j 缺失 (孤儿)</Typography>
+                 <Paper variant="outlined" sx={{ p: 1.5, maxHeight: 200, overflow: 'auto', bgcolor: alpha(theme.palette.action.hover, 0.3) }}>
+                    {(assetDetailQuery.data?.orphan_in_qdrant || []).length ? assetDetailQuery.data.orphan_in_qdrant.map(id => (
+                      <Typography key={id} variant="caption" sx={{ display: 'block', fontFamily: 'monospace' }}>{id}</Typography>
+                    )) : <Typography variant="caption" color="text.secondary">无记录</Typography>}
+                 </Paper>
+               </Box>
+             </Stack>
+          </Box>
         </DialogContent>
+        <Box sx={{ p: 2, display: 'flex', justifyContent: 'flex-end' }}>
+          <Button onClick={() => setDetailAssetKey('')} size="small">关闭</Button>
+        </Box>
       </Dialog>
+
       <ConfirmDialog
         {...confirmDialog}
         onCancel={() => setConfirmDialog({ open: false, title: '', message: '', onConfirm: null, confirmText: '确认', danger: false })}

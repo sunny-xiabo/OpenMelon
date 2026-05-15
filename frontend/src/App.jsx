@@ -10,6 +10,7 @@ import {
   AutoGraphRounded,
   StorageRounded,
 } from '@mui/icons-material';
+import IndexGovernanceIcon from './components/icons/IndexGovernanceIcon';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SnackbarProvider } from './components/SnackbarProvider';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -46,7 +47,7 @@ const TABS = [
   { label: '测试用例生成', component: TestCasePage, icon: <AssignmentTurnedInRounded fontSize="small" /> },
   { label: 'API 自动化', component: APIExecutionPage, icon: <AutoGraphRounded fontSize="small" /> },
   { label: '数据仪表盘', component: DashboardPage, icon: <PieChartRounded fontSize="small" /> },
-  { label: '索引治理', component: IndexGovernancePage, icon: <StorageRounded fontSize="small" /> },
+  { label: '索引治理', component: IndexGovernancePage, icon: <IndexGovernanceIcon fontSize="small" /> },
   { label: '设置', component: SettingsPage, icon: <SettingsRounded fontSize="small" /> },
 ];
 

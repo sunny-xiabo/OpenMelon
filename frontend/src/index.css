@@ -29,6 +29,53 @@ body {
   to { transform: rotate(360deg); }
 }
 
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.5; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+  100% { transform: scale(0.95); opacity: 0.5; }
+}
+
+.pulse-animation {
+  animation: pulse 2s infinite ease-in-out;
+}
+
+.spin-animation {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes flow {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.flow-animation {
+  background: linear-gradient(90deg, transparent 0%, rgba(99, 102, 241, 0.4) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: flow 3s linear infinite;
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); opacity: 0; }
+  50% { opacity: 0.5; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+.scanning-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanning-effect::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(34, 197, 94, 0.8), transparent);
+  animation: scan-line 2.5s ease-in-out infinite;
+}
+
 /* Glassmorphism Magnetic Hover Card */
 .magnetic-card {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;

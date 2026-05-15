@@ -168,8 +168,17 @@ export default function PromptHubConfigPage({ embedded = false }) {
         <PromptHubSummaryCards summary={summary} />
         <PromptHubWritingGuide />
 
-        <Paper variant="outlined" sx={{ borderRadius: 2.5, bgcolor: '#fbfcff', overflow: 'hidden' }}>
-          <Tabs value={activePanel} onChange={(_, v) => setActivePanel(v)} variant="fullWidth" sx={{ bgcolor: '#f8fafc' }}>
+        <Paper variant="outlined" sx={{ borderRadius: 2.5, bgcolor: 'rgba(255, 255, 255, 0.3)', overflow: 'hidden', border: '1px solid rgba(255, 255, 255, 0.4)' }}>
+          <Tabs 
+            value={activePanel} 
+            onChange={(_, v) => setActivePanel(v)} 
+            variant="fullWidth" 
+            sx={{ 
+              bgcolor: 'rgba(255, 255, 255, 0.5)',
+              borderBottom: '1px solid',
+              borderColor: 'divider'
+            }}
+          >
             <Tab value="templates" label={`模板管理 (${templates.length})`} />
             <Tab value="skills" label={`技能管理 (${skills.length})`} />
           </Tabs>
@@ -229,5 +238,5 @@ export default function PromptHubConfigPage({ embedded = false }) {
     </>
   );
 
-  return embedded ? content : <Box sx={{ flex: 1, overflow: 'auto', bgcolor: 'background.default' }}>{content}</Box>;
+  return embedded ? content : <Box sx={{ flex: 1, overflow: 'auto', p: 2, bgcolor: 'transparent' }}>{content}</Box>;
 }
