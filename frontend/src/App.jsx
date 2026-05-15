@@ -8,6 +8,7 @@ import {
   PieChartRounded,
   SettingsRounded,
   AutoGraphRounded,
+  StorageRounded,
 } from '@mui/icons-material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SnackbarProvider } from './components/SnackbarProvider';
@@ -21,6 +22,7 @@ import DashboardPage from './pages/DashboardPage';
 import TestCasePage from './pages/TestCasePage';
 import SettingsPage from './pages/SettingsPage';
 import APIExecutionPage from './pages/APIExecutionPage';
+import IndexGovernancePage from './pages/IndexGovernancePage';
 
 // 初始化 TanStack Query 客户端
 const queryClient = new QueryClient({
@@ -44,6 +46,7 @@ const TABS = [
   { label: '测试用例生成', component: TestCasePage, icon: <AssignmentTurnedInRounded fontSize="small" /> },
   { label: 'API 自动化', component: APIExecutionPage, icon: <AutoGraphRounded fontSize="small" /> },
   { label: '数据仪表盘', component: DashboardPage, icon: <PieChartRounded fontSize="small" /> },
+  { label: '索引治理', component: IndexGovernancePage, icon: <StorageRounded fontSize="small" /> },
   { label: '设置', component: SettingsPage, icon: <SettingsRounded fontSize="small" /> },
 ];
 

@@ -20,6 +20,7 @@ AUDIT_MODULES = {
     "testcase_generation",
     "webhook",
     "ai_assistant",
+    "index_governance",
     "system",
 }
 
@@ -40,6 +41,7 @@ AUDIT_EVENT_TYPE_PREFIXES = {
     "testcase_generation": ("testcase_",),
     "webhook": ("webhook_",),
     "ai_assistant": ("ai_",),
+    "index_governance": ("index_governance_",),
 }
 
 _EVENT_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]*$")

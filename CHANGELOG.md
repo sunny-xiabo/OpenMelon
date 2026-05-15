@@ -27,6 +27,17 @@
 - **多级编号智能识别**: 增强后端正则逻辑，支持自动识别并剥离 `.env.example` 中任何层级的数字编号（如 `9. 1.`），确保核心语义匹配的准确度。
 - **专业命名全量覆盖**: 补齐了鉴权认证、意图识别、Rerank 引擎、异步消息回调等所有边缘配置模块的专业术语转换。
 
+#### 4. 索引治理中心
+- **独立模块入口**：在数据仪表盘后新增“索引治理”一级模块，统一呈现文档知识、测试用例、API 自动化知识的业务源、Neo4j 与 Qdrant 三边状态。
+- **一致性扫描与明细对账**：新增 summary、assets、diagnostics 与单资产明细接口，识别 Neo4j 缺失 Qdrant 向量、Qdrant 孤儿向量和 API 知识业务源缺失索引。
+- **向量库治理动作**：支持 API 知识状态同步到检索索引、孤儿向量清理、业务源缺失索引清理，并将失效/撤回/删除状态排除在 RAG 检索召回之外。
+- **异步重建与操作护栏**：Qdrant 回填改为后台任务，前端展示进度、取消和失败重试；清理、重建、取消、重试均要求显式确认并写入日志中心“索引治理”审计分类。
+- **日志中心映射**：日志中心模块枚举补齐 `index_governance`，索引扫描、同步、清理、重建任务生命周期均可按“索引治理”筛选。
+- **治理台视觉优化**：索引治理页面升级为控制台式布局，优化顶部状态、指标卡、异步任务、资产表格、治理动作和明细弹窗的视觉层级与扫描效率。
+
+### 验证 (Verified)
+- **索引治理回归**：`python -m py_compile backend/app/index_governance/router.py backend/app/index_governance/tasks.py backend/app/storage/vector_ops.py backend/app/api/logging_service.py`、`npm --prefix frontend run lint` 与 `npm --prefix frontend run build` 通过；浏览器验证索引治理页面、异步任务区、资产表格和明细弹窗可正常显示。
+
 ## [0.2.8.4] - 2026-05-14
 
 ### 变更 (Changed)

@@ -162,13 +162,22 @@ class VectorOperations:
         if settings.USE_EXTERNAL_VECTOR and self._qdrant_client:
             try:
                 from qdrant_client.models import Filter, FieldCondition, MatchValue
-                qdrant_filter = None
+                must_conditions = []
                 if filters:
-                    must_conditions = [
+                    must_conditions.extend([
                         FieldCondition(key=k, match=MatchValue(value=v))
                         for k, v in filters.items()
-                    ]
-                    qdrant_filter = Filter(must=must_conditions)
+                    ])
+                # Governance status is optional on legacy points. Exclude only
+                # explicitly invalid/revoked/deleted assets.
+                qdrant_filter = Filter(
+                    must=must_conditions,
+                    must_not=[
+                        FieldCondition(key="status", match=MatchValue(value="invalid")),
+                        FieldCondition(key="status", match=MatchValue(value="revoked")),
+                        FieldCondition(key="status", match=MatchValue(value="deleted")),
+                    ],
+                )
                 
                 qdrant_response = await self._qdrant_client.query_points(
                     collection_name="doc_chunks",
@@ -202,14 +211,16 @@ class VectorOperations:
 
         where_clause = ""
         params = {"query_embedding": query_embedding, "top_k": top_k}
+        filter_parts = [
+            "(c.status IS NULL OR NOT c.status IN ['invalid', 'revoked', 'deleted'])"
+        ]
 
         if filters:
-            filter_parts = []
             for key, value in filters.items():
                 param_name = f"filter_{key}"
                 filter_parts.append(f"c.{key} = ${param_name}")
                 params[param_name] = value
-            where_clause = "WHERE " + " AND ".join(filter_parts)
+        where_clause = "WHERE " + " AND ".join(filter_parts)
 
         query = f"""
             CALL db.index.vector.queryNodes('chunk_embeddings', $top_k, $query_embedding)
