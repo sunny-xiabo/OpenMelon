@@ -15,6 +15,7 @@
 - **全链路 API 自动化**：IDE 级三栏式工作台，支持接口编排拖拽排序、变量跨步骤注入、AI 修复补丁、执行历史批量管理（勾选删除/一键清空全部）及执行经验知识沉淀。
 - **动态图谱可视化**：vis.js 实时渲染，支持拖拽、缩放、节点高亮，支持多维筛选和 2 度关系子图探索。
 - **全链路数据仪表盘**：涵盖图谱覆盖率、API 自动化健康度及 UI 自动化（规划中）的多维度可视化聚合看板，快速定位高风险功能。
+- **索引治理工作台**：统一查看业务源、Neo4j 图谱索引与 Qdrant 向量库的一致性，支持缺失/孤儿/源缺失诊断、明细查看、状态同步、异步回填和审计记录。
 - **全格式文档解析与管理**：支持 16 种文件格式的解析（PDF/Word/Markdown/XMind 等），提供异步上传、文件追踪、重新索引及批量管理。
 - **灵活的部署与配置**：支持内置 Provider 模板、自定义 Provider 注册、设置页运行配置中心和阶段一热更新；运行时产物统一存放在 `backend/runtime/`，支持 `OPENMELON_DATA_DIR` 自定义挂载；原生支持企业级通知 Webhook。
 
@@ -92,6 +93,7 @@ npm run dev
 | **4** | **测试用例生成** | 体验一键将文档或业务模块转换为测试用例，落盘存证并导出 Excel |
 | **5** | **API 自动化** | 将用例转化为 API DSL，支持 AI 一键生成编排、自动修复并沉淀可信执行经验 |
 | **6** | **数据仪表盘** | 查看全链路覆盖率、哪些模块缺少用例以及自动化的健康度 |
+| **7** | **索引治理** | 检查 Neo4j 与 Qdrant 是否一致，必要时执行状态同步、孤儿清理或 Qdrant 异步回填 |
 
 ### 界面概览
 
@@ -174,6 +176,7 @@ OpenMelon/
 │   │   ├── routes/          # 各子模块路由（runs、specs、projects、knowledge、templates 等）
 │   │   ├── services/        # 业务服务（run_service、spec_service、knowledge_service 等）
 │   │   └── sqlite_store.py  # 模块专属 SQLite 存储层
+│   ├── index_governance/    # 索引治理模块（Neo4j/Qdrant 一致性扫描、清理、回填任务）
 │   ├── engine/              # RAG 核心编排层（意图路由、多路召回、Rerank）
 │   ├── storage/             # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
 │   ├── services/            # 业务逻辑（文档解析、覆盖率计算、会话管理、企业 Webhook 等）
@@ -184,7 +187,7 @@ OpenMelon/
 │   ├── data/uploads/        # 用户上传的原始文件
 │   └── logs/                # 应用日志
 ├── frontend/src/
-│   ├── pages/               # 页面组件（QA、Graph、Manage、TestCase、APIExecution、Dashboard、Settings）
+│   ├── pages/               # 页面组件（QA、Graph、Manage、TestCase、APIExecution、Dashboard、IndexGovernance、Settings）
 │   ├── features/            # 功能模块（APIExecution、APIExecutionFlow、Graph、QA、PromptHub 等）
 │   ├── api/                 # 前端 API 客户端（execution.js、client.js 等）
 │   └── components/          # 通用 UI 组件
