@@ -6,6 +6,8 @@ def _save_knowledge_ingest_candidate(run: dict[str, Any], trigger_source: str = 
     run_id = run.get("run_id")
     if not run_id:
         return None
+    if trigger_source == "run_completed" and run.get("status") != "passed":
+        return None
     task_id = f"knowledge-candidate:{run_id}"
     existing = api_execution_store.get_automation_task(task_id)
     if existing and existing.get("status") == "resolved":
@@ -420,7 +422,7 @@ def list_knowledge_review_items_service(
     status: str | None = None,
     item_type: str | None = None,
 ) -> dict[str, Any]:
-    safe_limit = max(1, min(limit, 200))
+    safe_limit = max(1, min(limit, 500))
     safe_offset = max(0, offset)
     safe_status = status.strip() if status else None
     if safe_status and safe_status not in {"active", "invalid", "revoked"}:

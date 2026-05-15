@@ -37,6 +37,7 @@ class SQLiteStore(BaseSQLiteStore):
                 project_id TEXT DEFAULT '',
                 case_id TEXT DEFAULT '',
                 case_name TEXT DEFAULT '',
+                environment_name TEXT DEFAULT '',
                 run_at TEXT DEFAULT '',
                 data TEXT NOT NULL
             );
@@ -191,6 +192,15 @@ class SQLiteStore(BaseSQLiteStore):
                 data TEXT NOT NULL
             );
         """)
+        self._ensure_column("runs", "environment_name", "TEXT DEFAULT ''")
+        self._conn.execute(
+            """
+            UPDATE runs
+            SET environment_name = COALESCE(json_extract(data, '$.execution_options.environment_snapshot.name'), '')
+            WHERE environment_name = ''
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_environment_name ON runs(environment_name)")
         self._ensure_column("knowledge_items", "status", "TEXT DEFAULT ''")
         self._conn.execute(
             """
@@ -217,6 +227,19 @@ class SQLiteStore(BaseSQLiteStore):
         if column not in columns:
             self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self._conn.commit()
+
+    @staticmethod
+    def _run_index_columns(run: dict[str, Any]) -> dict[str, str]:
+        opts = run.get("execution_options") or {}
+        environment_snapshot = opts.get("environment_snapshot") or {}
+        return {
+            "status": run.get("status", "queued"),
+            "project_id": opts.get("project_id", ""),
+            "case_id": run.get("case_id", ""),
+            "case_name": run.get("case_name", ""),
+            "environment_name": environment_snapshot.get("name", ""),
+            "run_at": run.get("run_at", ""),
+        }
 
     def save_spec(self, spec: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -248,14 +271,7 @@ class SQLiteStore(BaseSQLiteStore):
 
     def save_run(self, run: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            opts = run.get("execution_options") or {}
-            self._upsert("runs", "run_id", run["run_id"], {
-                "status": run.get("status", "queued"),
-                "project_id": opts.get("project_id", ""),
-                "case_id": run.get("case_id", ""),
-                "case_name": run.get("case_name", ""),
-                "run_at": run.get("run_at", ""),
-            }, run)
+            self._upsert("runs", "run_id", run["run_id"], self._run_index_columns(run), run)
             return run
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
@@ -269,14 +285,7 @@ class SQLiteStore(BaseSQLiteStore):
                 return None
             existing = json.loads(row["data"])
             merged = {**existing, **patch}
-            opts = merged.get("execution_options") or {}
-            self._upsert("runs", "run_id", run_id, {
-                "status": merged.get("status", "queued"),
-                "project_id": opts.get("project_id", ""),
-                "case_id": merged.get("case_id", ""),
-                "case_name": merged.get("case_name", ""),
-                "run_at": merged.get("run_at", ""),
-            }, merged)
+            self._upsert("runs", "run_id", run_id, self._run_index_columns(merged), merged)
             return merged
 
     def list_runs(
@@ -300,9 +309,9 @@ class SQLiteStore(BaseSQLiteStore):
             if keyword:
                 kw = keyword.lower().strip()
                 conditions.append(
-                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR LOWER(run_id) LIKE ?)"
+                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR LOWER(run_id) LIKE ? OR LOWER(environment_name) LIKE ?)"
                 )
-                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{kw}%"])
             where = " AND ".join(conditions)
             rows = self._query(
                 f"SELECT data FROM runs WHERE {where} ORDER BY run_at DESC LIMIT ? OFFSET ?",
@@ -328,9 +337,9 @@ class SQLiteStore(BaseSQLiteStore):
             if keyword:
                 kw = keyword.lower().strip()
                 conditions.append(
-                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR LOWER(run_id) LIKE ?)"
+                    "(LOWER(case_name) LIKE ? OR LOWER(case_id) LIKE ? OR LOWER(run_id) LIKE ? OR LOWER(environment_name) LIKE ?)"
                 )
-                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%", f"%{kw}%"])
             where = " AND ".join(conditions)
             row = self._query_one(f"SELECT COUNT(*) AS count FROM runs WHERE {where}", tuple(params))
             return int(row["count"] if row else 0)
@@ -1131,13 +1140,7 @@ class SQLiteStore(BaseSQLiteStore):
                 run["status"] = "failed"
                 run["failure_reason"] = "服务重启，执行中断"
                 run["finished_at"] = run.get("finished_at") or run.get("run_at", "")
-                self._upsert("runs", "run_id", row["run_id"], {
-                    "status": "failed",
-                    "project_id": (run.get("execution_options") or {}).get("project_id", ""),
-                    "case_id": run.get("case_id", ""),
-                    "case_name": run.get("case_name", ""),
-                    "run_at": run.get("run_at", ""),
-                }, run)
+                self._upsert("runs", "run_id", row["run_id"], self._run_index_columns(run), run)
                 recovered.append(row["run_id"])
             return recovered
 
@@ -1166,14 +1169,7 @@ class SQLiteStore(BaseSQLiteStore):
                 updated = updater(existing)
                 if updated is None:
                     return None
-                opts = updated.get("execution_options") or {}
-                self._upsert("runs", "run_id", run_id, {
-                    "status": updated.get("status", "queued"),
-                    "project_id": opts.get("project_id", ""),
-                    "case_id": updated.get("case_id", ""),
-                    "case_name": updated.get("case_name", ""),
-                    "run_at": updated.get("run_at", ""),
-                }, updated)
+                self._upsert("runs", "run_id", run_id, self._run_index_columns(updated), updated)
                 return updated
 
         return await run_in_threadpool(_atomic)

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AIObservabilityPanel from './AIObservabilityPanel';
 import { apiExecutionAPI } from '../../../api/execution';
 
@@ -33,6 +34,15 @@ const emptySummary = {
   failure_reason_counts: [],
 };
 
+const renderWithQueryClient = (ui) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+};
+
 describe('AIObservabilityPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,7 +53,7 @@ describe('AIObservabilityPanel', () => {
   });
 
   it('renders empty observability state from mocked API data', async () => {
-    render(<AIObservabilityPanel />);
+    renderWithQueryClient(<AIObservabilityPanel />);
 
     expect(await screen.findByText('AI/RAG 调用观测')).toBeInTheDocument();
     expect(await screen.findByText('暂无 AI/RAG 调用记录')).toBeInTheDocument();
@@ -56,13 +66,13 @@ describe('AIObservabilityPanel', () => {
   });
 
   it('requires confirmation before enabling debug snapshots', async () => {
-    render(<AIObservabilityPanel />);
+    renderWithQueryClient(<AIObservabilityPanel />);
 
     await screen.findByText('暂无 AI/RAG 调用记录');
     await userEvent.click(screen.getAllByRole('button', { name: '开启调试快照' })[0]);
 
     expect(screen.getByText('开启 AI/RAG 调试快照')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: '开启 30 分钟' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认' }));
 
     await waitFor(() => {
       expect(apiExecutionAPI.updateAIDebugSettings).toHaveBeenCalledWith(expect.objectContaining({

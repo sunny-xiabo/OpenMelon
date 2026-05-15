@@ -6,7 +6,7 @@ import EmptyState from './EmptyState';
 describe('EmptyState', () => {
   it('renders loading state copy', () => {
     render(<EmptyState variant="loading" title="正在加载数据" />);
-    expect(screen.getByText('加载中')).toBeInTheDocument();
+    expect(screen.getByText('正在同步数据')).toBeInTheDocument();
   });
 
   it('renders error state with retry action', async () => {

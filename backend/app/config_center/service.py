@@ -34,6 +34,67 @@ KEY_PATTERN = re.compile(r"^\s*#?\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 SECTION_PATTERN = re.compile(r"^#\s*(\d+(?:\.\d+)?)\.\s*(.+?)\s*(?:（.*)?$")
 PROVIDER_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
 
+# 专业命名映射表
+PROFESSIONAL_TITLES = {
+    "openmelon 主模块 llm": "核心推理引擎 (Core)",
+    "testcase_gen 独立 llm": "测试增强智能 (TestGen)",
+    "provider 管理": "供应商注册中心",
+    "基本配置": "基础运行参数",
+    "运行时数据": "基础运行参数",
+    "general": "基础运行参数",
+    "数据库": "结构化数据存储",
+    "database": "结构化数据存储",
+    "向量库": "知识索引引擎 (Vector)",
+    "vector store": "知识索引引擎 (Vector)",
+    "检索": "RAG 检索策略",
+    "retrieval": "RAG 检索策略",
+    "知识库": "知识资产管理",
+    "视觉": "视觉智能分析 (Vision)",
+    "图像": "视觉智能分析 (Vision)",
+    "日志": "运行审计日志",
+    "审计": "运行审计日志",
+    "logs": "运行审计日志",
+    "监控": "系统运行监测",
+    "统计": "系统运行监测",
+    "性能": "流量控制与调度",
+    "限流": "流量控制与调度",
+    "并发": "流量控制与调度",
+    "缓存": "高性能缓存层",
+    "redis": "高性能缓存层",
+    "api": "接口访问网关",
+    "认证": "鉴权与访问控制",
+    "auth": "鉴权与访问控制",
+    "意图": "语义意图识别",
+    "多步推理": "Agent 推理链配置",
+    "reranker": "Rerank 重排引擎",
+    "webhook": "企业级通知回调",
+    "消息接收": "异步消息网关",
+    "生成": "推理参数控制",
+    "安全": "安全合规控制",
+    "security": "安全合规控制",
+    "加密": "凭据与加密管理",
+    "节点": "分布式节点配置",
+}
+
+# 排序权重表
+GROUP_ORDER = [
+    "基础", "基本", "数据目录",
+    "openmelon 主模块",
+    "testcase_gen",
+    "provider",
+    "检索", "知识", "向量",
+    "生成", "推理",
+    "多步推理", "意图", "reranker",
+    "视觉", "图像",
+    "数据库", "缓存",
+    "控制", "性能", "限流",
+    "认证", "auth",
+    "api", "webhook", "消息",
+    "日志", "监控",
+    "安全", "加密",
+    "节点"
+]
+
 
 class ConfigConflictError(AppError):
     def __init__(self, message: str, details: Any | None = None):
@@ -86,7 +147,12 @@ def build_schema(env_path: Path = ENV_PATH, example_path: Path = EXAMPLE_PATH) -
         line = raw_line.rstrip()
         section = SECTION_PATTERN.match(line)
         if section:
-            current_group = ConfigGroup(title=f"{section.group(1)}. {section.group(2)}", fields=[])
+            raw_title = f"{section.group(1)}. {section.group(2)}"
+            current_group = ConfigGroup(
+                title=raw_title,
+                display_title=_get_professional_title(raw_title),
+                fields=[]
+            )
             groups.append(current_group)
             pending_comments = []
             continue
@@ -96,7 +162,7 @@ def build_schema(env_path: Path = ENV_PATH, example_path: Path = EXAMPLE_PATH) -
             example_value = key_match.group(2).strip()
             if key in CONFIG_FIELD_REGISTRY:
                 if current_group is None:
-                    current_group = ConfigGroup(title="未分组", fields=[])
+                    current_group = ConfigGroup(title="未分组", display_title="未分组", fields=[])
                     groups.append(current_group)
                 is_active = not line.lstrip().startswith("#")
                 previous = field_positions.get(key)
@@ -117,7 +183,42 @@ def build_schema(env_path: Path = ENV_PATH, example_path: Path = EXAMPLE_PATH) -
         elif not line.strip():
             pending_comments = []
 
-    return [group for group in groups if group.fields]
+    # 包含硬编码的 Provider 管理组
+    groups.append(ConfigGroup(
+        title="Provider 管理",
+        display_title="供应商注册中心",
+        fields=[]
+    ))
+
+    # 排序逻辑
+    sorted_groups = sorted(groups, key=lambda g: _get_group_weight(g.title))
+    return [group for group in sorted_groups if group.fields or group.title == "Provider 管理"]
+
+
+def _normalize_title(title: str) -> str:
+    if not title:
+        return ""
+    # 剥离前缀数字和点
+    clean = re.sub(r"^[0-9\.\s]+", "", title)
+    # 剥离结尾“配置”
+    clean = re.sub(r"配置$", "", clean)
+    return clean.lower().strip()
+
+
+def _get_group_weight(title: str) -> int:
+    key = _normalize_title(title)
+    for index, order_key in enumerate(GROUP_ORDER):
+        if order_key.lower() in key:
+            return index
+    return 999
+
+
+def _get_professional_title(title: str) -> str:
+    key = _normalize_title(title)
+    for match_key, prof_title in PROFESSIONAL_TITLES.items():
+        if match_key in key or key in match_key:
+            return prof_title
+    return title
 
 
 def list_values(env_path: Path = ENV_PATH, example_path: Path = EXAMPLE_PATH) -> dict[str, ConfigField]:

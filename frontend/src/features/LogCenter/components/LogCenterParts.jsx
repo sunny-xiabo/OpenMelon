@@ -25,6 +25,7 @@ export const MODULE_LABELS = {
   testcase_generation: '测试用例生成',
   webhook: '企业 Webhook',
   ai_assistant: 'AI 助手',
+  index_governance: '索引治理',
 };
 
 const TASK_TYPE_LABELS = {

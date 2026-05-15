@@ -142,9 +142,7 @@ export function ResultActionBar({
   hasResult,
   parsedTestCases,
   setExportAnchorEl,
-  setViewMode,
-  storeToVector,
-  storingVector,
+  onPrefetchMindMap,
   vectorStatus,
   viewMode,
 }) {
@@ -164,7 +162,16 @@ export function ResultActionBar({
             {parsedTestCases.length > 0 && (
               <>
                 <Button disableElevation size="small" variant={viewMode === 'list' ? 'contained' : 'text'} onClick={() => setViewMode('list')} sx={viewButtonSx(viewMode === 'list')}>列表</Button>
-                <Button disableElevation size="small" variant={viewMode === 'mindmap' ? 'contained' : 'text'} onClick={() => setViewMode('mindmap')} sx={viewButtonSx(viewMode === 'mindmap')}>导图</Button>
+                <Button 
+                  disableElevation 
+                  size="small" 
+                  variant={viewMode === 'mindmap' ? 'contained' : 'text'} 
+                  onClick={() => setViewMode('mindmap')} 
+                  onMouseEnter={onPrefetchMindMap}
+                  sx={viewButtonSx(viewMode === 'mindmap')}
+                >
+                  导图
+                </Button>
               </>
             )}
           </Box>

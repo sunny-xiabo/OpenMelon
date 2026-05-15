@@ -115,9 +115,6 @@ export const formatDuration = (durationMs) => {
   const seconds = Math.round((value % 60000) / 1000);
   return `${minutes} min ${seconds} s`;
 };
-
-export { buildRunReportHtml } from './reportHtml';
-
 export const validateBaseUrl = (value) => {
   const baseUrl = (value || '').trim();
   if (!baseUrl) return { ok: true, value: '' };

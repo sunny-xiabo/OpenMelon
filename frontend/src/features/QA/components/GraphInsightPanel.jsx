@@ -20,6 +20,7 @@ export default function GraphInsightPanel({
   containerRef,
   docType,
   filters,
+  graphError,
   graphLoading,
   graphReady,
   isNarrow,
@@ -39,6 +40,8 @@ export default function GraphInsightPanel({
       elevation={0}
       sx={{
         width: isNarrow ? '100%' : '42%',
+        height: isNarrow ? 520 : 'auto',
+        flex: isNarrow ? '0 0 520px' : '0 1 42%',
         minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
@@ -102,7 +105,17 @@ export default function GraphInsightPanel({
 
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }}>
         {graphLoading && <LoadingOverlay message="图谱数据加载中..." />}
-        {graphReady === false ? (
+        {graphError ? (
+          <Box sx={{ m: 1, flex: 1, minHeight: 0, display: 'flex' }}>
+            <EmptyState
+              variant="error"
+              title="图谱加载失败"
+              description={graphError.message || '请稍后重试或刷新图谱状态。'}
+              actionLabel="重新加载"
+              onAction={loadFullGraph}
+            />
+          </Box>
+        ) : graphReady === false ? (
           <Box sx={{ m: 1, flex: 1, minHeight: 0, display: 'flex' }}>
             <EmptyState
               title="暂无数据"
@@ -112,7 +125,7 @@ export default function GraphInsightPanel({
             />
           </Box>
         ) : (
-          <Box ref={containerRef} sx={{ flex: 1, minHeight: 0, borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider', outline: 'none', bgcolor: 'slate.50', backgroundImage: (theme) => `radial-gradient(${theme.palette.slate[200]} 1px, transparent 1px)`, backgroundSize: '24px 24px' }} />
+          <Box ref={containerRef} sx={{ flex: 1, minHeight: 260, borderTop: '1px solid', borderBottom: '1px solid', borderColor: 'divider', outline: 'none', bgcolor: 'slate.50', backgroundImage: (theme) => `radial-gradient(${theme.palette.slate[200]} 1px, transparent 1px)`, backgroundSize: '24px 24px' }} />
         )}
         <Box sx={{ position: 'absolute', bottom: 16, left: 16, display: 'flex', flexWrap: 'wrap', gap: 1.25, p: 1.25, bgcolor: (theme) => alpha(theme.palette.common.white, 0.8), backdropFilter: 'blur(12px)', border: '1px solid', borderColor: (theme) => alpha(theme.palette.common.white, 0.4), borderRadius: 3, boxShadow: '0 4px 16px rgba(0,0,0,0.04)', zIndex: 10, maxWidth: 'calc(100% - 32px)' }}>
           {legend.map(({ type, color }) => (

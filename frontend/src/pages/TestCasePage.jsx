@@ -7,7 +7,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { testCaseAPI, vectorAPI, graphAPI } from '../services/api';
+import { testCaseAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import StageOutput from '../components/StageOutput';
 import TestCaseListView from '../components/TestCaseListView';
@@ -21,11 +21,23 @@ import ResultFilters from '../features/TestCase/components/ResultFilters';
 import ResultHeader, { ResultActionBar } from '../features/TestCase/components/ResultHeader';
 import ResultSummaryCards from '../features/TestCase/components/ResultSummaryCards';
 
-const TestCaseMindMap = lazy(() => import('../components/TestCaseMindMap'));
+// Hooks
+import { 
+  useVectorStatus, 
+  useAvailableModules, 
+  useStoreToVector, 
+  useExportTestCases 
+} from '../features/TestCase/hooks/useTestCase';
+
+const importMindMap = () => import('../components/TestCaseMindMap');
+const TestCaseMindMap = lazy(importMindMap);
 
 export default function TestCasePage({ isActive = true }) {
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
+  const showSnackbar = useSnackbar();
+  
+  // 表单状态
   const [mode, setMode] = useState('file');
   const [context, setContext] = useState('');
   const [requirements, setRequirements] = useState('');
@@ -35,21 +47,26 @@ export default function TestCasePage({ isActive = true }) {
   const [dragOver, setDragOver] = useState(false);
   const [useVector, setUseVector] = useState(true);
 
+  // 生成过程状态
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
   const [streamingContent, setStreamingContent] = useState('');
   const [parsedTestCases, setParsedTestCases] = useState([]);
+  
+  // UI 视图状态
   const [viewMode, setViewMode] = useState('list');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [moduleFilter, setModuleFilter] = useState('all');
-
-  const [vectorStatus, setVectorStatus] = useState(null);
-  const [storingVector, setStoringVector] = useState(false);
-  const [availableModules, setAvailableModules] = useState([]);
   const [exportAnchorEl, setExportAnchorEl] = useState(null);
 
   const fileRef = useRef(null);
-  const showSnackbar = useSnackbar();
+
+  // 使用 TanStack Query 钩子
+  const { data: vectorStatus } = useVectorStatus(isActive);
+  const { data: availableModules = [] } = useAvailableModules(isActive);
+  const storeMutation = useStoreToVector();
+  const exportMutation = useExportTestCases();
+
   const {
     defaultTemplateId,
     selectedSkillIds,
@@ -59,13 +76,6 @@ export default function TestCasePage({ isActive = true }) {
     styleId,
     templateOptions,
   } = usePromptHubOptions({ isActive, showSnackbar });
-
-  useEffect(() => {
-    if (isActive) {
-      checkVectorStatus();
-      loadFilters();
-    }
-  }, [isActive]);
 
   const handleReset = () => {
     setContext('');
@@ -79,49 +89,11 @@ export default function TestCasePage({ isActive = true }) {
     setViewMode('list');
   };
 
-  const loadFilters = async () => {
-    try {
-      const filters = await graphAPI.getFilters();
-      setAvailableModules(filters.modules || []);
-    } catch (err) { console.error('Failed to load filters:', err); }
-  };
-
-
-  const checkVectorStatus = async () => {
-    try {
-      const status = await vectorAPI.checkStatus();
-      setVectorStatus(status);
-    } catch {
-      setVectorStatus({ available: false, message: '检查失败' });
-    }
-  };
-
-  const storeToVector = async () => {
-    if (!filteredTestCases?.length) {
-      showSnackbar('没有可存入的最终测试用例，请等待生成完成', 'warning');
-      return;
-    }
-    setStoringVector(true);
-    try {
-      const result = await vectorAPI.storeTestCases(filteredTestCases, moduleName);
-      if (result.success) {
-        showSnackbar(result.message, 'success');
-        checkVectorStatus();
-      } else {
-        showSnackbar(result.message || '存储失败', 'error');
-      }
-    } catch (e) {
-      showSnackbar('存储失败: ' + e.message, 'error');
-    } finally {
-      setStoringVector(false);
-    }
-  };
-
   const handleFileSelect = useCallback((f) => {
     if (!f) return;
     const ext = '.' + f.name.split('.').pop().toLowerCase();
     if (!ALL_EXTS.includes(ext)) {
-      showSnackbar('不支持的文件格式: ' + ext, 'error');
+      showSnackbar('不支持的文件格式: ' + ext, { severity: 'error' });
       return;
     }
     setFile(f);
@@ -134,21 +106,26 @@ export default function TestCasePage({ isActive = true }) {
     setPreviewUrl(null);
   };
 
+  // 生成逻辑保留流式处理，但状态流转更清晰
   const generate = async () => {
     if (!context.trim() || !requirements.trim()) return;
     if (mode === 'file' && !file) return;
+    
     setGenerating(true);
     setGenerationError('');
     setStreamingContent('');
-    setParsedTestCases([]);
     setPriorityFilter('all');
     setModuleFilter('all');
+
+    // 预热思维导图组件，因为生成过程需要几秒，正好利用这个空档下载代码包
+    importMindMap().catch(() => {});
 
     try {
       let fullText = '';
       const resp = mode === 'file' && file
         ? await testCaseAPI.generateFromFile(file, context, requirements, moduleName, useVector, styleId, selectedSkillIds)
         : await testCaseAPI.generateFromContext(context, requirements, moduleName, useVector, styleId, selectedSkillIds);
+      
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       while (true) {
@@ -162,94 +139,47 @@ export default function TestCasePage({ isActive = true }) {
         ...item,
         module: item.module || moduleName.trim() || '未分组',
       }));
+
       if (parsed.length > 0) {
         setParsedTestCases(parsed);
-        showSnackbar(`成功解析 ${parsed.length} 个测试用例`, 'success');
+        showSnackbar(`成功解析 ${parsed.length} 个测试用例`, { severity: 'success' });
       } else {
-        showSnackbar('生成完成，但未能解析出标准格式用例', 'warning');
+        showSnackbar('生成完成，但未能解析出标准格式用例', { severity: 'warning' });
       }
     } catch (e) {
       const message = e.message || '测试用例生成失败';
-      showSnackbar('生成失败: ' + message, 'error');
+      showSnackbar('生成失败: ' + message, { severity: 'error' });
       setGenerationError(message);
     } finally {
       setGenerating(false);
     }
   };
 
-  const exportExcel = async () => {
-    setExportAnchorEl(null);
-    try {
-      let blob;
-      if (parsedTestCases.length > 0) {
-        blob = await testCaseAPI.exportToExcel(filteredTestCases);
-      } else if (streamingContent.trim()) {
-        blob = await testCaseAPI.exportMarkdown(streamingContent);
-      } else {
-        return;
-      }
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = '测试用例.xlsx';
-      a.click();
-      URL.revokeObjectURL(a.href);
-      showSnackbar('导出 Excel 成功', 'success');
-    } catch (e) {
-      showSnackbar('导出失败: ' + e.message, 'error');
-    }
-  };
-
-  const exportXMind = async () => {
-    setExportAnchorEl(null);
-    if (!filteredTestCases?.length) {
-      showSnackbar('当前未解析出用例，请等待解析完成或确保内容包含受支持的格式', 'warning');
-      return;
-    }
-    try {
-      const blob = await testCaseAPI.exportXMind(filteredTestCases);
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `test-cases-${Date.now()}.xmind`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      showSnackbar('导出 XMind 成功', 'success');
-    } catch (e) {
-      showSnackbar('导出失败: ' + e.message, 'error');
-    }
-  };
-
-  const hasResult = streamingContent.length > 0;
   const priorityOptions = useMemo(() => {
     const set = new Set();
-    parsedTestCases.forEach((testCase) => {
-      if (testCase.priority?.trim()) {
-        set.add(testCase.priority.trim());
-      }
-    });
+    parsedTestCases.forEach((t) => t.priority?.trim() && set.add(t.priority.trim()));
     return Array.from(set);
   }, [parsedTestCases]);
 
   const moduleOptions = useMemo(() => {
     const set = new Set();
-    parsedTestCases.forEach((testCase) => {
-      if (testCase.module?.trim()) {
-        set.add(testCase.module.trim());
-      }
-    });
+    parsedTestCases.forEach((t) => t.module?.trim() && set.add(t.module.trim()));
     return Array.from(set);
   }, [parsedTestCases]);
 
   const filteredTestCases = useMemo(() => (
-    parsedTestCases.filter((testCase) => {
-      const matchesPriority = priorityFilter === 'all' || testCase.priority === priorityFilter;
-      const matchesModule = moduleFilter === 'all' || testCase.module === moduleFilter;
+    parsedTestCases.filter((t) => {
+      const matchesPriority = priorityFilter === 'all' || t.priority === priorityFilter;
+      const matchesModule = moduleFilter === 'all' || t.module === moduleFilter;
       return matchesPriority && matchesModule;
     })
   ), [moduleFilter, parsedTestCases, priorityFilter]);
 
   const totalStepCount = useMemo(() => (
-    filteredTestCases.reduce((sum, testCase) => sum + (testCase.steps?.length || 0), 0)
+    filteredTestCases.reduce((sum, t) => sum + (t.steps?.length || 0), 0)
   ), [filteredTestCases]);
+
+  const hasResult = streamingContent.length > 0;
 
   return (
     <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent', flexDirection: isNarrow ? 'column' : 'row' }}>
@@ -285,20 +215,14 @@ export default function TestCasePage({ isActive = true }) {
       <Paper 
         elevation={0} 
         sx={{ 
-          flex: 1, 
-          minWidth: 0, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          overflow: 'hidden', 
-          border: '1px solid rgba(255, 255, 255, 0.4)', 
-          borderRadius: 4,
-          background: 'rgba(255, 255, 255, 0.65)',
-          backdropFilter: 'blur(20px)',
+          flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', 
+          border: '1px solid rgba(255, 255, 255, 0.4)', borderRadius: 4,
+          background: 'rgba(255, 255, 255, 0.65)', backdropFilter: 'blur(20px)',
           boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04), inset 0 1px 0 rgba(255, 255, 255, 1)'
         }}
       >
         <ResultHeader
-          checkVectorStatus={checkVectorStatus}
+          checkVectorStatus={() => {}} // 逻辑已移入 Hook 自动轮询
           generating={generating}
           setUseVector={setUseVector}
           useVector={useVector}
@@ -307,15 +231,16 @@ export default function TestCasePage({ isActive = true }) {
         <Box sx={{ flex: 1, p: { xs: 2, md: 3 }, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'transparent' }}>
           <ResultActionBar
             exportAnchorEl={exportAnchorEl}
-            exportExcel={exportExcel}
-            exportXMind={exportXMind}
+            exportExcel={() => exportMutation.mutate({ type: 'excel', data: filteredTestCases })}
+            exportXMind={() => exportMutation.mutate({ type: 'xmind', data: filteredTestCases })}
             generating={generating}
             hasResult={hasResult}
             parsedTestCases={parsedTestCases}
             setExportAnchorEl={setExportAnchorEl}
             setViewMode={setViewMode}
-            storeToVector={storeToVector}
-            storingVector={storingVector}
+            onPrefetchMindMap={() => importMindMap().catch(() => {})}
+            storeToVector={() => storeMutation.mutate({ testCases: filteredTestCases, moduleName })}
+            storingVector={storeMutation.isPending}
             vectorStatus={vectorStatus}
             viewMode={viewMode}
           />

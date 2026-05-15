@@ -8,6 +8,7 @@ export default function NavMenuButton({
   label,
   description,
   onClick,
+  onMouseEnter,
 }) {
   return (
     <Button
@@ -15,6 +16,7 @@ export default function NavMenuButton({
       color="inherit"
       className={!active ? "magnetic-card" : ""}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
       sx={{
         justifyContent: 'flex-start',
         textAlign: 'left',

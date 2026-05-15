@@ -32,6 +32,7 @@ class ConfigField(BaseModel):
 
 class ConfigGroup(BaseModel):
     title: str
+    display_title: str = ""
     fields: list[ConfigField] = Field(default_factory=list)
 
 

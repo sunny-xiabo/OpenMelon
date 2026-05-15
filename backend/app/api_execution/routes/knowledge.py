@@ -29,7 +29,7 @@ async def approve_knowledge_candidate(request: Request, task_id: str):
 
 @router.get("/knowledge/review", response_model=KnowledgeReviewResponse)
 async def list_knowledge_review_items(
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     project_id: str | None = None,
     status: str | None = None,

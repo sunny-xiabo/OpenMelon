@@ -56,7 +56,7 @@ def test_build_schema_groups_and_masks_sensitive_values(env_files):
     groups = service.build_schema(env_path=env_path, example_path=example_path)
     fields = {field.key: field for group in groups for field in group.fields}
 
-    assert [group.title for group in groups] == ["1. 基础运行配置", "2. 模型配置", "3. 运行时路径"]
+    assert [group.title for group in groups] == ["1. 基础运行配置", "Provider 管理", "2. 模型配置", "3. 运行时路径"]
     assert fields["NEO4J_URI"].value == "bolt://db:7687"
     assert fields["API_KEY"].value == ""
     assert fields["API_KEY"].configured is True

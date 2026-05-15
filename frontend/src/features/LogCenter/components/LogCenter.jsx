@@ -8,16 +8,12 @@ import {
   Typography,
 } from '@mui/material';
 import { RefreshOutlined } from '@mui/icons-material';
-import { useSnackbar } from '../../../components/SnackbarProvider';
 import ConfirmDialog from '../../../components/ConfirmDialog';
-import { apiExecutionAPI } from '../../../api/execution';
 import {
   findRelatedLogs,
   getRangeParams,
   LEVEL_META,
-  loadFallbackLogs,
   MODULE_LABELS,
-  normalizeUnifiedLog,
   parseLogTime,
   TIME_RANGE_OPTIONS,
 } from './LogCenterParts';
@@ -30,84 +26,66 @@ import {
   LogTable,
 } from './LogCenterViews';
 
+// Hooks
+import { 
+  useLogProjects, 
+  useEventLogs, 
+  useLogSummary, 
+  useRelatedLogs, 
+  useCleanupLogs 
+} from '../hooks/useLogs';
+
 export default function LogCenter() {
-  const showSnackbar = useSnackbar();
+  // 筛选状态
   const [projectId, setProjectId] = React.useState('');
   const [moduleFilter, setModuleFilter] = React.useState('');
   const [levelFilter, setLevelFilter] = React.useState('');
   const [timeRange, setTimeRange] = React.useState('7d');
   const [keyword, setKeyword] = React.useState('');
+  const [page, setPage] = React.useState(0);
+  const [rowsPerPage, setRowsPerPage] = React.useState(20);
+  
+  // 清理逻辑状态
   const [cleanupDays, setCleanupDays] = React.useState(90);
   const [cleanupLevel, setCleanupLevel] = React.useState('non_error');
   const [cleanupDialogOpen, setCleanupDialogOpen] = React.useState(false);
-  const [projects, setProjects] = React.useState([]);
-  const [logs, setLogs] = React.useState([]);
-  const [totalLogs, setTotalLogs] = React.useState(0);
-  const [summary, setSummary] = React.useState(null);
-  const [usingFallback, setUsingFallback] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-  const [loadError, setLoadError] = React.useState('');
+  
+  // 详情状态
   const [selectedLog, setSelectedLog] = React.useState(null);
-  const [relatedLogs, setRelatedLogs] = React.useState([]);
-  const [page, setPage] = React.useState(0);
-  const [rowsPerPage, setRowsPerPage] = React.useState(20);
 
   const rangeParams = React.useMemo(() => getRangeParams(timeRange), [timeRange]);
 
-  const loadLogs = React.useCallback(async () => {
-    setLoading(true);
-    try {
-      const [projectData, logData, summaryData] = await Promise.all([
-        apiExecutionAPI.listProjects(),
-        apiExecutionAPI.listEventLogs({
-          limit: rowsPerPage,
-          offset: page * rowsPerPage,
-          projectId,
-          module: moduleFilter,
-          level: levelFilter,
-          keyword,
-          startAt: rangeParams.startAt,
-          endAt: rangeParams.endAt,
-        }),
-        apiExecutionAPI.getEventLogSummary({
-          projectId,
-          module: moduleFilter,
-          level: levelFilter,
-          keyword,
-          startAt: rangeParams.startAt,
-          endAt: rangeParams.endAt,
-        }),
-      ]);
-      setProjects(projectData.projects || []);
-      setLogs((logData.items || []).map(normalizeUnifiedLog));
-      setTotalLogs(logData.total || 0);
-      setSummary(summaryData);
-      setUsingFallback(false);
-      setLoadError('');
-    } catch (error) {
-      try {
-        const fallback = await loadFallbackLogs(projectId);
-        setProjects(fallback.projects);
-        setLogs(fallback.logs);
-        setTotalLogs(fallback.logs.length);
-        setSummary(null);
-        setUsingFallback(true);
-        setLoadError('');
-        showSnackbar('统一日志接口暂不可用，已切换为聚合日志模式', 'warning');
-      } catch (fallbackError) {
-        const message = fallbackError.message || error.message || '加载日志中心失败';
-        setLoadError(message);
-        showSnackbar(message, 'error');
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [keyword, levelFilter, moduleFilter, page, projectId, rangeParams.endAt, rangeParams.startAt, rowsPerPage, showSnackbar]);
+  // 使用 TanStack Query 钩子
+  const { data: projects = [] } = useLogProjects();
+  
+  const logParams = React.useMemo(() => ({
+    limit: rowsPerPage,
+    offset: page * rowsPerPage,
+    projectId,
+    module: moduleFilter,
+    level: levelFilter,
+    keyword,
+    startAt: rangeParams.startAt,
+    endAt: rangeParams.endAt,
+  }), [rowsPerPage, page, projectId, moduleFilter, levelFilter, keyword, rangeParams]);
 
-  React.useEffect(() => {
-    loadLogs();
-  }, [loadLogs]);
+  const { 
+    data: logData, 
+    isLoading: isLogsLoading, 
+    isFetching: isLogsFetching,
+    error: logError,
+    refetch: refetchLogs 
+  } = useEventLogs(logParams);
 
+  const { data: summary } = useLogSummary(logParams);
+  const { data: relatedLogs = [] } = useRelatedLogs(selectedLog?.id);
+  const cleanupMutation = useCleanupLogs();
+
+  const logs = logData?.items || [];
+  const totalLogs = logData?.total || 0;
+  const usingFallback = logData?.usingFallback || false;
+
+  // 这里的过滤逻辑主要针对 fallback 模式（因为后端接口此时不可用）
   const filteredLogs = React.useMemo(() => {
     if (!usingFallback) return logs;
     const kw = keyword.trim().toLowerCase();
@@ -122,6 +100,7 @@ export default function LogCenter() {
     });
   }, [keyword, levelFilter, logs, moduleFilter, timeRange, usingFallback]);
 
+  // 统计信息计算
   const logStats = React.useMemo(() => {
     if (!usingFallback && summary) {
       const failedRuns = (summary.event_type_counts || [])
@@ -139,30 +118,30 @@ export default function LogCenter() {
         latestErrorAt: summary.latest_error_at || '',
       };
     }
-    const errorCount = filteredLogs.filter((log) => log.level === 'error').length;
-    const warningCount = filteredLogs.filter((log) => log.level === 'warning').length;
-    const failedRuns = filteredLogs.filter((log) => log.module === 'api_execution' && log.level === 'error').length;
-    const pendingTasks = filteredLogs.filter((log) => log.module === 'task_center' && log.payload?.status === 'pending').length;
-    const latestError = filteredLogs.find((log) => log.level === 'error');
+    const targetLogs = usingFallback ? filteredLogs : logs;
+    const errorCount = targetLogs.filter((log) => log.level === 'error').length;
+    const warningCount = targetLogs.filter((log) => log.level === 'warning').length;
+    const latestError = targetLogs.find((log) => log.level === 'error');
     return {
-      total: filteredLogs.length,
+      total: totalLogs,
       errorCount,
       warningCount,
-      failedRuns,
-      pendingTasks,
+      failedRuns: targetLogs.filter((log) => log.module === 'api_execution' && log.level === 'error').length,
+      pendingTasks: targetLogs.filter((log) => log.module === 'task_center' && log.payload?.status === 'pending').length,
       latestErrorAt: latestError?.time || '',
     };
-  }, [filteredLogs, summary, usingFallback]);
+  }, [filteredLogs, summary, usingFallback, logs, totalLogs]);
 
+  // 筛选条件变化时重置页码
   React.useEffect(() => {
     setPage(0);
   }, [keyword, levelFilter, moduleFilter, projectId, timeRange]);
 
   const pagedLogs = React.useMemo(() => {
-    if (!usingFallback) return filteredLogs;
+    if (!usingFallback) return logs;
     const start = page * rowsPerPage;
     return filteredLogs.slice(start, start + rowsPerPage);
-  }, [filteredLogs, page, rowsPerPage, usingFallback]);
+  }, [filteredLogs, page, rowsPerPage, usingFallback, logs]);
 
   const handleRowsPerPageChange = (event) => {
     setRowsPerPage(Number.parseInt(event.target.value, 10));
@@ -175,39 +154,15 @@ export default function LogCenter() {
       ? '非 Error'
       : LEVEL_META[cleanupLevel]?.label || cleanupLevel;
 
-  const cleanupLogs = async () => {
-    try {
-      const data = await apiExecutionAPI.deleteEventLogs({
-        olderThanDays: cleanupDays,
-        level: cleanupLevel,
-        projectId,
-        module: moduleFilter,
-      });
-      setCleanupDialogOpen(false);
-      if (data.deleted) {
-        showSnackbar(`已清理 ${data.deleted || 0} 条日志，剩余 ${data.remaining || 0} 条`, 'success');
-      } else {
-        showSnackbar(`没有找到${cleanupDays ? `${cleanupDays} 天前的` : ''}${cleanupLevelLabel}日志，未删除记录`, 'info');
-      }
-      setPage(0);
-      loadLogs();
-    } catch (error) {
-      showSnackbar(error.message || '清理日志失败', 'error');
-    }
-  };
-
-  const openLogDetail = async (log) => {
-    setSelectedLog(log);
-    if (usingFallback) {
-      setRelatedLogs(findRelatedLogs(log, logs));
-      return;
-    }
-    try {
-      const data = await apiExecutionAPI.listRelatedEventLogs(log.id, { limit: 8 });
-      setRelatedLogs((data.items || []).map(normalizeUnifiedLog));
-    } catch {
-      setRelatedLogs([]);
-    }
+  const handleCleanup = async () => {
+    await cleanupMutation.mutateAsync({
+      olderThanDays: cleanupDays,
+      level: cleanupLevel,
+      projectId,
+      module: moduleFilter,
+    });
+    setCleanupDialogOpen(false);
+    setPage(0);
   };
 
   return (
@@ -220,7 +175,7 @@ export default function LogCenter() {
         </Box>
         <Tooltip title="刷新日志">
           <span>
-            <IconButton onClick={loadLogs} disabled={loading}>
+            <IconButton onClick={() => refetchLogs()} disabled={isLogsFetching}>
               <RefreshOutlined />
             </IconButton>
           </span>
@@ -243,7 +198,7 @@ export default function LogCenter() {
         setTimeRange={setTimeRange}
         keyword={keyword}
         setKeyword={setKeyword}
-        loadLogs={loadLogs}
+        loadLogs={() => refetchLogs()}
       />
       <LogCleanupControls
         cleanupDays={cleanupDays}
@@ -251,7 +206,7 @@ export default function LogCenter() {
         cleanupLevel={cleanupLevel}
         setCleanupLevel={setCleanupLevel}
         setCleanupDialogOpen={setCleanupDialogOpen}
-        loading={loading}
+        loading={isLogsLoading || cleanupMutation.isPending}
       />
       <LogStats logStats={logStats} />
       <LogPagerInfo
@@ -272,10 +227,10 @@ export default function LogCenter() {
         setPage={setPage}
         rowsPerPage={rowsPerPage}
         handleRowsPerPageChange={handleRowsPerPageChange}
-        openLogDetail={openLogDetail}
-        loadError={loadError}
-        retry={loadLogs}
-        loading={loading}
+        openLogDetail={setSelectedLog}
+        loadError={logError?.message || ''}
+        retry={() => refetchLogs()}
+        loading={isLogsFetching}
       />
       <LogDetailDrawer
         selectedLog={selectedLog}
@@ -288,7 +243,7 @@ export default function LogCenter() {
         message={`将清理${projectId ? '当前项目' : '全部项目'}${moduleFilter ? ` / ${MODULE_LABELS[moduleFilter] || moduleFilter}` : ''}中 ${cleanupDays ? `${cleanupDays} 天前的` : '全部已记录的'} ${cleanupLevelLabel} 日志。\n\n此操作会从本地 SQLite 日志表删除记录，不能恢复。`}
         confirmText="清理日志"
         danger
-        onConfirm={cleanupLogs}
+        onConfirm={handleCleanup}
         onCancel={() => setCleanupDialogOpen(false)}
       />
     </Box>
