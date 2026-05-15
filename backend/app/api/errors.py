@@ -1,9 +1,11 @@
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,9 @@ class UnauthorizedError(AppError):
         )
 
 def setup_exception_handlers(app):
+    def include_error_details() -> bool:
+        return settings.DEBUG or not settings.is_production
+
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError):
         if exc.status_code >= 500:
@@ -73,7 +78,7 @@ def setup_exception_handlers(app):
                 "error": {
                     "code": exc.code,
                     "message": exc.message,
-                    "details": exc.details,
+                    "details": exc.details if include_error_details() else None,
                 }
             }
         )
@@ -99,7 +104,7 @@ def setup_exception_handlers(app):
                 "error": {
                     "code": code,
                     "message": message,
-                    "details": exc.detail,
+                    "details": exc.detail if include_error_details() else None,
                 }
             }
         )
@@ -128,7 +133,7 @@ def setup_exception_handlers(app):
                 "error": {
                     "code": "INTERNAL_ERROR",
                     "message": "服务器发生了意外错误，请稍后再试",
-                    "details": str(exc), # Include exception details for diagnostic purposes
+                    "details": str(exc) if include_error_details() else None,
                 }
             }
         )

@@ -25,6 +25,8 @@ from app.testcase_gen.services.prompt_assembler import build_generator_prompt
 class TestCaseGenerator:
     """测试用例生成智能体 - 负责生成详细的测试用例"""
 
+    __test__ = False
+
     def __init__(self):
         self.name = "TestCaseGenerator"
 

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     )
 
     LLM_PROVIDER: str = "openai_compat"
+    APP_ENV: str = "development"
+    DEBUG: bool = False
+    CORS_ALLOW_ORIGINS: str = ""
     API_KEY: str = ""
     API_BASE_URL: str = ""
     CHAT_MODEL: str = ""
@@ -93,6 +96,22 @@ class Settings(BaseSettings):
     @property
     def VECTOR_FALLBACK_TO_NEO(self) -> bool:
         return self.VECTOR_FALLBACK_TO_NEO4J
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.lower() in {"prod", "production"}
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        if self.CORS_ALLOW_ORIGINS.strip():
+            return [
+                origin.strip()
+                for origin in self.CORS_ALLOW_ORIGINS.split(",")
+                if origin.strip()
+            ]
+        if self.is_production:
+            return []
+        return ["*"]
 
 
 settings = Settings()

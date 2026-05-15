@@ -22,6 +22,8 @@ from app.testcase_gen.services.prompt_assembler import build_reviewer_prompt
 class TestCaseReviewer:
     """测试用例评审智能体 - 负责评审和改进测试用例"""
 
+    __test__ = False
+
     def __init__(self):
         self.name = "TestCaseReviewer"
 

@@ -5,14 +5,16 @@ API认证中间件
 
 import secrets
 import os
+import base64
+import hashlib
+import hmac
+import json
 from typing import Optional, Dict, Any, Callable
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import APIKeyHeader
-from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.api.errors import InternalError, UnauthorizedError
 from app.testcase_gen.utils.logger import logger
@@ -23,9 +25,6 @@ API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
-
-# 密码加密
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # 从环境变量读取有效的API Keys
 _valid_api_keys_str = os.getenv("VALID_API_KEYS", "")
@@ -46,6 +45,27 @@ def generate_api_key() -> str:
     return f"tcg_{secrets.token_urlsafe(32)}"
 
 
+def _base64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _base64url_decode(data: str) -> bytes:
+    padding = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(f"{data}{padding}")
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _sign_jwt_part(header_part: str, payload_part: str) -> str:
+    signing_input = f"{header_part}.{payload_part}".encode("ascii")
+    digest = hmac.new(JWT_SECRET_KEY.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return _base64url_encode(digest)
+
+
 def create_jwt_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     创建JWT Token
@@ -59,13 +79,25 @@ def create_jwt_token(data: dict, expires_delta: Optional[timedelta] = None) -> s
     """
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRATION_HOURS)
+        expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
 
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    return encoded_jwt
+    to_encode.update({"exp": int(expire.timestamp())})
+    header = {"alg": JWT_ALGORITHM, "typ": "JWT"}
+    header_part = _base64url_encode(
+        json.dumps(header, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    payload_part = _base64url_encode(
+        json.dumps(
+            to_encode,
+            default=_json_default,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+    signature_part = _sign_jwt_part(header_part, payload_part)
+    return f"{header_part}.{payload_part}.{signature_part}"
 
 
 def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
@@ -79,9 +111,21 @@ def verify_jwt_token(token: str) -> Optional[Dict[str, Any]]:
         解码后的数据，验证失败返回None
     """
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        header_part, payload_part, signature_part = token.split(".", 2)
+        expected_signature = _sign_jwt_part(header_part, payload_part)
+        if not hmac.compare_digest(signature_part, expected_signature):
+            raise ValueError("invalid signature")
+
+        header = json.loads(_base64url_decode(header_part))
+        if header.get("alg") != JWT_ALGORITHM:
+            raise ValueError("unsupported algorithm")
+
+        payload = json.loads(_base64url_decode(payload_part))
+        exp = payload.get("exp")
+        if exp is not None and datetime.now(timezone.utc).timestamp() > float(exp):
+            raise ValueError("token expired")
         return payload
-    except JWTError as e:
+    except Exception as e:
         logger.warning(f"JWT验证失败: {str(e)}")
         return None
 

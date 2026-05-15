@@ -157,10 +157,11 @@ app = FastAPI(
 from app.api.errors import setup_exception_handlers
 setup_exception_handlers(app)
 
+cors_allow_origins = settings.cors_allow_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_allow_origins,
+    allow_credentials="*" not in cors_allow_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

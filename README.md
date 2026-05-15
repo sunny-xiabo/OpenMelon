@@ -81,6 +81,21 @@ npm run dev
 
 ---
 
+## 开发维护命令
+
+```bash
+# 清理本地测试缓存、Python 字节码和前端构建产物
+scripts/clean_artifacts.sh
+
+# 后端测试
+cd backend && uv run pytest
+
+# 前端检查
+cd frontend && npm run lint && npm test && npm run build
+```
+
+---
+
 ## 使用指南
 
 第一次进入系统，建议按以下顺序体验整个闭环：
