@@ -80,7 +80,7 @@ docker compose logs -f app
 | API 自动化 | 将接口文档转成可执行 API 用例，支持运行、报告、AI 修复和知识沉淀 | 导入 OpenAPI/Postman/HAR/文档、生成 API DSL、配置环境、执行、确认沉淀 | 测试、研发、接口负责人 |
 | 数据仪表盘 | 汇聚全链路的覆盖率分析与自动化测试健康度大屏，左侧分区导航切换不同视图 | 查看覆盖率总览、API执行通过率（开发中）、UI自动化总览（开发中） | 测试负责人、项目负责人 |
 | 索引治理 | 统一治理业务源、Neo4j 图谱索引和 Qdrant 向量库内容 | 一致性扫描、明细查看、状态同步、孤儿清理、Qdrant 异步回填 | 管理员、维护者 |
-| 设置 | 统一配置中心，左侧分区导航切换多个子页 | 节点类型配置、运行配置、Prompt Hub、项目与环境、治理中心、日志中心 | 管理员、维护者 |
+| 设置 | 统一配置中心，左侧分区导航切换多个子页 | 节点类型配置、运行配置、Prompt Hub、项目与环境、治理中心、AI/RAG 观测、日志中心 | 管理员、维护者 |
 
 建议的理解顺序（完美贴合系统的数据流动漏斗）：
 
@@ -92,6 +92,8 @@ docker compose logs -f app
 6. 最后看「数据仪表盘」「索引治理」和「设置」，掌握整个测试生态的全局统计与底层管控。
 
 ### 0.5 页面截图
+
+以下截图用于说明常见工作流，可能会随 UI 迭代与局部视觉优化略有差异。
 
 #### 问答
 
@@ -132,6 +134,10 @@ docker compose logs -f app
 #### 设置 - Prompt Hub
 
 ![Prompt Hub 页面](docs/screenshots/prompt-hub-page.png)
+
+#### 设置 - AI/RAG 观测
+
+AI/RAG 观测页用于查看 LLM、Embedding、Reranker、检索链路和 API 自动化修复等关键能力的运行状态与配置可见性。
 
 ### 0.6 最少要懂的 5 件事
 
@@ -207,9 +213,9 @@ flowchart TD
     Parser["文件解析器\nPyMuPDF / python-docx / openpyxl..."] -->|"提取纯文本"| Chunk
     Chunk["文档分块\n800字符/块, 100字符重叠"] --> Embedding
     Chunk --> Entity
-    Embedding["Embedding 生成\n并发调用 LLM API"] -->|"向量批量写入"| Qdrant
+    Embedding["Embedding 生成\n并发调用 LLM API"] -->|"默认写入 Neo4j\n外部向量开启后同步写入"| Qdrant
     Entity["LLM 实体提取\nextract_entities"] -->|"图谱写入"| Neo4j
-    Qdrant[(Qdrant 向量库)] -->|"向量检索\ndoc_chunks"| QD
+    Qdrant[(Qdrant 向量库\n可选)] -->|"向量检索\ndoc_chunks"| QD
     Neo4j[(Neo4j 图数据库)] -->|"图谱检索\n节点与关系"| KG
     Neo4j --> Tracker["文件追踪记录\nSQLite file_records"]
     Neo4j --> Save["原始文件保存\nbackend/runtime/data/uploads/"]
@@ -227,7 +233,7 @@ flowchart TD
 | 文件解析 | 根据文件格式调用对应解析器，提取纯文本内容 |
 | 文档分块 | 将文本按 800 字符切分，相邻块重叠 100 字符防止语义断裂 |
 | Embedding | 并发调用 LLM API 为每个分块生成向量表示 |
-| 向量写入 | 批量写入专用向量库 Qdrant 的 `doc_chunks` 集合集合中 |
+| 向量写入 | 默认写入 Neo4j/共享存储中的向量索引；开启 `USE_EXTERNAL_VECTOR=true` 后同步写入 Qdrant 的 `doc_chunks` 集合并优先外部检索 |
 | 实体提取 | LLM 从文本中识别实体（模块、功能、接口、人员等） |
 | 图谱构建 | 在 Neo4j 中创建实体节点和 `RELATED_TO` 关系 |
 | 文件追踪 | 记录到共享 SQLite 的 `file_records` 表，包含文件名、类型、分块数、时间 |
@@ -270,7 +276,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     Request["用户请求\n文件 + 上下文 + 需求 + 可选模块"] --> Retrieve
-    Request -.用户开关控制.-> QdrantRetrieve["向量空间搜索\nQdrant 语义匹配"]
+    Request -.用户开关 + 外部向量配置.-> QdrantRetrieve["向量空间搜索\nQdrant 语义匹配"]
 
     Retrieve["GraphContextRetriever\n Neo4j 检索"] -->|"获取"| Features["模块功能结构\nModule-[:CONTAINS]->Feature"]
     Retrieve -->|"获取"| ExistingTC["已有测试用例覆盖\nModule-[:CONTAINS]->TestCase"]
@@ -295,7 +301,7 @@ flowchart TD
     Stage2 --> Stage3["阶段3: 用例评审\n检验结构约束,识别并修复薄弱点"]
     Stage3 --> Write["确认并执行一键入库触发"]
     Write --> WriteN[(Neo4j 结构化持久属性落盘)]
-    Write --> WriteQ[(Qdrant 高维向量切片落盘)]
+    Write -.外部向量开启后.-> WriteQ[(Qdrant 高维向量切片落盘)]
 
     style Retrieve fill:#fff3cd
     style QdrantRetrieve fill:#e2e8f0
@@ -444,6 +450,21 @@ docker compose down
 | 本机调试 Python 环境 | `cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` |
 | 接近部署环境验证 | `docker compose up -d`（后端） + 前端独立构建部署 |
 
+### 2.6 开发检查与清理
+
+项目根目录提供了统一检查脚本，适合提交前确认后端测试、前端 lint、前端测试和前端构建都能通过。
+
+```bash
+# 一键运行后端测试、前端 lint/test/build
+scripts/check.sh
+
+# 如果本机没有全局 npm，但已有 Node 可执行文件和 frontend/node_modules
+OPENMELON_NODE_BIN=/path/to/node scripts/check.sh
+
+# 清理本地测试缓存、Python 字节码和前端构建产物
+scripts/clean_artifacts.sh
+```
+
 ---
 
 ## 3. 环境配置详解
@@ -456,6 +477,18 @@ docker compose down
 - `需重启`：已经写入 `.env`，但需要重启后端才能完全生效
 
 `.env` 仍然是最终配置载体，但不再建议只靠手工编辑理解全部配置状态。
+
+### 3.0 生产安全配置
+
+生产环境建议显式设置以下配置，避免开发默认值进入线上：
+
+```bash
+APP_ENV=production
+DEBUG=false
+CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
+```
+
+`APP_ENV=production` 且未配置 `CORS_ALLOW_ORIGINS` 时，后端不会默认放开任意跨域来源；`DEBUG=false` 时，接口不会向客户端返回内部异常详情。
 
 ### 3.1 OpenMelon 主模块 LLM 配置（必填）
 
@@ -884,14 +917,14 @@ curl -X POST "http://localhost:8000/api/query?use_agentic=true" \
 
 ### 7.3 知识图谱与向量空间联合驱动
 
-测试生成时，系统不仅自动从 Neo4j 检索关联知识，还会根据界面上的「**使用参考检索**」智能胶囊开关，启用 Qdrant 向量空间层进行全端语义联想，注入到 LLM 推理上下文中：
+测试生成时，系统不仅自动从 Neo4j 检索关联知识，还会根据界面上的「**使用参考检索**」智能胶囊开关，在外部向量库已开启时启用 Qdrant 向量空间层进行全端语义联想，并注入到 LLM 推理上下文中：
 
 | 检索内容 | 引擎 | 提取规则 | 用途 |
 |---------|------|----------|------|
 | 模块功能结构 | Neo4j | 默认挂载 | 指导用例覆盖完整的功能点 |
 | 已有用例网络 | Neo4j | 默认挂载 | 避免重复，识别覆盖盲区和结构 |
 | 实体关联交互 | Neo4j | 默认挂载 | 发现隐性的跨模块交互场景 |
-| **高度相似残简**| **Qdrant** | **启用开关** | 基于 Top-K 向量捕捉的无定形经验碎片 |
+| **高度相似片段**| **Qdrant** | **启用开关** | 基于 Top-K 向量捕捉的无定形经验碎片 |
 | **优秀用例借鉴**| **Qdrant** | **启用开关** | 借用过往跨模块相似领域的成熟用例 |
 
 > 图谱检索或向量检索失败皆不阻断主流程，系统具备自动降级至本地上下文推理的安全机制。
@@ -913,7 +946,7 @@ curl -X POST "http://localhost:8000/api/query?use_agentic=true" \
 ### 7.5 双核向量存储与提取
 
 为了解决复杂网络下信息孤岛的问题，生成的产物支持一键点击「存入向量库」。
-底层采用 **双模式同步落盘** 机制：不仅在主知识图谱 Neo4j 中作为 `TestCaseVector` 节点进行挂载，同时将其大语言模型对应的高维 Embedding 同步流转到独立的 Qdrant 集群服务器，为未来的语义检索开启长效通路。且该操作支持跨表去重（基于名称+描述 MD5 哈希校验防重）。
+底层采用 **双模式兼容落盘** 机制：默认会在主知识图谱 Neo4j 中作为 `TestCaseVector` 节点进行挂载；当开启 `USE_EXTERNAL_VECTOR=true` 并配置 Qdrant 后，会将其大语言模型对应的高维 Embedding 同步写入独立的 Qdrant 集群，为未来的语义检索开启长效通路。该操作支持跨表去重（基于名称+描述 MD5 哈希校验防重），外部向量库不可用时也不会阻断主流程。
 
 **API 接口**：
 

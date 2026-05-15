@@ -211,7 +211,10 @@ OpenMelon/
 │   ├── api_execution/       # API 自动化模块（接口解析、DSL、编排执行、策略、AI 修复、知识沉淀）
 │   │   ├── routes/          # 各子模块路由（runs、specs、projects、knowledge、templates 等）
 │   │   ├── services/        # 业务服务（run_service、spec_service、knowledge_service 等）
-│   │   └── sqlite_store.py  # 模块专属 SQLite 存储层
+│   │   ├── sqlite_store.py  # 模块专属 SQLite 存储门面与读写行为
+│   │   ├── sqlite_schema.py # API 执行模块 SQLite 表结构
+│   │   ├── sqlite_migration.py # JSON 存量数据迁移与兼容工具
+│   │   └── sqlite_filters.py # 执行记录查询过滤条件构建
 │   ├── index_governance/    # 索引治理模块（Neo4j/Qdrant 一致性扫描、清理、回填任务）
 │   ├── engine/              # RAG 核心编排层（意图路由、多路召回、Rerank）
 │   ├── storage/             # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
@@ -224,7 +227,7 @@ OpenMelon/
 │   └── logs/                # 应用日志
 ├── frontend/src/
 │   ├── pages/               # 页面组件（QA、Graph、Manage、TestCase、APIExecution、Dashboard、IndexGovernance、Settings）
-│   ├── features/            # 功能模块（APIExecution、APIExecutionFlow、Graph、QA、PromptHub 等）
+│   ├── features/            # 功能模块（APIExecution、APIExecutionFlow、Graph、QA、PromptHub、AIObservability 等）
 │   ├── api/                 # 前端 API 客户端（execution.js、client.js 等）
 │   └── components/          # 通用 UI 组件
 ├── docs/                    # 项目补充文档及截图资源
