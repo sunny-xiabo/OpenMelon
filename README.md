@@ -87,12 +87,33 @@ npm run dev
 # 清理本地测试缓存、Python 字节码和前端构建产物
 scripts/clean_artifacts.sh
 
+# 一键运行后端测试、前端 lint/test/build
+scripts/check.sh
+
 # 后端测试
 cd backend && uv run pytest
 
 # 前端检查
 cd frontend && npm run lint && npm test && npm run build
 ```
+
+如果本机没有全局 `npm`，但已有 Node 可执行文件和 `frontend/node_modules`，可以这样运行：
+
+```bash
+OPENMELON_NODE_BIN=/path/to/node scripts/check.sh
+```
+
+### 生产安全配置
+
+生产环境建议显式设置以下配置，避免开发默认值进入线上：
+
+```bash
+APP_ENV=production
+DEBUG=false
+CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
+```
+
+`APP_ENV=production` 且未配置 `CORS_ALLOW_ORIGINS` 时，后端不会默认放开任意跨域来源；`DEBUG=false` 时，接口不会向客户端返回内部异常详情。
 
 ---
 
