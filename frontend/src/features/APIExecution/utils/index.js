@@ -69,6 +69,17 @@ export const parseJsonObjectText = (value, fallback = {}) => {
   }
 };
 
+export const parseJsonArrayText = (value, fallback = []) => {
+  const raw = (value || '').trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 export const normalizeNonNegativeInt = (value, fallback = 0) => {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue) || numberValue < 0) return fallback;

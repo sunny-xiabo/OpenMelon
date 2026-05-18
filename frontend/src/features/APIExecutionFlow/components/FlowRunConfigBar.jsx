@@ -4,7 +4,6 @@ import {
   FormControl,
   InputLabel,
   MenuItem,
-  Paper,
   Select,
   Stack,
   TextField,
@@ -36,8 +35,8 @@ export default function FlowRunConfigBar({
       </Stack>
       <TextField size="small" label="全局请求头 (JSON)" multiline minRows={2} value={globalHeadersText} onChange={(event) => setGlobalHeadersText(event.target.value)} sx={{ mt: 1.5, width: '100%', '& .MuiInputBase-input': { fontFamily: 'monospace' } }} />
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
-        <Button size="small" variant="outlined" onClick={() => onOpenTemplateDialog('load')} sx={{ borderRadius: 2 }}>载入流程模板</Button>
-        <Button size="small" variant="contained" onClick={() => onOpenTemplateDialog('save')} sx={{ borderRadius: 2, bgcolor: '#475569', color: '#fff', '&:hover': { bgcolor: '#334155' } }}>保存为流程模板</Button>
+        <Button size="small" variant="outlined" onClick={() => onOpenTemplateDialog('load')} sx={{ borderRadius: 2 }}>载入测试任务</Button>
+        <Button size="small" variant="contained" onClick={() => onOpenTemplateDialog('save')} sx={{ borderRadius: 2, bgcolor: '#475569', color: '#fff', '&:hover': { bgcolor: '#334155' } }}>保存为测试任务</Button>
       </Stack>
     </Box>
   );

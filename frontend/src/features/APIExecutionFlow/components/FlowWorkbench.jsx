@@ -9,7 +9,7 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
-import { AccountTreeOutlined, ViewListOutlined } from '@mui/icons-material';
+import { AccountTreeOutlined } from '@mui/icons-material';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import { apiExecutionAPI } from '../../../api/execution';
@@ -65,7 +65,7 @@ export default function FlowWorkbench({
   const [templateForm, setTemplateForm] = React.useState({ template_id: '', name: '', description: '', tags: '' });
   const [activeDragStepId, setActiveDragStepId] = React.useState('');
 
-  const steps = parsedScript?.steps || [];
+  const steps = React.useMemo(() => parsedScript?.steps || [], [parsedScript?.steps]);
   const disabledSet = React.useMemo(() => new Set(disabledStepIds || []), [disabledStepIds]);
   const activeStep = steps.find((step) => step.id === activeStepId) || steps[0] || null;
   const flowSummary = React.useMemo(() => buildFlowSummary(parsedScript), [parsedScript]);
@@ -82,7 +82,7 @@ export default function FlowWorkbench({
       const data = await apiExecutionAPI.listFlowTemplates({ projectId: selectedProjectId || '', limit: 100 });
       setTemplates(data.items || data.templates || []);
     } catch (error) {
-      showSnackbar(error.message || '流程模板加载失败', 'error');
+      showSnackbar(error.message || '测试任务加载失败', 'error');
     } finally {
       setTemplatesLoading(false);
     }
@@ -113,7 +113,7 @@ export default function FlowWorkbench({
     });
     setDirty(false);
     setSaveError('');
-  }, [activeStep?.id]);
+  }, [activeStep]);
 
   React.useEffect(() => {
     onDirtyChange?.(dirty);
@@ -134,7 +134,7 @@ export default function FlowWorkbench({
     if (mode === 'save') {
       setTemplateForm({
         template_id: '',
-        name: parsedScript?.name || `${projectName || 'API'} 流程模板`,
+        name: parsedScript?.name || `${projectName || 'API'} 测试任务`,
         description: '',
         tags: '',
       });
@@ -153,30 +153,30 @@ export default function FlowWorkbench({
       const saved = await apiExecutionAPI.saveFlowTemplate({
         template_id: templateForm.template_id || undefined,
         project_id: selectedProjectId || '',
-        name: templateForm.name.trim() || parsedScript.name || 'API 流程模板',
+        name: templateForm.name.trim() || parsedScript.name || 'API 测试任务',
         description: templateForm.description.trim(),
         tags: templateForm.tags.split(',').map((item) => item.trim()).filter(Boolean),
         script: {
           ...parsedScript,
           flow_template_id: templateForm.template_id || '',
-          flow_template_name: templateForm.name.trim() || parsedScript.name || 'API 流程模板',
+          flow_template_name: templateForm.name.trim() || parsedScript.name || 'API 测试任务',
           flow_template_tags: templateForm.tags.split(',').map((item) => item.trim()).filter(Boolean),
         },
       });
-      showSnackbar(`流程模板「${saved.name}」已${templateForm.template_id ? '覆盖' : '保存'}`, 'success');
+      showSnackbar(`测试任务「${saved.name}」已${templateForm.template_id ? '覆盖' : '保存'}`, 'success');
       setTemplates((prev) => [saved, ...prev.filter((item) => item.template_id !== saved.template_id)]);
       if (saved.script) {
         setDslText(JSON.stringify(saved.script, null, 2));
       }
       closeTemplateDialog();
     } catch (error) {
-      showSnackbar(error.message || '流程模板保存失败', 'error');
+      showSnackbar(error.message || '测试任务保存失败', 'error');
     }
   };
 
   const loadFlowTemplate = async (template) => {
     if (!template?.script) return;
-    if (!await confirmAction('载入模板会替换当前 DSL，未保存修改将丢失。继续载入？')) return;
+    if (!await confirmAction('载入测试任务会替换当前 DSL，未保存修改将丢失。继续载入？')) return;
     const nextScript = {
       ...template.script,
       flow_template_id: template.template_id || '',
@@ -187,7 +187,7 @@ export default function FlowWorkbench({
     setActiveStepId(nextScript.steps?.[0]?.id || '');
     setRunStepId(nextScript.steps?.[0]?.id || '');
     setDirty(false);
-    showSnackbar(`已载入流程模板「${template.name}」`, 'success');
+    showSnackbar(`已载入测试任务「${template.name}」`, 'success');
     closeTemplateDialog();
   };
 
@@ -196,20 +196,20 @@ export default function FlowWorkbench({
     try {
       const duplicated = await apiExecutionAPI.saveFlowTemplate({
         project_id: selectedProjectId || template.project_id || '',
-        name: `${template.name || '流程模板'} 副本`,
+        name: `${template.name || '测试任务'} 副本`,
         description: template.description || '',
         tags: template.tags || [],
         script: {
           ...template.script,
           flow_template_id: '',
-          flow_template_name: `${template.name || '流程模板'} 副本`,
+          flow_template_name: `${template.name || '测试任务'} 副本`,
           flow_template_tags: template.tags || [],
         },
       });
       setTemplates((prev) => [duplicated, ...prev]);
-      showSnackbar(`已复制流程模板「${duplicated.name}」`, 'success');
+      showSnackbar(`已复制测试任务「${duplicated.name}」`, 'success');
     } catch (error) {
-      showSnackbar(error.message || '流程模板复制失败', 'error');
+      showSnackbar(error.message || '测试任务复制失败', 'error');
     }
   };
 
@@ -218,35 +218,35 @@ export default function FlowWorkbench({
     try {
       const duplicated = await apiExecutionAPI.saveFlowTemplate({
         project_id: selectedProjectId || '',
-        name: templateForm.name.trim() || parsedScript.name || 'API 流程模板',
+        name: templateForm.name.trim() || parsedScript.name || 'API 测试任务',
         description: templateForm.description.trim(),
         tags: templateForm.tags.split(',').map((item) => item.trim()).filter(Boolean),
         script: {
           ...parsedScript,
           flow_template_id: '',
-          flow_template_name: templateForm.name.trim() || parsedScript.name || 'API 流程模板',
+          flow_template_name: templateForm.name.trim() || parsedScript.name || 'API 测试任务',
           flow_template_tags: templateForm.tags.split(',').map((item) => item.trim()).filter(Boolean),
         },
       });
-      showSnackbar(`流程模板「${duplicated.name}」已另存为新模板`, 'success');
+      showSnackbar(`测试任务「${duplicated.name}」已另存为新任务`, 'success');
       setTemplates((prev) => [duplicated, ...prev]);
       if (duplicated.script) {
         setDslText(JSON.stringify(duplicated.script, null, 2));
       }
       closeTemplateDialog();
     } catch (error) {
-      showSnackbar(error.message || '流程模板另存为失败', 'error');
+      showSnackbar(error.message || '测试任务另存为失败', 'error');
     }
   };
 
   const deleteFlowTemplate = async (template) => {
-    if (!await confirmAction(`确认删除流程模板「${template.name}」？`)) return;
+    if (!await confirmAction(`确认删除测试任务「${template.name}」？`)) return;
     try {
       await apiExecutionAPI.deleteFlowTemplate(template.template_id);
       setTemplates((prev) => prev.filter((item) => item.template_id !== template.template_id));
-      showSnackbar('流程模板已删除', 'success');
+      showSnackbar('测试任务已删除', 'success');
     } catch (error) {
-      showSnackbar(error.message || '流程模板删除失败', 'error');
+      showSnackbar(error.message || '测试任务删除失败', 'error');
     }
   };
 

@@ -4,6 +4,73 @@ export const apiExecutionAPI = {
   listProjects: () =>
     fetchJSON(`${API_BASE}/api-execution/projects`),
 
+  getProjectAssets: (projectId) =>
+    fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/assets`),
+
+  previewProjectAssets: (projectId, specId = '') => {
+    const params = new URLSearchParams();
+    if (specId) params.set('spec_id', specId);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/assets/preview${suffix}`);
+  },
+
+  syncProjectAssets: (projectId, specId = '') => {
+    const params = new URLSearchParams();
+    if (specId) params.set('spec_id', specId);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/assets/sync${suffix}`, {
+      method: 'POST',
+    });
+  },
+
+  buildAssetTestPlan: (projectId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/assets/test-plan`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getAssetImpact: (projectId, specId = '') => {
+    const params = new URLSearchParams();
+    if (specId) params.set('spec_id', specId);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/assets/impact${suffix}`);
+  },
+
+  listProjectModules: (projectId) =>
+    fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/modules`),
+
+  createProjectModule: (projectId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/modules`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  listProjectInterfaces: ({ projectId, moduleId = '', status = '', riskLevel = '', keyword = '', limit = 500, offset = 0 } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (moduleId) params.set('module_id', moduleId);
+    if (status) params.set('status', status);
+    if (riskLevel) params.set('risk_level', riskLevel);
+    if (keyword) params.set('keyword', keyword);
+    return fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/interfaces?${params.toString()}`);
+  },
+
+  createProjectInterface: (projectId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/interfaces`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateProjectInterface: (interfaceId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/interfaces/${encodeURIComponent(interfaceId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteProjectInterface: (interfaceId) =>
+    fetchJSON(`${API_BASE}/api-execution/interfaces/${encodeURIComponent(interfaceId)}`, {
+      method: 'DELETE',
+    }),
+
   getDashboardSummary: ({ projectId = '', limit = 50 } = {}) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (projectId) params.set('project_id', projectId);
@@ -184,6 +251,9 @@ export const apiExecutionAPI = {
       method: 'POST',
     }),
 
+  getStorageMigrationReadiness: () =>
+    fetchJSON(`${API_BASE}/api-execution/storage/migration-readiness`),
+
   ingestRunKnowledge: (limit = 20) =>
     fetchJSON(`${API_BASE}/api-execution/knowledge/ingest-runs?limit=${encodeURIComponent(limit)}`, {
       method: 'POST',
@@ -283,6 +353,9 @@ export const apiExecutionAPI = {
 
   getOperations: (specId) =>
     fetchJSON(`${API_BASE}/api-execution/specs/${encodeURIComponent(specId)}/operations`),
+
+  getSpec: (specId) =>
+    fetchJSON(`${API_BASE}/api-execution/specs/${encodeURIComponent(specId)}`),
 
   generateDsl: (specId, operationIds) =>
     fetchJSON(`${API_BASE}/api-execution/dsl/generate`, {

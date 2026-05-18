@@ -64,20 +64,20 @@ export default function FlowTemplateDialog({
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle>{isSaveMode ? (form.template_id ? '编辑/覆盖流程模板' : '保存流程模板') : '载入流程模板'}</DialogTitle>
+      <DialogTitle>{isSaveMode ? (form.template_id ? '编辑/覆盖测试任务' : '保存测试任务') : '载入测试任务'}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
           {isSaveMode && (
             <Stack spacing={1.5}>
               <TextField
                 size="small"
-                label="模板名称"
+                label="任务名称"
                 value={form.name}
                 onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
               />
               <TextField
                 size="small"
-                label="模板说明"
+                label="任务说明"
                 multiline
                 minRows={2}
                 value={form.description}
@@ -91,7 +91,7 @@ export default function FlowTemplateDialog({
                 helperText="多个标签用英文逗号分隔"
               />
               <Alert severity="info">
-                {form.template_id ? '保存后会用当前 DSL 覆盖该模板脚本，并更新模板信息。' : '模板会保存当前 DSL 脚本，后续可在同项目中快速载入复用。'}
+                {form.template_id ? '保存后会用当前 DSL 覆盖该任务脚本，并更新任务信息。' : '测试任务会保存当前 DSL 脚本，后续可在同项目中快速载入复用。'}
               </Alert>
             </Stack>
           )}
@@ -99,12 +99,12 @@ export default function FlowTemplateDialog({
           <Box>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ mb: 1 }}>
               <Typography variant="subtitle2" fontWeight={800}>
-                {selectedProjectId ? '当前项目模板' : '通用模板'}
+                {selectedProjectId ? '当前项目测试任务' : '通用测试任务'}
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                 <TextField
                   size="small"
-                  label="搜索模板"
+                  label="搜索任务"
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
                 />
@@ -122,7 +122,7 @@ export default function FlowTemplateDialog({
               </Stack>
             </Stack>
             {loading ? (
-              <Typography variant="body2" color="text.secondary">模板加载中...</Typography>
+              <Typography variant="body2" color="text.secondary">测试任务加载中...</Typography>
             ) : filteredTemplates.length ? (
               <Stack spacing={1}>
                 {filteredTemplates.map((template) => (
@@ -156,15 +156,15 @@ export default function FlowTemplateDialog({
                 ))}
               </Stack>
             ) : (
-              <Typography variant="body2" color="text.secondary">{templates.length ? '没有匹配的流程模板。' : '暂无流程模板。'}</Typography>
+              <Typography variant="body2" color="text.secondary">{templates.length ? '没有匹配的测试任务。' : '暂无测试任务。'}</Typography>
             )}
           </Box>
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>关闭</Button>
-        {isSaveMode && form.template_id && <Button variant="outlined" onClick={onSaveAs}>另存为新模板</Button>}
-        {isSaveMode && <Button variant="contained" onClick={onSave}>{form.template_id ? '覆盖模板' : '保存模板'}</Button>}
+        {isSaveMode && form.template_id && <Button variant="outlined" onClick={onSaveAs}>另存为新任务</Button>}
+        {isSaveMode && <Button variant="contained" onClick={onSave}>{form.template_id ? '覆盖任务' : '保存任务'}</Button>}
       </DialogActions>
     </Dialog>
   );

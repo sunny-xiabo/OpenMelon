@@ -26,6 +26,8 @@ export const RunHistoryProvider = ({ children }) => {
   const [runHistoryProjectId, setRunHistoryProjectId] = useState('');
   const [runHistoryStatus, setRunHistoryStatus] = useState('');
   const [runHistoryKeyword, setRunHistoryKeyword] = useState('');
+  const [automationTriggerResult, setAutomationTriggerResult] = useState(null);
+  const [storageReadiness, setStorageReadiness] = useState(null);
 
   // 使用 TanStack Query
   const historyParams = {
@@ -61,7 +63,7 @@ export const RunHistoryProvider = ({ children }) => {
     }
   };
 
-  const replayRun = async (run, _unused, buildRunOptionsFn) => {
+  const replayRun = async (run, _unused, _buildRunOptionsFn) => {
     if (!run || !run.script) {
       showSnackbar('该历史记录没有脚本数据，无法重跑', { severity: 'warning' });
       return;
@@ -110,10 +112,40 @@ export const RunHistoryProvider = ({ children }) => {
     try {
       const data = await apiExecutionAPI.triggerSpecSync();
       const updated = (data.items || []).filter((i) => i.status === 'updated').length;
+      setAutomationTriggerResult({ type: 'spec_sync', ...data });
       showSnackbar(`文档同步完成：${updated} 个项目已更新 DSL`, { severity: 'success' });
       fetchHistory();
     } catch (error) {
       showSnackbar(error.message || '同步失败', { severity: 'error' });
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
+  const handleTriggerScheduledRuns = async () => {
+    setGlobalLoading(true);
+    try {
+      const data = await apiExecutionAPI.triggerScheduledRuns();
+      const queued = (data.items || []).filter((i) => i.status === 'queued').length;
+      const blocked = (data.items || []).filter((i) => i.status === 'blocked').length;
+      setAutomationTriggerResult({ type: 'scheduled_runs', ...data });
+      showSnackbar(`定时触发完成：${queued} 个已入队${blocked ? `，${blocked} 个需处理` : ''}`, { severity: blocked ? 'warning' : 'success' });
+      fetchHistory();
+    } catch (error) {
+      showSnackbar(error.message || '触发定时执行失败', { severity: 'error' });
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
+  const handleRefreshStorageReadiness = async () => {
+    setGlobalLoading(true);
+    try {
+      const data = await apiExecutionAPI.getStorageMigrationReadiness();
+      setStorageReadiness(data);
+      showSnackbar('已刷新 SQLite/PG 迁移准备检查', { severity: 'success' });
+    } catch (error) {
+      showSnackbar(error.message || '读取存储准备状态失败', { severity: 'error' });
     } finally {
       setGlobalLoading(false);
     }
@@ -132,6 +164,10 @@ export const RunHistoryProvider = ({ children }) => {
     replayRun,
     handleAutoRepairRun,
     handleTriggerSpecSync,
+    handleTriggerScheduledRuns,
+    automationTriggerResult,
+    storageReadiness,
+    handleRefreshStorageReadiness,
   };
 
   return (

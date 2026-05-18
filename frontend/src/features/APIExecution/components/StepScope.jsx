@@ -28,6 +28,7 @@ import ConfirmDialog from '../../../components/ConfirmDialog';
 import { METHOD_COLORS } from '../constants';
 import StageHeader from './StageHeader';
 import AIFlowDraftDialog from './AIFlowDraftDialog';
+import AssetAgentWorkbench from './AssetAgentWorkbench';
 
 const getOperationKey = (operation) => operation.id || `${operation.method}-${operation.path}-${operation.operation_id}`;
 
@@ -53,7 +54,7 @@ const riskMatches = (operation, filter) => {
 
 const formatTag = (tag) => (typeof tag === 'string' ? tag : JSON.stringify(tag));
 
-export default function StepScope() {
+export default function StepScope({ showAssetWorkbench = true, title = '挑选范围工作台' } = {}) {
   const {
     spec,
     selectedOperationIds,
@@ -277,13 +278,15 @@ export default function StepScope() {
     <>
     <Stack spacing={3}>
                 <StageHeader
-                  title="步骤 2: 挑选范围工作台"
+                  title={title}
                   action={(
                     <Button variant="contained" color="primary" disabled={!selectedOperationIds.size} onClick={handleGenerateDsl}>
                       生成测试脚本 ({selectedOperationIds.size})
                     </Button>
                   )}
                 />
+
+                {showAssetWorkbench && <AssetAgentWorkbench />}
                 
                 <Paper sx={{ p: 3, borderRadius: 4, border: '1px solid rgba(255, 255, 255, 0.6)', background: 'rgba(255, 255, 255, 0.4)', backdropFilter: 'blur(10px)', boxShadow: '0 8px 32px rgba(15, 23, 42, 0.04)' }}>
                   <Stack spacing={2.5}>

@@ -85,6 +85,14 @@ export const SpecProvider = ({ children }) => {
     setActiveStep(1);
   };
 
+  const clearSpec = () => {
+    setSpec(null);
+    setSearchText('');
+    setSelectedOperationIds(new Set());
+    for (const cb of resetCallbacksRef.current) cb(null);
+    setActiveStep(0);
+  };
+
   const parseFile = async () => {
     if (!selectedFile) {
       showSnackbar('请先选择 API 文档文件', { severity: 'warning' });
@@ -143,6 +151,7 @@ export const SpecProvider = ({ children }) => {
     toggleOperation,
     toggleVisibleOperations,
     resetAfterSpecChange,
+    clearSpec,
     registerResetCallback,
     parseFile,
     parseUrl,

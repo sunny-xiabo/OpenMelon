@@ -1,6 +1,6 @@
 import React from 'react';
-import { Stack, Box, Typography, Button, Alert, CircularProgress, Paper } from '@mui/material';
-import { AutoAwesomeOutlined, ContentCopyOutlined, DataObjectOutlined, FormatAlignLeftOutlined, PlayCircleOutlineOutlined } from '@mui/icons-material';
+import { Stack, Box, Typography, Button, CircularProgress, Paper, Chip, Alert, Divider } from '@mui/material';
+import { AccountTreeOutlined, AutoAwesomeOutlined, ContentCopyOutlined, DataObjectOutlined, FormatAlignLeftOutlined, PlayCircleOutlineOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import {
   applyRepairOperationsToScript,
@@ -8,12 +8,12 @@ import {
   getLowRiskRepairOperations,
   markAiRepairSource,
 } from '../utils/repairPatch';
-import { ASSERTION_TYPES, EXTRACTION_SOURCES } from '../constants';
+import { ASSERTION_TYPES, EXTRACTION_SOURCES, METHOD_COLORS } from '../constants';
 import StageHeader from './StageHeader';
 import FlowWorkbench from '../../APIExecutionFlow/components/FlowWorkbench';
 import AIFlowDraftDialog from './AIFlowDraftDialog';
 
-const ROOT_FIELDS = ['case_id', 'name', 'target_project', 'environment', 'base_url', 'variables', 'steps'];
+const ROOT_FIELDS = ['case_id', 'name', 'target_project', 'environment', 'base_url', 'variables', 'steps', 'cleanup_steps'];
 const STEP_FIELDS = ['id', 'name', 'method', 'path', 'operation_id', 'headers', 'query', 'path_params', 'body', 'assertions', 'extractions'];
 const ASSERTION_FIELDS = ['type', 'expected', 'path', 'value'];
 const EXTRACTION_FIELDS = ['name', 'source', 'path'];
@@ -23,11 +23,344 @@ const EXTRACTION_SOURCE_VALUES = EXTRACTION_SOURCES.map((item) => item.value);
 
 const quotedFieldCompletion = (field) => ({ label: field, type: 'property', apply: `${field}": ` });
 const quotedValueCompletion = (value) => ({ label: value, type: 'constant', apply: value });
+const CANVAS_NODE_WIDTH = 220;
+const CANVAS_NODE_HEIGHT = 96;
+const CANVAS_LAYER_GAP = 88;
+const CANVAS_ROW_GAP = 24;
+const CANVAS_PADDING = 32;
+const METHOD_CANVAS_COLORS = {
+  GET: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
+  POST: { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
+  PUT: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+  PATCH: { bg: '#f3e8ff', border: '#a855f7', text: '#6b21a8' },
+  DELETE: { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },
+};
+
+const truncateCanvasText = (value, maxLength) => {
+  const text = String(value || '');
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
+};
+
+const collectDependencyGraph = (script, disabledStepIds = []) => {
+  const steps = script?.steps || [];
+  const stepIds = new Set(steps.map((step) => step.id).filter(Boolean));
+  const disabled = new Set(disabledStepIds || []);
+  const edges = [];
+  const missingEdges = [];
+  const disabledDependencyEdges = [];
+  const dependentsByStep = {};
+
+  for (const step of steps) {
+    for (const dependency of step.depends_on || []) {
+      const edge = { from: dependency, to: step.id };
+      if (!stepIds.has(dependency)) {
+        missingEdges.push(edge);
+      } else {
+        edges.push(edge);
+        dependentsByStep[dependency] = [...(dependentsByStep[dependency] || []), step.id];
+        if (disabled.has(dependency) && !disabled.has(step.id)) {
+          disabledDependencyEdges.push(edge);
+        }
+      }
+    }
+  }
+
+  return {
+    steps,
+    edges,
+    missingEdges,
+    disabledDependencyEdges,
+    rootSteps: steps.filter((step) => !(step.depends_on || []).length),
+    disabled,
+    dependentsByStep,
+  };
+};
+
+const buildDependencyCanvas = (graph) => {
+  const steps = graph.steps || [];
+  const stepById = Object.fromEntries(steps.map((step, index) => [step.id, { step, index }]));
+  const layerCache = {};
+
+  const resolveLayer = (stepId, visiting = new Set()) => {
+    if (!stepId || !stepById[stepId]) return 0;
+    if (layerCache[stepId] !== undefined) return layerCache[stepId];
+    if (visiting.has(stepId)) return 0;
+    visiting.add(stepId);
+    const deps = stepById[stepId].step.depends_on || [];
+    const knownDeps = deps.filter((dependency) => stepById[dependency]);
+    const layer = knownDeps.length
+      ? Math.max(...knownDeps.map((dependency) => resolveLayer(dependency, visiting))) + 1
+      : 0;
+    visiting.delete(stepId);
+    layerCache[stepId] = layer;
+    return layer;
+  };
+
+  steps.forEach((step) => resolveLayer(step.id));
+
+  const layers = [];
+  steps.forEach((step, index) => {
+    const layer = layerCache[step.id] || 0;
+    layers[layer] = layers[layer] || [];
+    layers[layer].push({ step, index });
+  });
+
+  const layerCount = Math.max(layers.length, 1);
+  const maxRows = Math.max(...layers.map((layer) => layer?.length || 0), 1);
+  const width = (CANVAS_PADDING * 2) + (layerCount * CANVAS_NODE_WIDTH) + ((layerCount - 1) * CANVAS_LAYER_GAP);
+  const height = (CANVAS_PADDING * 2) + (maxRows * CANVAS_NODE_HEIGHT) + ((maxRows - 1) * CANVAS_ROW_GAP);
+  const positions = {};
+
+  layers.forEach((layer = [], layerIndex) => {
+    const layerHeight = (layer.length * CANVAS_NODE_HEIGHT) + (Math.max(layer.length - 1, 0) * CANVAS_ROW_GAP);
+    const startY = CANVAS_PADDING + Math.max((height - (CANVAS_PADDING * 2) - layerHeight) / 2, 0);
+    layer.forEach(({ step }, rowIndex) => {
+      positions[step.id] = {
+        x: CANVAS_PADDING + layerIndex * (CANVAS_NODE_WIDTH + CANVAS_LAYER_GAP),
+        y: startY + rowIndex * (CANVAS_NODE_HEIGHT + CANVAS_ROW_GAP),
+      };
+    });
+  });
+
+  return { width, height, positions };
+};
+
+function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds }) {
+  const graph = React.useMemo(
+    () => collectDependencyGraph(script, disabledStepIds),
+    [disabledStepIds, script],
+  );
+  const canvas = React.useMemo(() => buildDependencyCanvas(graph), [graph]);
+
+  if (!script?.steps?.length) return null;
+
+  const hasWarnings = graph.missingEdges.length || graph.disabledDependencyEdges.length;
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        p: 2,
+        borderRadius: 2,
+        border: '1px solid rgba(15, 23, 42, 0.08)',
+        bgcolor: '#ffffff',
+      }}
+    >
+      <Stack spacing={1.5}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between">
+          <Stack direction="row" spacing={1} alignItems="center">
+            <AccountTreeOutlined color="primary" fontSize="small" />
+            <Box>
+              <Typography variant="subtitle2" fontWeight={850}>依赖图确认</Typography>
+              <Typography variant="caption" color="text.secondary">运行前确认步骤顺序、前置依赖和禁用影响</Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+            <Chip size="small" label={`${graph.steps.length} 个步骤`} variant="outlined" />
+            <Chip size="small" label={`${graph.edges.length} 条依赖`} color={graph.edges.length ? 'primary' : 'default'} variant="outlined" />
+            <Chip size="small" label={`${graph.rootSteps.length} 个起点`} variant="outlined" />
+            <Chip size="small" label={`${graph.disabled.size} 个禁用`} color={graph.disabled.size ? 'warning' : 'default'} variant="outlined" />
+          </Stack>
+        </Stack>
+
+        {hasWarnings && (
+          <Alert severity="warning">
+            {!!graph.missingEdges.length && `存在 ${graph.missingEdges.length} 条依赖指向不存在的步骤。`}
+            {!!graph.disabledDependencyEdges.length && ` 存在 ${graph.disabledDependencyEdges.length} 条依赖的前置步骤已禁用。`}
+          </Alert>
+        )}
+
+        {!hasWarnings && (
+          <Alert severity="success">
+            当前依赖图可解析，执行时会按 `depends_on` 关系串联步骤。
+          </Alert>
+        )}
+
+        <Box
+          sx={{
+            border: '1px solid rgba(15, 23, 42, 0.08)',
+            borderRadius: 1,
+            bgcolor: '#f8fafc',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+          }}
+        >
+          <Box sx={{ minWidth: Math.max(canvas.width, 760), p: 1 }}>
+            <svg
+              width="100%"
+              height={canvas.height}
+              viewBox={`0 0 ${canvas.width} ${canvas.height}`}
+              role="img"
+              aria-label="API 步骤依赖画布"
+              style={{ display: 'block' }}
+            >
+              <defs>
+                <marker id="dependency-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+                </marker>
+                <marker id="dependency-arrow-warning" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#d97706" />
+                </marker>
+              </defs>
+              {graph.edges.map((edge) => {
+                const from = canvas.positions[edge.from];
+                const to = canvas.positions[edge.to];
+                if (!from || !to) return null;
+                const warning = graph.disabledDependencyEdges.some((item) => item.from === edge.from && item.to === edge.to);
+                const fromX = from.x + CANVAS_NODE_WIDTH;
+                const fromY = from.y + CANVAS_NODE_HEIGHT / 2;
+                const toX = to.x;
+                const toY = to.y + CANVAS_NODE_HEIGHT / 2;
+                const curve = Math.max((toX - fromX) / 2, 48);
+                return (
+                  <path
+                    key={`${edge.from}-${edge.to}`}
+                    d={`M ${fromX} ${fromY} C ${fromX + curve} ${fromY}, ${toX - curve} ${toY}, ${toX - 8} ${toY}`}
+                    fill="none"
+                    stroke={warning ? '#d97706' : '#64748b'}
+                    strokeWidth={warning ? 2.5 : 2}
+                    strokeDasharray={warning ? '7 5' : 'none'}
+                    markerEnd={`url(#${warning ? 'dependency-arrow-warning' : 'dependency-arrow'})`}
+                  />
+                );
+              })}
+              {graph.steps.map((step, index) => {
+                const position = canvas.positions[step.id];
+                if (!position) return null;
+                const disabled = graph.disabled.has(step.id);
+                const selected = runStepId === step.id;
+                const methodColors = METHOD_CANVAS_COLORS[step.method] || { bg: '#e2e8f0', border: '#94a3b8', text: '#334155' };
+                const missingDependencyCount = (step.depends_on || []).filter((dependency) => (
+                  graph.missingEdges.some((edge) => edge.from === dependency && edge.to === step.id)
+                )).length;
+                return (
+                  <g
+                    key={step.id || index}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setRunStepId(step.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') setRunStepId(step.id);
+                    }}
+                    style={{ cursor: 'pointer', outline: 'none' }}
+                  >
+                    <title>{`${step.id || `s${index + 1}`} ${step.name || step.operation_id || step.path}`}</title>
+                    <rect
+                      x={position.x}
+                      y={position.y}
+                      width={CANVAS_NODE_WIDTH}
+                      height={CANVAS_NODE_HEIGHT}
+                      rx="8"
+                      fill={disabled ? '#f1f5f9' : selected ? '#eff6ff' : '#ffffff'}
+                      stroke={missingDependencyCount ? '#ef4444' : selected ? '#2563eb' : '#cbd5e1'}
+                      strokeWidth={selected ? 2.5 : 1.5}
+                    />
+                    <rect
+                      x={position.x}
+                      y={position.y}
+                      width="6"
+                      height={CANVAS_NODE_HEIGHT}
+                      rx="3"
+                      fill={disabled ? '#94a3b8' : methodColors.border}
+                    />
+                    <rect
+                      x={position.x + 14}
+                      y={position.y + 12}
+                      width="58"
+                      height="24"
+                      rx="6"
+                      fill={methodColors.bg}
+                      stroke={methodColors.border}
+                    />
+                    <text x={position.x + 43} y={position.y + 28} textAnchor="middle" fontSize="11" fontWeight="700" fill={methodColors.text}>
+                      {step.method || 'STEP'}
+                    </text>
+                    <text x={position.x + 84} y={position.y + 28} fontSize="12" fontWeight="800" fill={disabled ? '#64748b' : '#0f172a'}>
+                      {step.id || `s${index + 1}`}
+                    </text>
+                    {disabled && (
+                      <text x={position.x + CANVAS_NODE_WIDTH - 46} y={position.y + 28} fontSize="11" fontWeight="700" fill="#d97706">
+                        已禁用
+                      </text>
+                    )}
+                    {missingDependencyCount > 0 && (
+                      <text x={position.x + CANVAS_NODE_WIDTH - 58} y={position.y + 28} fontSize="11" fontWeight="700" fill="#dc2626">
+                        缺依赖
+                      </text>
+                    )}
+                    <text x={position.x + 16} y={position.y + 58} fontSize="13" fontWeight="800" fill={disabled ? '#64748b' : '#111827'}>
+                      {truncateCanvasText(step.name || step.operation_id || step.path, 23)}
+                    </text>
+                    <text x={position.x + 16} y={position.y + 78} fontSize="11" fill="#64748b" fontFamily="monospace">
+                      {truncateCanvasText(step.path || step.operation_id || '', 28)}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+          </Box>
+        </Box>
+
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' }, gap: 1 }}>
+          {graph.steps.map((step, index) => {
+            const disabled = graph.disabled.has(step.id);
+            const selected = runStepId === step.id;
+            return (
+              <Box
+                key={step.id || index}
+                role="button"
+                tabIndex={0}
+                onClick={() => setRunStepId(step.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') setRunStepId(step.id);
+                }}
+                sx={{
+                  p: 1.25,
+                  borderRadius: 1,
+                  border: '1px solid',
+                  borderColor: selected ? 'primary.main' : 'rgba(15, 23, 42, 0.08)',
+                  bgcolor: disabled ? '#f1f5f9' : selected ? '#eff6ff' : '#f8fafc',
+                  cursor: 'pointer',
+                  opacity: disabled ? 0.72 : 1,
+                  outline: 'none',
+                  '&:focus-visible': { boxShadow: '0 0 0 2px rgba(37, 99, 235, 0.25)' },
+                }}
+              >
+                <Stack spacing={0.75}>
+                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Chip size="small" label={step.method || 'STEP'} color={METHOD_COLORS[step.method] || 'default'} />
+                    <Typography variant="caption" fontWeight={850}>{step.id || `s${index + 1}`}</Typography>
+                    {disabled && <Chip size="small" label="已禁用" color="warning" variant="outlined" />}
+                  </Stack>
+                  <Typography variant="body2" fontWeight={800} noWrap>{step.name || step.operation_id || step.path}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }} noWrap>{step.path || step.operation_id}</Typography>
+                  <Divider />
+                  <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                    {(step.depends_on || []).length ? (
+                      (step.depends_on || []).map((dependency) => (
+                        <Chip key={dependency} size="small" label={`依赖 ${dependency}`} variant="outlined" color={graph.missingEdges.some((edge) => edge.from === dependency && edge.to === step.id) ? 'error' : 'default'} />
+                      ))
+                    ) : (
+                      <Chip size="small" label="起点步骤" variant="outlined" />
+                    )}
+                    {!!(graph.dependentsByStep[step.id] || []).length && (
+                      <Chip size="small" label={`后续 ${graph.dependentsByStep[step.id].length}`} variant="outlined" color="primary" />
+                    )}
+                  </Stack>
+                </Stack>
+              </Box>
+            );
+          })}
+        </Box>
+      </Stack>
+    </Paper>
+  );
+}
 
 const getDslFieldCompletions = (docBeforeCursor) => {
   if (/"assertions"\s*:\s*\[[\s\S]*$/.test(docBeforeCursor)) return ASSERTION_FIELDS;
   if (/"extractions"\s*:\s*\[[\s\S]*$/.test(docBeforeCursor)) return EXTRACTION_FIELDS;
-  if (/"steps"\s*:\s*\[[\s\S]*$/.test(docBeforeCursor)) return STEP_FIELDS;
+  if (/"(?:steps|cleanup_steps)"\s*:\s*\[[\s\S]*$/.test(docBeforeCursor)) return STEP_FIELDS;
   return ROOT_FIELDS;
 };
 
@@ -162,7 +495,7 @@ export default function StepOrchestrate() {
     <>
     <Stack spacing={4}>
                 <StageHeader
-                  title="步骤 3: 编排与执行"
+                  title="编排与执行"
                   action={(
                     <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                       <Button 
@@ -193,6 +526,13 @@ export default function StepOrchestrate() {
                       </Button>
                     </Stack>
                   )}
+                />
+
+                <DependencyGraphPanel
+                  script={parsedScript}
+                  runStepId={runStepId}
+                  setRunStepId={setRunStepId}
+                  disabledStepIds={disabledFlowStepIds}
                 />
 
                 <Paper sx={{ 

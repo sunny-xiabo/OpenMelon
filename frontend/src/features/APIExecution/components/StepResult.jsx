@@ -1,6 +1,6 @@
 import React from 'react';
-import { Stack, Box, Typography, Button, Chip, Paper, Alert, LinearProgress } from '@mui/material';
-import { RefreshOutlined } from '@mui/icons-material';
+import { Stack, Box, Typography, Button, Chip, Paper, Alert, LinearProgress, Divider } from '@mui/material';
+import { BuildCircleOutlined, RefreshOutlined, TroubleshootOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import EmptyState from '../../../components/EmptyState';
 import { useSnackbar } from '../../../components/SnackbarProvider';
@@ -59,6 +59,49 @@ const formatAssertionValue = (value) => {
   }
 };
 
+const DIAGNOSTIC_CATEGORY_LABELS = {
+  variable_reference_missing: '变量缺失',
+  request_error: '请求异常',
+  status_code_mismatch: '状态码不符',
+  response_schema_mismatch: '响应结构不符',
+  test_data_mismatch: '测试数据不符',
+};
+
+const DIAGNOSTIC_SEVERITY_META = {
+  high: { label: '高', color: 'error' },
+  medium: { label: '中', color: 'warning' },
+  low: { label: '低', color: 'info' },
+};
+
+const getDiagnosticCategoryLabel = (category = '') => (
+  DIAGNOSTIC_CATEGORY_LABELS[category] || category || '待分析'
+);
+
+const getDiagnosticSeverityMeta = (severity = 'medium') => (
+  DIAGNOSTIC_SEVERITY_META[severity] || DIAGNOSTIC_SEVERITY_META.medium
+);
+
+const buildAgentDiagnosisSummary = (runReport) => {
+  const diagnostics = runReport?.failure_diagnostics || [];
+  const suggestions = runReport?.repair_suggestions || [];
+  const categoryCounts = diagnostics.reduce((acc, item) => {
+    const key = item.category || 'unknown';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const severityOrder = { high: 3, medium: 2, low: 1 };
+  const highestSeverity = diagnostics.reduce((current, item) => (
+    (severityOrder[item.severity] || 0) > (severityOrder[current] || 0) ? item.severity : current
+  ), 'low');
+  return {
+    diagnostics,
+    suggestions,
+    categoryCounts,
+    highestSeverity,
+    hasDiagnosis: diagnostics.length > 0 || suggestions.length > 0,
+  };
+};
+
 const getControlledRepairPolicyBlock = (runReport) => {
   const policy = runReport?.execution_options?.project_policy_snapshot || {};
   if (!policy.allow_ai_repair) return '项目未开启 AI 自动修复，请只应用草稿后人工执行。';
@@ -69,6 +112,94 @@ const getControlledRepairPolicyBlock = (runReport) => {
   }
   return '';
 };
+
+function AgentDiagnosisPanel({ runReport, loading, parsedScript, onGenerateRepairPatch, onBackToFlow }) {
+  const summary = React.useMemo(() => buildAgentDiagnosisSummary(runReport), [runReport]);
+  if (!summary.hasDiagnosis) return null;
+  const severityMeta = getDiagnosticSeverityMeta(summary.highestSeverity);
+  const failedStepIds = Array.from(new Set(summary.diagnostics.map((item) => item.step_id).filter(Boolean)));
+
+  return (
+    <Alert
+      severity={summary.highestSeverity === 'high' ? 'error' : 'warning'}
+      icon={<TroubleshootOutlined />}
+      sx={{ mb: 2 }}
+      action={(
+        <Stack direction="row" spacing={1}>
+          <Button
+            size="small"
+            color="inherit"
+            startIcon={<BuildCircleOutlined />}
+            disabled={!parsedScript || loading}
+            onClick={() => onGenerateRepairPatch(runReport)}
+          >
+            生成修复草稿
+          </Button>
+          <Button size="small" color="inherit" onClick={onBackToFlow}>
+            返回编排定位
+          </Button>
+        </Stack>
+      )}
+    >
+      <Stack spacing={1.25}>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Typography variant="body2" fontWeight={800}>Agent 诊断摘要</Typography>
+          <Chip size="small" color={severityMeta.color} label={`风险 ${severityMeta.label}`} variant="outlined" />
+          <Chip size="small" label={`${summary.diagnostics.length} 个诊断`} variant="outlined" />
+          {!!failedStepIds.length && <Chip size="small" label={`影响 ${failedStepIds.length} 步`} variant="outlined" />}
+        </Stack>
+
+        {!!Object.keys(summary.categoryCounts).length && (
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {Object.entries(summary.categoryCounts).map(([category, count]) => (
+              <Chip
+                key={category}
+                size="small"
+                label={`${getDiagnosticCategoryLabel(category)} ${count}`}
+                sx={{ bgcolor: 'rgba(255,255,255,0.62)' }}
+              />
+            ))}
+          </Stack>
+        )}
+
+        {!!summary.diagnostics.length && (
+          <Stack spacing={0.75}>
+            {summary.diagnostics.slice(0, 4).map((diagnostic, index) => {
+              const itemSeverity = getDiagnosticSeverityMeta(diagnostic.severity);
+              return (
+                <Box key={`${diagnostic.step_id}-${diagnostic.category}-${index}`} sx={{ minWidth: 0 }}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Chip size="small" color={itemSeverity.color} label={itemSeverity.label} variant="outlined" />
+                    <Typography variant="caption" fontWeight={800}>
+                      {diagnostic.step_id || '全局'}{diagnostic.step_name ? ` · ${diagnostic.step_name}` : ''} · {getDiagnosticCategoryLabel(diagnostic.category)}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.25, wordBreak: 'break-word' }}>
+                    {diagnostic.explanation}
+                  </Typography>
+                  {!!diagnostic.suggestions?.length && (
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                      建议：{diagnostic.suggestions.slice(0, 2).join('；')}
+                    </Typography>
+                  )}
+                </Box>
+              );
+            })}
+          </Stack>
+        )}
+
+        {!!summary.suggestions.length && (
+          <>
+            <Divider flexItem />
+            <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+              修复建议：{summary.suggestions.slice(0, 3).join('；')}
+            </Typography>
+          </>
+        )}
+      </Stack>
+    </Alert>
+  );
+}
 
 export default function StepResult() {
   const showSnackbar = useSnackbar();
@@ -274,7 +405,7 @@ export default function StepResult() {
     <>
     <Stack spacing={3}>
                 <StageHeader
-                  title="步骤 4: 执行结果与诊断"
+                  title="执行结果与诊断"
                   action={(
                     <Button variant="outlined" startIcon={<RefreshOutlined />} onClick={() => setActiveStep(2)}>
                       返回编排
@@ -359,6 +490,13 @@ export default function StepResult() {
                          </Stack>
                        </Alert>
                      )}
+                     <AgentDiagnosisPanel
+                       runReport={runReport}
+                       loading={loading}
+                       parsedScript={parsedScript}
+                       onGenerateRepairPatch={generateAiRepairPatch}
+                       onBackToFlow={() => setActiveStep(2)}
+                     />
                      <Stack direction="row" spacing={1} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
                        <Button size="small" variant="outlined" onClick={() => exportRunReport(runReport)}>导出报告</Button>
                        {runReport.script && <Button size="small" variant="outlined" onClick={() => loadRunIntoEditor(runReport)}>载入编辑</Button>}
@@ -507,6 +645,40 @@ export default function StepResult() {
                                    </Box>
                                  </Box>
                                ))}
+                             </Stack>
+                           )}
+                           {!!res.diagnostics?.length && (
+                             <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+                               {res.diagnostics.map((diagnostic, diagnosticIndex) => {
+                                 const severityMeta = getDiagnosticSeverityMeta(diagnostic.severity);
+                                 return (
+                                   <Box
+                                     key={`${diagnostic.category}-${diagnosticIndex}`}
+                                     sx={{
+                                       p: 1,
+                                       borderRadius: 1,
+                                       bgcolor: 'rgba(245, 158, 11, 0.08)',
+                                       border: '1px solid',
+                                       borderColor: 'warning.light',
+                                     }}
+                                   >
+                                     <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                       <Chip size="small" color={severityMeta.color} label={`诊断 ${severityMeta.label}`} variant="outlined" />
+                                       <Typography variant="caption" fontWeight={800}>
+                                         {getDiagnosticCategoryLabel(diagnostic.category)}
+                                       </Typography>
+                                     </Stack>
+                                     <Typography variant="caption" display="block" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                       {diagnostic.explanation}
+                                     </Typography>
+                                     {!!diagnostic.suggestions?.length && (
+                                       <Typography variant="caption" display="block" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                                         建议：{diagnostic.suggestions.slice(0, 2).join('；')}
+                                       </Typography>
+                                     )}
+                                   </Box>
+                                 );
+                               })}
                              </Stack>
                            )}
                            {res.error && <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>{res.error}</Typography>}

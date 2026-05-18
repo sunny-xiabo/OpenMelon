@@ -10,6 +10,7 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Divider,
   FormControl,
   IconButton,
   InputLabel,
@@ -29,13 +30,19 @@ import {
 } from '@mui/material';
 import {
   AutoAwesomeOutlined,
+  CloudSyncOutlined,
+  ContentCopyOutlined,
   DeleteOutline,
   EditOutlined,
   HistoryOutlined,
   ManageSearchOutlined,
   RefreshOutlined,
+  ScheduleSendOutlined,
   SearchOutlined,
+  StorageOutlined,
+  TerminalOutlined,
 } from '@mui/icons-material';
+import { API_BASE } from '../../../api/client';
 import { SWITCH_TAB_EVENT, SETTINGS_SECTION_EVENT } from '../../../constants/events';
 import { useAPIExecution } from '../context';
 import {
@@ -44,6 +51,35 @@ import {
   getRunModeLabel,
   getRunStatusMeta,
 } from '../utils';
+
+const getCiApiBase = () => {
+  if (API_BASE.startsWith('http')) return API_BASE;
+  return 'http://127.0.0.1:8000/api';
+};
+
+const formatBytes = (value = 0) => {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const getAutomationTypeLabel = (type = '') => (
+  type === 'scheduled_runs' ? '定时执行' : type === 'spec_sync' ? '规格同步' : '自动化入口'
+);
+
+const getTriggerStatusColor = (status = '') => {
+  if (status === 'queued' || status === 'updated') return 'success';
+  if (status === 'blocked') return 'error';
+  if (status === 'skipped' || status === 'unchanged') return 'default';
+  return 'warning';
+};
+
+const getReadinessLabel = (status = '') => {
+  if (status === 'empty_ready') return '空库可迁移';
+  if (status === 'needs_batch_migration_plan') return '需批量迁移计划';
+  return 'JSONB 映射就绪';
+};
 
 export default function RunHistory() {
   const {
@@ -67,9 +103,22 @@ export default function RunHistory() {
     handleReplayRun,
     handleAutoRepairRun,
     automationTasks,
+    handleTriggerScheduledRuns,
+    handleTriggerSpecSync,
+    automationTriggerResult,
+    storageReadiness,
+    handleRefreshStorageReadiness,
   } = useAPIExecution();
 
   const [clearAllDialogOpen, setClearAllDialogOpen] = React.useState(false);
+  const [copiedSnippet, setCopiedSnippet] = React.useState('');
+
+  const copySnippet = async (key, text) => {
+    if (!navigator.clipboard) return;
+    await navigator.clipboard.writeText(text);
+    setCopiedSnippet(key);
+    window.setTimeout(() => setCopiedSnippet(''), 1500);
+  };
 
   const openGovernanceCenter = () => {
     sessionStorage.setItem('openmelon_settings_section', 'governance');
@@ -180,6 +229,16 @@ export default function RunHistory() {
         </Alert>
       )}
 
+      <AutomationOpsPanel
+        onTriggerScheduledRuns={handleTriggerScheduledRuns}
+        onTriggerSpecSync={handleTriggerSpecSync}
+        automationTriggerResult={automationTriggerResult}
+        storageReadiness={storageReadiness}
+        onRefreshStorageReadiness={handleRefreshStorageReadiness}
+        copiedSnippet={copiedSnippet}
+        onCopySnippet={copySnippet}
+      />
+
       <RunHistoryTable
         runHistory={runHistory}
         loadRunIntoEditor={loadRunIntoEditor}
@@ -189,6 +248,157 @@ export default function RunHistory() {
         handleBatchDeleteRuns={handleBatchDeleteRuns}
       />
     </Paper>
+  );
+}
+
+function AutomationOpsPanel({
+  onTriggerScheduledRuns,
+  onTriggerSpecSync,
+  automationTriggerResult,
+  storageReadiness,
+  onRefreshStorageReadiness,
+  copiedSnippet,
+  onCopySnippet,
+}) {
+  const ciApiBase = getCiApiBase();
+  const scheduledSnippet = `curl -X POST "${ciApiBase}/api-execution/automation/scheduled-runs/trigger"`;
+  const specSyncSnippet = `curl -X POST "${ciApiBase}/api-execution/automation/spec-sync/trigger"`;
+  const readinessSnippet = `curl "${ciApiBase}/api-execution/storage/migration-readiness"`;
+  const runProfile = (storageReadiness?.table_profiles || []).find((item) => item.table === 'runs');
+  const eventLogProfile = (storageReadiness?.table_profiles || []).find((item) => item.table === 'event_logs');
+  const dataBytes = (storageReadiness?.table_profiles || []).reduce((sum, item) => sum + Number(item.data_bytes || 0), 0);
+
+  return (
+    <Box
+      sx={{
+        mb: 2,
+        p: 1.5,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        bgcolor: 'rgba(255,255,255,0.45)',
+      }}
+    >
+      <Stack spacing={1.5}>
+        <Stack direction={{ xs: 'column', lg: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', lg: 'center' }} gap={1}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TerminalOutlined color="primary" />
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>调度 / CI / 存储准备</Typography>
+              <Typography variant="caption" color="text.secondary">项目级定时触发、规格同步和 SQLite/PG 迁移检查</Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Button size="small" variant="outlined" startIcon={<ScheduleSendOutlined />} onClick={onTriggerScheduledRuns}>
+              触发定时执行
+            </Button>
+            <Button size="small" variant="outlined" startIcon={<CloudSyncOutlined />} onClick={onTriggerSpecSync}>
+              同步规格 DSL
+            </Button>
+            <Button size="small" variant="outlined" startIcon={<StorageOutlined />} onClick={onRefreshStorageReadiness}>
+              迁移检查
+            </Button>
+          </Stack>
+        </Stack>
+
+        {automationTriggerResult && (
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Chip size="small" label={getAutomationTypeLabel(automationTriggerResult.type)} color="primary" variant="outlined" />
+            <Typography variant="caption" color="text.secondary">
+              {automationTriggerResult.triggered_at || '刚刚'}
+            </Typography>
+            {(automationTriggerResult.items || []).slice(0, 6).map((item) => (
+              <Chip
+                key={`${automationTriggerResult.type}-${item.project_id}-${item.status}-${item.run_id || item.spec_id || item.reason}`}
+                size="small"
+                color={getTriggerStatusColor(item.status)}
+                label={`${item.project_name || item.project_id || '项目'}：${item.status}${item.reason ? ` · ${item.reason}` : ''}`}
+                variant="outlined"
+              />
+            ))}
+          </Stack>
+        )}
+
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1.1fr 0.9fr' }, gap: 1.5, alignItems: 'start' }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Stack spacing={0.75}>
+              {[
+                ['scheduled', '定时执行', scheduledSnippet],
+                ['spec-sync', '规格同步', specSyncSnippet],
+                ['readiness', '迁移检查', readinessSnippet],
+              ].map(([key, label, snippet]) => (
+                <Box
+                  key={key}
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', md: '80px 1fr auto' },
+                    alignItems: 'center',
+                    gap: 1,
+                    minWidth: 0,
+                  }}
+                >
+                  <Typography variant="caption" fontWeight={800}>{label}</Typography>
+                  <Box
+                    component="pre"
+                    sx={{
+                      m: 0,
+                      px: 1,
+                      py: 0.75,
+                      borderRadius: 1,
+                      bgcolor: 'rgba(15,23,42,0.06)',
+                      color: 'text.primary',
+                      overflowX: 'auto',
+                      fontSize: 12,
+                    }}
+                  >
+                    {snippet}
+                  </Box>
+                  <Button size="small" startIcon={<ContentCopyOutlined />} onClick={() => onCopySnippet(key, snippet)}>
+                    {copiedSnippet === key ? '已复制' : '复制'}
+                  </Button>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+
+          <Box sx={{ minWidth: 0 }}>
+            {storageReadiness ? (
+              <Stack spacing={1}>
+                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Chip size="small" color="success" label={getReadinessLabel(storageReadiness.pg_readiness)} />
+                  <Chip size="small" label={`${runProfile?.row_count || 0} 条历史`} variant="outlined" />
+                  <Chip size="small" label={`${eventLogProfile?.row_count || 0} 条日志`} variant="outlined" />
+                  <Chip size="small" label={formatBytes(dataBytes)} variant="outlined" />
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
+                  {storageReadiness.retention_plan?.recommendation || '暂无归档建议'}
+                </Typography>
+                {!!storageReadiness.json_field_risks?.length && (
+                  <>
+                    <Divider flexItem />
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {storageReadiness.json_field_risks.map((risk) => (
+                        <Chip
+                          key={risk.area}
+                          size="small"
+                          color={risk.risk_level === 'high' ? 'error' : risk.risk_level === 'medium' ? 'warning' : 'info'}
+                          label={`${risk.area}：${risk.risk_level}`}
+                          variant="outlined"
+                        />
+                      ))}
+                    </Stack>
+                  </>
+                )}
+              </Stack>
+            ) : (
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                <Typography variant="caption">未检查迁移准备状态。</Typography>
+              </Alert>
+            )}
+          </Box>
+        </Box>
+      </Stack>
+    </Box>
   );
 }
 
@@ -297,7 +507,7 @@ function RunHistoryTable({ runHistory, loadRunIntoEditor, handleReplayRun, handl
                   <TableCell>{formatRunTime(run.run_at) || '未记录'}</TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                      <Tooltip title="载入到编辑器"><IconButton size="small" onClick={() => loadRunIntoEditor(run.run_id)}><EditOutlined fontSize="small" /></IconButton></Tooltip>
+                      <Tooltip title="载入到编辑器"><IconButton size="small" onClick={() => loadRunIntoEditor(run)}><EditOutlined fontSize="small" /></IconButton></Tooltip>
                       <Tooltip title="重跑"><IconButton size="small" onClick={() => handleReplayRun(run)}><RefreshOutlined fontSize="small" /></IconButton></Tooltip>
                       {run.status === 'failed' && (
                         <Tooltip title="受控修复"><IconButton size="small" onClick={() => handleAutoRepairRun(run.run_id)}><AutoAwesomeOutlined fontSize="small" /></IconButton></Tooltip>

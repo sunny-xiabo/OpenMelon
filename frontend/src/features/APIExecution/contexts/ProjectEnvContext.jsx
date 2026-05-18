@@ -1,13 +1,12 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useSnackbar } from '../../../components/SnackbarProvider';
-import { apiExecutionAPI } from '../../../api/execution';
 import {
   formatLineList,
+  parseJsonArrayText,
   parseJsonObjectText,
   parseLineList,
   normalizeTimeoutMs,
   normalizeNonNegativeInt,
-  maskSensitiveConfig,
   validateBaseUrl,
 } from '../utils';
 import { useUIContext } from './UIContext';
@@ -59,6 +58,9 @@ export const ProjectEnvProvider = ({ children }) => {
   const [riskOverridesText, setRiskOverridesText] = useState('{}');
   const [operationAllowlistText, setOperationAllowlistText] = useState('');
   const [operationBlocklistText, setOperationBlocklistText] = useState('');
+  const [authConfigText, setAuthConfigText] = useState('{}');
+  const [setupStepsText, setSetupStepsText] = useState('[]');
+  const [cleanupStepsText, setCleanupStepsText] = useState('[]');
 
   // 使用 TanStack Query
   const { data: projects = [] } = useExecProjects();
@@ -72,6 +74,7 @@ export const ProjectEnvProvider = ({ children }) => {
   const applyProjectValues = (project) => {
     if (!project) return;
     setSelectedProjectId(project.project_id || '');
+    setSelectedEnvironmentId('');
     setProjectName(project.name || 'OpenMelon');
     setAllowAiExecution(Boolean(project.allow_ai_execution));
     setAllowAiRepair(Boolean(project.allow_ai_repair));
@@ -84,6 +87,9 @@ export const ProjectEnvProvider = ({ children }) => {
     setRiskOverridesText(JSON.stringify(project.risk_overrides || {}, null, 2));
     setOperationAllowlistText(formatLineList(project.operation_allowlist));
     setOperationBlocklistText(formatLineList(project.operation_blocklist));
+    setAuthConfigText(JSON.stringify(project.auth_config || {}, null, 2));
+    setSetupStepsText(JSON.stringify(project.setup_steps || [], null, 2));
+    setCleanupStepsText(JSON.stringify(project.cleanup_steps || [], null, 2));
   };
 
   const applyEnvironmentValues = (environment) => {
@@ -105,10 +111,13 @@ export const ProjectEnvProvider = ({ children }) => {
   }, [projects, selectedProjectId]);
 
   useEffect(() => {
-    if (environments.length > 0 && !selectedEnvironmentId) {
+    if (environments.length > 0) {
       const project = projects.find(p => p.project_id === selectedProjectId);
-      const preferred = environments.find(e => e.environment_id === project?.default_environment_id) || environments[0];
-      applyEnvironmentValues(preferred);
+      const current = environments.find(e => e.environment_id === selectedEnvironmentId);
+      if (!current) {
+        const preferred = environments.find(e => e.environment_id === project?.default_environment_id) || environments[0];
+        applyEnvironmentValues(preferred);
+      }
     }
   }, [environments, selectedEnvironmentId, selectedProjectId, projects]);
 
@@ -147,6 +156,68 @@ export const ProjectEnvProvider = ({ children }) => {
     } catch { return {}; }
   };
 
+  const parseAuthConfig = () => parseJsonObjectText(authConfigText, {});
+  const parseSetupSteps = () => parseJsonArrayText(setupStepsText, []);
+  const parseCleanupSteps = () => parseJsonArrayText(cleanupStepsText, []);
+
+  const buildProjectPolicySnapshot = () => ({
+    project_id: selectedProjectId || '',
+    name: projectName.trim() || 'OpenMelon',
+    allow_ai_execution: allowAiExecution,
+    allow_ai_repair: allowAiRepair,
+    allow_scheduled_execution: allowScheduledExecution,
+    allow_ai_generate_dsl: allowAiGenerateDsl,
+    allow_overwrite_history: allowOverwriteHistory,
+    max_auto_repairs: normalizeNonNegativeInt(maxAutoRepairs),
+    max_reruns: normalizeNonNegativeInt(maxReruns),
+    max_requests_per_run: normalizeNonNegativeInt(maxRequestsPerRun),
+    risk_overrides: parseJsonObjectText(riskOverridesText, {}),
+    operation_allowlist: parseLineList(operationAllowlistText),
+    operation_blocklist: parseLineList(operationBlocklistText),
+    auth_config: parseAuthConfig(),
+    setup_steps: parseSetupSteps(),
+    cleanup_steps: parseCleanupSteps(),
+  });
+
+  const buildEnvironmentSnapshot = (headers, variables) => ({
+    environment_id: selectedEnvironmentId || '',
+    project_id: selectedProjectId || '',
+    name: environmentName.trim() || '本地测试',
+    environment_type: environmentType,
+    base_url: baseUrl.trim(),
+    headers,
+    variables,
+    timeout_ms: normalizeTimeoutMs(environmentTimeoutMs),
+    continue_on_failure: continueOnFailure,
+  });
+
+  const applyAuthConfigToHeaders = (headers, variables) => {
+    const authConfig = parseAuthConfig();
+    const type = String(authConfig.type || 'none').toLowerCase();
+    if (!type || type === 'none') return headers;
+    const next = { ...headers };
+    const tokenFrom = (valueKey, variableKey) => {
+      const variableName = String(authConfig[variableKey] || '').trim();
+      if (variableName) return variables[variableName] || `{{${variableName}}}`;
+      return String(authConfig[valueKey] || '').trim();
+    };
+    if (type === 'bearer') {
+      const token = tokenFrom('token', 'token_variable');
+      if (token) {
+        const prefix = authConfig.prefix === undefined ? 'Bearer' : String(authConfig.prefix || '').trim();
+        next[authConfig.header_name || 'Authorization'] = `${prefix} ${token}`.trim();
+      }
+    } else if (type === 'api_key' && String(authConfig.in || authConfig.api_key_in || 'header').toLowerCase() !== 'query') {
+      const name = String(authConfig.name || authConfig.api_key_name || '').trim();
+      const value = tokenFrom('value', 'value_variable');
+      if (name && value) next[name] = value;
+    } else if (type === 'basic') {
+      const encoded = tokenFrom('encoded', 'encoded_variable');
+      if (encoded) next[authConfig.header_name || 'Authorization'] = `Basic ${encoded}`;
+    }
+    return next;
+  };
+
   const buildProjectPayload = (projectId, name, spec) => ({
     project_id: projectId || undefined,
     name,
@@ -165,6 +236,9 @@ export const ProjectEnvProvider = ({ children }) => {
     risk_overrides: parseJsonObjectText(riskOverridesText, {}),
     operation_allowlist: parseLineList(operationAllowlistText),
     operation_blocklist: parseLineList(operationBlocklistText),
+    auth_config: parseAuthConfig(),
+    setup_steps: parseSetupSteps(),
+    cleanup_steps: parseCleanupSteps(),
   });
 
   const saveCurrentEnvironment = async (spec) => {
@@ -223,14 +297,18 @@ export const ProjectEnvProvider = ({ children }) => {
     if (token) {
       globalHeaders.Authorization = token.toLowerCase().startsWith('bearer ') ? token : `Bearer ${token}`;
     }
+    const authHeaders = applyAuthConfigToHeaders(globalHeaders, environmentVariables);
     return {
       project_id: selectedProjectId || undefined,
       environment_id: selectedEnvironmentId || undefined,
       environment_variables: environmentVariables,
+      environment_snapshot: buildEnvironmentSnapshot(authHeaders, environmentVariables),
+      project_policy_snapshot: buildProjectPolicySnapshot(),
       base_url: baseUrlCheck.value,
-      global_headers: globalHeaders,
+      global_headers: authHeaders,
       continue_on_failure: continueOnFailure,
       timeout_ms: normalizeTimeoutMs(environmentTimeoutMs),
+      approved_high_risk: Boolean(script.agent_high_risk_approved),
       ...extraOptions,
     };
   };
@@ -259,6 +337,9 @@ export const ProjectEnvProvider = ({ children }) => {
     riskOverridesText, setRiskOverridesText,
     operationAllowlistText, setOperationAllowlistText,
     operationBlocklistText, setOperationBlocklistText,
+    authConfigText, setAuthConfigText,
+    setupStepsText, setSetupStepsText,
+    cleanupStepsText, setCleanupStepsText,
     applyProjectValues,
     applyEnvironmentValues,
     handleDeleteProject,
@@ -266,7 +347,7 @@ export const ProjectEnvProvider = ({ children }) => {
     buildProjectPayload,
     buildRunOptions,
     saveCurrentEnvironment,
-    buildProjectPolicySnapshot: () => ({ /* ... 保持兼容 ... */ }),
+    buildProjectPolicySnapshot,
   };
 
   return (
