@@ -11,8 +11,8 @@
 ## 核心特性
 
 - **多通道智能问答 (Agentic RAG)**：LLM 自动识别用户问题意图（图谱/向量/混合/可视化），支持自动改写查询、评估答案充分性的多步推理，搭配 BGE 重排序 (Reranker) 提升精度，所有回答均标注精确引用。
-- **多智能体测试用例生成**：基于 AutoGen 的三阶段流水线（需求分析、用例生成、用例评审），支持 Prompt Hub 动态配置模板与技能，生成结果双写落盘至图谱和向量库，支持导出 Excel/XMind。
-- **全链路 API 自动化**：IDE 级三栏式工作台，支持接口编排拖拽排序、变量跨步骤注入、AI 修复补丁、执行历史批量管理（勾选删除/一键清空全部）及执行经验知识沉淀。
+- **多智能体测试用例生成**：基于 AutoGen 的三阶段流水线（需求分析、用例生成、用例评审），支持 Prompt Hub 动态配置模板与技能；生成结果默认落盘至图谱，开启外部向量库后同步写入 Qdrant，支持导出 Excel/XMind。
+- **全链路 API 自动化**：支持项目-模块-接口资产台账、OpenAPI 差异预览确认同步、项目级认证/前置依赖/清理流程配置向导、变量引用检查、API Agent 冒烟与参数负向测试计划生成、推荐解释、依赖发现、业务链路自动编排、画布式依赖图确认、Agent 失败诊断摘要、调度/CI 触发入口、SQLite/PG 迁移准备检查、项目测试任务复用与治理、策略校验、执行结果回写、AI 修复补丁、执行历史批量管理及执行经验知识沉淀。
 - **动态图谱可视化**：vis.js 实时渲染，支持拖拽、缩放、节点高亮，支持多维筛选和 2 度关系子图探索。
 - **全链路数据仪表盘**：涵盖图谱覆盖率、API 自动化健康度及 UI 自动化（规划中）的多维度可视化聚合看板，快速定位高风险功能。
 - **索引治理工作台**：统一查看业务源、Neo4j 图谱索引与 Qdrant 向量库的一致性，支持缺失/孤儿/源缺失诊断、明细查看、状态同步、异步回填和审计记录。
@@ -127,7 +127,7 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 | **2** | **图谱总览** | 查看系统刚为你自动抽取生成的实体与关系图谱 |
 | **3** | **问答** | 针对上传的文档直接提问，体验 Agentic RAG 的多步推理与精准引用 |
 | **4** | **测试用例生成** | 体验一键将文档或业务模块转换为测试用例，落盘存证并导出 Excel |
-| **5** | **API 自动化** | 将用例转化为 API DSL，支持 AI 一键生成编排、自动修复并沉淀可信执行经验 |
+| **5** | **API 自动化** | 维护项目接口资产台账，按模块或接口生成 API Agent 冒烟 DSL，保存为项目测试任务后可反复载入执行 |
 | **6** | **数据仪表盘** | 查看全链路覆盖率、哪些模块缺少用例以及自动化的健康度 |
 | **7** | **索引治理** | 检查 Neo4j 与 Qdrant 是否一致，必要时执行状态同步、孤儿清理或 Qdrant 异步回填 |
 
@@ -141,41 +141,23 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 - **导入管理**：![导入管理页面](docs/screenshots/manage-page.png)
 - **测试用例生成**：![测试用例生成页面](docs/screenshots/testcase-page.png)
 - **API 自动化**：![API 自动化页面](docs/screenshots/api-execution-page.png)
+- **数据仪表盘**：![数据仪表盘页面](docs/screenshots/dashboard-page.png)
+- **索引治理**：![索引治理页面](docs/screenshots/index-governance-page.png)
+- **设置中心**：![设置中心页面](docs/screenshots/settings-page.png)
 - **设置 - 节点类型配置**：![节点类型配置](docs/screenshots/node-page.png)
 - **设置 - 项目与环境**：![项目与环境](docs/screenshots/project-env-page.png)
-- **设置 - 运行配置**：统一管理 `.env`、主模块 LLM、热更新项和自定义 Provider 模板
+- **设置 - 运行配置**：![运行配置](docs/screenshots/runtime-config-page.png)
 - **设置 - Prompt Hub**：![Prompt Hub 页面](docs/screenshots/prompt-hub-page.png)
+- **设置 - 治理中心**：![治理中心](docs/screenshots/governance-center-page.png)
+- **设置 - 日志中心**：![日志中心](docs/screenshots/log-center-page.png)
+- **设置 - AI/RAG 观测**：![AI/RAG 观测](docs/screenshots/ai-observability-page.png)
 </details>
 
 ---
 
 ## 运行配置中心
 
-设置页中的“运行配置”已经是当前版本推荐的运行参数入口，适合处理这些事情：
-
-- 初始化缺失的 `.env`
-- 查看配置来源：已生效 `.env`、程序默认、模板示例或未设置
-- 编辑主模块 LLM、Embedding、检索、Reranker、生成和日志生命周期参数
-- 管理自定义 Provider 模板，并在主模块 LLM 分组里直接套用
-
-当前阶段的生效规则：
-
-- `热更新`：保存后会刷新进程内运行参数，只影响后续新请求，不会中途切换正在执行的任务
-- `需重启`：配置已经写入 `.env`，但路径、数据库、向量库主连接和启动期长期持有资源仍需服务重启
-
-当前已接入热更新的重点范围包括：
-
-- 主模块 `LLM_PROVIDER`、`API_KEY`、`API_BASE_URL`、`CHAT_MODEL`
-- `EMBEDDING_MODEL`、`EMBEDDING_DIM`
-- 检索、Reranker、生成参数
-- 日志生命周期参数 `EVENT_LOG_RETENTION_DAYS`、`EVENT_LOG_MAX_ROWS`
-
-以下仍建议按重启生效处理：
-
-- `OPENMELON_DATA_DIR`
-- `NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`NEO4J_DATABASE`
-- 向量库主连接参数
-- 启动时初始化并长期持有的路径、数据库连接、客户端实例
+设置页中的“运行配置”是当前版本推荐的运行参数入口，可初始化 `.env`、维护 LLM/Embedding/检索/Reranker 参数、管理自定义 Provider 模板，并区分热更新与需重启项。完整说明见 [MANUAL.md](MANUAL.md#3-环境配置详解)。
 
 ---
 
@@ -208,7 +190,7 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 OpenMelon/
 ├── backend/app/
 │   ├── api/                 # 通用 FastAPI 路由（问答、图谱、导入、日志等）
-│   ├── api_execution/       # API 自动化模块（接口解析、DSL、编排执行、策略、AI 修复、知识沉淀）
+│   ├── api_execution/       # API 自动化模块（项目/模块/接口资产、Agent 测试任务、DSL、编排执行、策略、诊断、调度入口、AI 修复、知识沉淀）
 │   │   ├── routes/          # 各子模块路由（runs、specs、projects、knowledge、templates 等）
 │   │   ├── services/        # 业务服务（run_service、spec_service、knowledge_service 等）
 │   │   ├── sqlite_store.py  # 模块专属 SQLite 存储门面与读写行为
@@ -248,7 +230,3 @@ OpenMelon/
 |------|---------|---------|
 | **[MANUAL.md](MANUAL.md)** | 开发者、运维 | 操作手册：环境初始化、运行配置中心、Provider 管理、热更新边界、页面运维与常见排查 |
 | **[CHANGELOG.md](CHANGELOG.md)** | 开发者 | 项目版本的变更记录与架构优化历史归档 |
-| **[docs/Knowledge/FRONTEND_DEPLOYMENT.md](docs/Knowledge/FRONTEND_DEPLOYMENT.md)** | 运维 | 前端独立部署 Nginx 配置示例与环境变量说明 |
-| **[docs/Knowledge/OPERATION_INTRO_GUIDE.md](docs/Knowledge/OPERATION_INTRO_GUIDE.md)** | 新用户、测试、产品 | 页面入口、操作路径和常见使用流程 |
-| **[docs/Knowledge/PROMPT_HUB_GUIDE.md](docs/Knowledge/PROMPT_HUB_GUIDE.md)** | 测试、管理员 | Prompt Hub 模板、技能和分类管理说明 |
-| **[docs/planning/UI_EXECUTION_PLAN.md](docs/planning/UI_EXECUTION_PLAN.md)** | 开发者、测试负责人 | UI 自动化执行能力规划与落地路径 |

@@ -38,7 +38,16 @@
 
 ### 后期迁移 PG
 
-只需新增 `PostgresStore(BaseStore)` 实现，使用 `asyncpg` 或 `psycopg`，SQL 语法与 SQLite 高度兼容。
+当前已补齐只读 readiness 检查：`GET /api/api-execution/storage/migration-readiness`。该接口会返回 SQLite 表规模、JSON 字段风险、PG JSONB 映射建议和执行历史归档策略，用于迁移前评估。
+
+迁移原则：
+
+- 稳定查询字段拆列：`project_id`、`status`、`run_at`、`method`、`path`、`source_url`、`content_hash` 等继续建普通索引。
+- 复杂 payload 保留 JSONB：`script`、`results`、`execution_options`、OpenAPI request/response 片段、策略 decision 和扩展配置不急于全量拆列。
+- 敏感配置单独处理：项目认证、环境变量和 headers 迁移前需要扫描敏感键，生产环境优先迁为 Secret 引用或密文。
+- 执行历史先定归档：普通通过记录可按项目/月归档，失败、策略阻断、已沉淀知识的记录延长保留。
+
+真正切换 PG 时，再新增 `PostgresStore` 实现，使用 `asyncpg` 或 `psycopg`，迁移脚本分页读取 SQLite `data` 字段，写入 PG 后校验行数、核心字段和 JSON hash。
 
 ### 涉及文件
 
