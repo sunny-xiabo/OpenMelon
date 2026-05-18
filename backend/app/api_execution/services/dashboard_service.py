@@ -202,13 +202,22 @@ def _flow_template_performance(project_id: str | None = None, limit: int = 200) 
                 "failed": 0,
                 "cancelled": 0,
                 "last_run_at": "",
+                "last_status": "",
+                "last_run_id": "",
+                "last_case_name": "",
+                "last_duration_ms": 0,
             },
         )
         item["run_count"] += 1
         if status in {"passed", "failed", "cancelled"}:
             item[status] += 1
-        if not item["last_run_at"] or str(run.get("run_at") or "") > item["last_run_at"]:
-            item["last_run_at"] = str(run.get("run_at") or "")
+        run_at = str(run.get("run_at") or "")
+        if not item["last_run_at"] or run_at > item["last_run_at"]:
+            item["last_run_at"] = run_at
+            item["last_status"] = status
+            item["last_run_id"] = run.get("run_id") or ""
+            item["last_case_name"] = run.get("case_name") or run.get("case_id") or ""
+            item["last_duration_ms"] = _safe_int(run.get("duration_ms"))
     for item in performance.values():
         finished = item["passed"] + item["failed"] + item["cancelled"]
         item["pass_rate"] = round(item["passed"] / finished, 3) if finished else 0

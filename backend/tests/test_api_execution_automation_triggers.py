@@ -127,3 +127,37 @@ def test_scheduled_trigger_blocks_when_project_policy_disabled(tmp_path, monkeyp
 
     assert response["items"][0]["status"] == "blocked"
     assert "AI 自动执行" in response["items"][0]["reason"]
+
+
+def test_storage_migration_readiness_reports_jsonb_and_retention_plan(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(routers, "api_execution_store", store)
+    store.save_project(
+        {
+            "project_id": "project-1",
+            "name": "Demo",
+            "enabled": True,
+            "auth_config": {"type": "bearer", "token_variable": "token"},
+        }
+    )
+    store.save_run(
+        {
+            "run_id": "run-1",
+            "status": "failed",
+            "case_id": "case-1",
+            "case_name": "失败样例",
+            "run_at": "2026-05-18T10:00:00Z",
+            "execution_options": {"project_id": "project-1"},
+            "script": {"steps": []},
+            "results": [],
+        }
+    )
+
+    response = asyncio.run(routers.get_storage_migration_readiness())
+
+    assert response["storage_engine"] == "sqlite"
+    assert response["pg_readiness"] == "ready_with_jsonb_mapping"
+    assert any(item["table"] == "runs" and item["row_count"] == 1 for item in response["table_profiles"])
+    assert any("JSONB" in step for step in response["recommended_steps"])
+    assert response["retention_plan"]["run_count"] == 1
+    assert any(risk["risk_level"] == "high" for risk in response["json_field_risks"])

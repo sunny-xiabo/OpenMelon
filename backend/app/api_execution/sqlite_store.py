@@ -106,6 +106,195 @@ class SQLiteStore(BaseSQLiteStore):
             )
             return self._row_to_data(row)
 
+    # ---- API asset catalog ----
+
+    @staticmethod
+    def _module_index_columns(module: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "project_id": module.get("project_id", ""),
+            "module_key": module.get("module_key", ""),
+            "name": module.get("name", ""),
+            "status": module.get("status", "active"),
+            "sort_order": int(module.get("sort_order") or 100),
+            "updated_at": module.get("updated_at", ""),
+        }
+
+    @staticmethod
+    def _interface_index_columns(interface: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "project_id": interface.get("project_id", ""),
+            "module_id": interface.get("module_id", ""),
+            "interface_key": interface.get("interface_key", ""),
+            "method": interface.get("method", ""),
+            "path": interface.get("path", ""),
+            "operation_id": interface.get("operation_id", ""),
+            "summary": interface.get("summary", ""),
+            "risk_level": interface.get("risk_level", ""),
+            "status": interface.get("status", "active"),
+            "current_spec_id": interface.get("current_spec_id", ""),
+            "current_hash": interface.get("current_hash", ""),
+            "last_seen_at": interface.get("last_seen_at", ""),
+        }
+
+    @staticmethod
+    def _spec_version_index_columns(version: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "project_id": version.get("project_id", ""),
+            "spec_id": version.get("spec_id", ""),
+            "source_type": version.get("source_type", ""),
+            "source_url": version.get("source_url", ""),
+            "filename": version.get("filename", ""),
+            "content_hash": version.get("content_hash", ""),
+            "imported_at": version.get("imported_at", ""),
+            "operation_count": int(version.get("operation_count") or 0),
+        }
+
+    def save_api_module(self, module: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert("api_modules", "module_id", module["module_id"], self._module_index_columns(module), module)
+            return module
+
+    def get_api_module(self, module_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._row_to_data(self._query_one("SELECT data FROM api_modules WHERE module_id = ?", (module_id,)))
+
+    def get_api_module_by_key(self, project_id: str, module_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._query_one(
+                "SELECT data FROM api_modules WHERE project_id = ? AND module_key = ? LIMIT 1",
+                (project_id, module_key),
+            )
+            return self._row_to_data(row)
+
+    def list_api_modules(self, project_id: str, status: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            conditions = ["project_id = ?"]
+            params: list[Any] = [project_id]
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            rows = self._query(
+                f"SELECT data FROM api_modules WHERE {' AND '.join(conditions)} ORDER BY sort_order ASC, name ASC",
+                tuple(params),
+            )
+            return [json.loads(r["data"]) for r in rows]
+
+    def save_api_interface(self, interface: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert(
+                "api_interfaces",
+                "interface_id",
+                interface["interface_id"],
+                self._interface_index_columns(interface),
+                interface,
+            )
+            return interface
+
+    def get_api_interface(self, interface_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._row_to_data(self._query_one("SELECT data FROM api_interfaces WHERE interface_id = ?", (interface_id,)))
+
+    def get_api_interface_by_key(self, project_id: str, interface_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._query_one(
+                "SELECT data FROM api_interfaces WHERE project_id = ? AND interface_key = ? LIMIT 1",
+                (project_id, interface_key),
+            )
+            return self._row_to_data(row)
+
+    def delete_api_interface(self, interface_id: str) -> bool:
+        with self._lock:
+            existed = self._query_one("SELECT 1 FROM api_interfaces WHERE interface_id = ?", (interface_id,)) is not None
+            self._execute("DELETE FROM api_interfaces WHERE interface_id = ?", (interface_id,))
+            return existed
+
+    def list_api_interfaces(
+        self,
+        project_id: str,
+        *,
+        module_id: str | None = None,
+        status: str | None = None,
+        risk_level: str | None = None,
+        keyword: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=1000)
+        with self._lock:
+            conditions = ["project_id = ?"]
+            params: list[Any] = [project_id]
+            if module_id:
+                conditions.append("module_id = ?")
+                params.append(module_id)
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            if risk_level:
+                conditions.append("risk_level = ?")
+                params.append(risk_level)
+            if keyword:
+                kw = f"%{keyword.lower().strip()}%"
+                conditions.append("(LOWER(interface_key) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(operation_id) LIKE ?)")
+                params.extend([kw, kw, kw])
+            rows = self._query(
+                f"""
+                SELECT data FROM api_interfaces
+                WHERE {' AND '.join(conditions)}
+                ORDER BY module_id ASC, method ASC, path ASC
+                LIMIT ? OFFSET ?
+                """,
+                tuple(params) + (safe_limit, safe_offset),
+            )
+            return [json.loads(r["data"]) for r in rows]
+
+    def count_api_interfaces(
+        self,
+        project_id: str,
+        *,
+        module_id: str | None = None,
+        status: str | None = None,
+        risk_level: str | None = None,
+        keyword: str | None = None,
+    ) -> int:
+        with self._lock:
+            conditions = ["project_id = ?"]
+            params: list[Any] = [project_id]
+            if module_id:
+                conditions.append("module_id = ?")
+                params.append(module_id)
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            if risk_level:
+                conditions.append("risk_level = ?")
+                params.append(risk_level)
+            if keyword:
+                kw = f"%{keyword.lower().strip()}%"
+                conditions.append("(LOWER(interface_key) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(operation_id) LIKE ?)")
+                params.extend([kw, kw, kw])
+            row = self._query_one(f"SELECT COUNT(*) AS count FROM api_interfaces WHERE {' AND '.join(conditions)}", tuple(params))
+            return int(row["count"] if row else 0)
+
+    def save_api_spec_version(self, version: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert(
+                "api_spec_versions",
+                "spec_version_id",
+                version["spec_version_id"],
+                self._spec_version_index_columns(version),
+                version,
+            )
+            return version
+
+    def list_api_spec_versions(self, project_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        safe_limit, _ = self._safe_page(limit, max_limit=100)
+        with self._lock:
+            rows = self._query(
+                "SELECT data FROM api_spec_versions WHERE project_id = ? ORDER BY imported_at DESC LIMIT ?",
+                (project_id, safe_limit),
+            )
+            return [json.loads(r["data"]) for r in rows]
+
     # ---- runs ----
 
     def save_run(self, run: dict[str, Any]) -> dict[str, Any]:
@@ -218,6 +407,9 @@ class SQLiteStore(BaseSQLiteStore):
         with self._lock:
             cursor = self._conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
             self._conn.execute("DELETE FROM environments WHERE project_id = ?", (project_id,))
+            self._conn.execute("DELETE FROM api_modules WHERE project_id = ?", (project_id,))
+            self._conn.execute("DELETE FROM api_interfaces WHERE project_id = ?", (project_id,))
+            self._conn.execute("DELETE FROM api_spec_versions WHERE project_id = ?", (project_id,))
             self._conn.commit()
             return cursor.rowcount > 0
 

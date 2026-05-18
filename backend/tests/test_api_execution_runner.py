@@ -199,3 +199,51 @@ def test_run_all_steps_can_stop_after_failure(monkeypatch):
     assert report["failed"] == 1
     assert report["skipped"] == 1
     assert len(FakeAsyncClient.requests) == 1
+
+
+def test_run_all_steps_runs_cleanup_after_failure(monkeypatch):
+    FakeAsyncClient.requests = []
+    monkeypatch.setattr("app.api_execution.runner.httpx.AsyncClient", FakeAsyncClient)
+    script = APITestCaseDsl(
+        case_id="case_cleanup",
+        name="失败后清理",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "step_1",
+                "name": "失败接口",
+                "method": "GET",
+                "path": "/fail",
+                "operation_id": "fail",
+                "assertions": [{"type": "status_code", "expected": 200}],
+            },
+            {
+                "id": "step_2",
+                "name": "主流程后续",
+                "method": "GET",
+                "path": "/ok",
+                "operation_id": "ok",
+            },
+        ],
+        cleanup_steps=[
+            {
+                "id": "cleanup_1",
+                "name": "清理数据",
+                "method": "DELETE",
+                "path": "/cleanup",
+                "operation_id": "cleanup",
+                "assertions": [{"type": "status_code", "expected": 200}],
+            },
+        ],
+    )
+
+    report = asyncio.run(run_all_steps(script, continue_on_failure=False))
+
+    assert report["status"] == "failed"
+    assert report["total"] == 2
+    assert report["skipped"] == 1
+    assert [result["phase"] for result in report["results"]] == ["main", "cleanup"]
+    assert [request["url"] for request in FakeAsyncClient.requests] == [
+        "http://example.test/fail",
+        "http://example.test/cleanup",
+    ]

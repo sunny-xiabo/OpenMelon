@@ -53,6 +53,14 @@ def test_policy_blocks_delete_unless_explicitly_allowlisted():
     assert allowed["risk_level"] == "high"
 
 
+def test_policy_allows_high_risk_with_manual_approval():
+    decision = evaluate_execution_policy(_script("DELETE", "/api/users/{id}"), approved_high_risk=True)
+
+    assert decision["allowed"] is True
+    assert decision["risk_level"] == "high"
+    assert decision["approved_high_risk"] is True
+
+
 def test_policy_blocks_write_operations_in_production_environment():
     decision = evaluate_execution_policy(
         _script("POST", "/api/users"),
@@ -112,6 +120,44 @@ def test_policy_enforces_max_requests_per_run():
 
     assert decision["allowed"] is False
     assert "超过项目策略上限" in decision["violations"][0]
+
+
+def test_policy_includes_cleanup_steps_in_max_requests_and_allowlist():
+    script = APITestCaseDsl(
+        case_id="case_policy",
+        name="策略验证",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "s1",
+                "name": "Ping",
+                "method": "GET",
+                "path": "/api/ping",
+                "operation_id": "ping",
+            },
+        ],
+        cleanup_steps=[
+            {
+                "id": "cleanup",
+                "name": "Cleanup",
+                "method": "DELETE",
+                "path": "/api/items/{{item_id}}",
+                "operation_id": "cleanup",
+            },
+        ],
+    )
+
+    decision = evaluate_execution_policy(
+        script,
+        project_policy_snapshot={
+            "max_requests_per_run": 1,
+            "operation_allowlist": ["GET /api/ping"],
+        },
+    )
+
+    assert decision["allowed"] is False
+    assert "超过项目策略上限" in decision["violations"][0]
+    assert any("不在项目接口白名单" in item for item in decision["violations"])
 
 
 def test_policy_respects_manual_risk_override():

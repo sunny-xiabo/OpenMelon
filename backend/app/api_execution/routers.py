@@ -5,10 +5,11 @@ from fastapi import APIRouter
 
 from app.api_execution import router_support as _support
 from app.api_execution.router_support import *
-from app.api_execution.routes import ai, dashboard, exports, knowledge, projects, runs, specs, tasks, templates
+from app.api_execution.routes import ai, assets, dashboard, exports, knowledge, projects, runs, specs, tasks, templates
 
 _ROUTE_MODULES = (
     projects,
+    assets,
     dashboard,
     templates,
     tasks,

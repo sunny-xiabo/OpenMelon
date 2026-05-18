@@ -118,6 +118,7 @@ async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: 
                 request.script,
                 project_id=request.project_id,
                 environment_id=request.environment_id,
+                approved_high_risk=request.approved_high_risk,
                 project_policy_snapshot=request.project_policy_snapshot,
                 environment_snapshot=request.environment_snapshot,
             )
@@ -258,6 +259,8 @@ async def _update_progress(run_id: str, progress: dict[str, Any]) -> None:
 
 
 async def _mark_finished(run_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+    from app.api_execution.services.asset_service import update_interface_test_results
+
     def _updater(existing: dict[str, Any]) -> dict[str, Any] | None:
         finished_at = _now()
         duration_ms = patch.get("duration_ms", existing.get("duration_ms", 0))
@@ -273,6 +276,7 @@ async def _mark_finished(run_id: str, patch: dict[str, Any]) -> dict[str, Any] |
 
     result = await api_execution_store.async_update_run_atomic(run_id, _updater)
     if result:
+        update_interface_test_results(result)
         await _broadcast_sse(run_id, "finished", {
             "status": result.get("status", "unknown"),
             "run_id": run_id,
@@ -320,12 +324,14 @@ async def _maybe_auto_rerun(
 
 def _runnable_step_count(request: RunScriptRequest) -> int:
     steps = request.script.steps or []
+    cleanup_steps = request.script.cleanup_steps or []
     if request.step_ids:
         selected_ids = set(request.step_ids)
         steps = [step for step in steps if step.id in selected_ids]
+        cleanup_steps = []
     if request.max_steps and request.max_steps > 0:
         steps = steps[: request.max_steps]
-    return len(steps)
+    return len(steps) + len(cleanup_steps)
 
 
 def _run_timeout_ms(request: RunScriptRequest) -> int:

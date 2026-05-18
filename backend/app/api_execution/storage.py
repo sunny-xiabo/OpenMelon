@@ -33,6 +33,9 @@ def _sqlite_has_api_execution_data(store: SQLiteStore) -> bool:
             (SELECT COUNT(*) FROM projects) +
             (SELECT COUNT(*) FROM environments) +
             (SELECT COUNT(*) FROM specs) +
+            (SELECT COUNT(*) FROM api_spec_versions) +
+            (SELECT COUNT(*) FROM api_modules) +
+            (SELECT COUNT(*) FROM api_interfaces) +
             (SELECT COUNT(*) FROM policy_audits) +
             (SELECT COUNT(*) FROM automation_tasks) +
             (SELECT COUNT(*) FROM automation_definitions) +

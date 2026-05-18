@@ -1,5 +1,81 @@
 from app.api_execution.router_deps import *
 
+STORAGE_MIGRATION_TABLES: tuple[dict[str, Any], ...] = (
+    {
+        "table": "runs",
+        "label": "执行历史",
+        "indexed_columns": ["run_id", "status", "project_id", "case_id", "case_name", "environment_name", "run_at"],
+        "pg_strategy": "核心筛选列独立建表字段，script/results/execution_options 保留 JSONB。",
+    },
+    {
+        "table": "projects",
+        "label": "项目配置",
+        "indexed_columns": ["project_id", "name", "updated_at"],
+        "pg_strategy": "项目级策略、认证、setup/cleanup 可先落 JSONB，后续按查询频率拆列。",
+    },
+    {
+        "table": "environments",
+        "label": "环境变量",
+        "indexed_columns": ["environment_id", "project_id", "updated_at"],
+        "pg_strategy": "headers/variables 使用 JSONB，敏感值迁移前需确认脱敏或加密策略。",
+    },
+    {
+        "table": "specs",
+        "label": "接口规格",
+        "indexed_columns": ["spec_id", "source_url", "content_hash", "parsed_at"],
+        "pg_strategy": "OpenAPI 原始解析结果落 JSONB，source_url/content_hash 继续建唯一性/检索索引。",
+    },
+    {
+        "table": "api_spec_versions",
+        "label": "规格版本",
+        "indexed_columns": ["spec_version_id", "project_id", "spec_id", "content_hash", "imported_at"],
+        "pg_strategy": "版本元数据拆列，operations 快照保留 JSONB。",
+    },
+    {
+        "table": "api_modules",
+        "label": "接口模块",
+        "indexed_columns": ["module_id", "project_id", "module_key", "status", "sort_order"],
+        "pg_strategy": "模块基础字段拆列，扩展信息保留 JSONB。",
+    },
+    {
+        "table": "api_interfaces",
+        "label": "接口资产",
+        "indexed_columns": ["interface_id", "project_id", "module_id", "interface_key", "method", "path", "status"],
+        "pg_strategy": "接口资产核心字段拆列，parameters/request_body/responses 保留 JSONB。",
+    },
+    {
+        "table": "automation_tasks",
+        "label": "治理任务",
+        "indexed_columns": ["task_id", "status", "project_id", "updated_at", "created_at"],
+        "pg_strategy": "任务状态和项目拆列，summary/context 保留 JSONB。",
+    },
+    {
+        "table": "policy_audits",
+        "label": "策略审计",
+        "indexed_columns": ["audit_id", "project_id", "action", "created_at"],
+        "pg_strategy": "审计动作拆列，decision 保留 JSONB。",
+    },
+    {
+        "table": "event_logs",
+        "label": "事件日志",
+        "indexed_columns": ["event_id", "created_at", "level", "module", "event_type", "project_id", "trace_id"],
+        "pg_strategy": "日志检索字段拆列，data 保留 JSONB；大表建议按时间归档。",
+    },
+    {
+        "table": "ai_call_logs",
+        "label": "AI 调用日志",
+        "indexed_columns": ["call_id", "created_at", "feature", "operation", "model", "status", "trace_id"],
+        "pg_strategy": "观测指标拆列，prompt/response 摘要保留 JSONB；敏感内容按配置脱敏。",
+    },
+    {
+        "table": "knowledge_items",
+        "label": "修复知识",
+        "indexed_columns": ["knowledge_id", "item_type", "project_id", "status", "created_at"],
+        "pg_strategy": "知识状态拆列，embedding/metadata 预留向量库或 JSONB 映射。",
+    },
+)
+
+
 async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str) -> dict[str, Any]:
     from app.api_execution.services.run_service import (
         _assert_policy_allowed,
@@ -163,6 +239,9 @@ def _project_policy_snapshot(project: dict[str, Any]) -> dict[str, Any]:
         "risk_overrides",
         "operation_allowlist",
         "operation_blocklist",
+        "auth_config",
+        "setup_steps",
+        "cleanup_steps",
     }
     return {key: project.get(key) for key in keys if key in project}
 
@@ -262,6 +341,118 @@ def trigger_spec_sync_service() -> dict[str, Any]:
     for project in api_execution_store.list_projects():
         items.append(_sync_project_spec_dsl(project, triggered_at))
     return {"triggered_at": triggered_at, "items": items}
+
+
+def get_storage_migration_readiness_service() -> dict[str, Any]:
+    generated_at = _now_iso()
+    table_profiles = [_storage_table_profile(item) for item in STORAGE_MIGRATION_TABLES]
+    counts = {item["table"]: item["row_count"] for item in table_profiles}
+    return {
+        "generated_at": generated_at,
+        "storage_engine": "sqlite",
+        "database_path": _sqlite_database_path(),
+        "journal_mode": _sqlite_journal_mode(),
+        "pg_readiness": _pg_readiness_status(table_profiles),
+        "table_profiles": table_profiles,
+        "json_field_risks": _json_field_risks(),
+        "retention_plan": _retention_plan(counts),
+        "recommended_steps": _pg_recommended_steps(),
+    }
+
+
+def _storage_table_profile(item: dict[str, Any]) -> dict[str, Any]:
+    table = item["table"]
+    with api_execution_store._lock:
+        row = api_execution_store._query_one(
+            f"SELECT COUNT(*) AS row_count, COALESCE(SUM(LENGTH(data)), 0) AS data_bytes FROM {table}"
+        )
+    return {
+        "table": table,
+        "label": item.get("label", table),
+        "row_count": int(row["row_count"] if row else 0),
+        "data_bytes": int(row["data_bytes"] if row else 0),
+        "indexed_columns": item.get("indexed_columns", []),
+        "pg_strategy": item.get("pg_strategy", ""),
+    }
+
+
+def _sqlite_database_path() -> str:
+    with api_execution_store._lock:
+        rows = api_execution_store._query("PRAGMA database_list")
+    for row in rows:
+        if row["name"] == "main":
+            return row["file"] or ""
+    return ""
+
+
+def _sqlite_journal_mode() -> str:
+    with api_execution_store._lock:
+        row = api_execution_store._query_one("PRAGMA journal_mode")
+    return str(row[0]) if row else ""
+
+
+def _pg_readiness_status(table_profiles: list[dict[str, Any]]) -> str:
+    total_rows = sum(item.get("row_count", 0) for item in table_profiles)
+    run_rows = next((item.get("row_count", 0) for item in table_profiles if item.get("table") == "runs"), 0)
+    if total_rows == 0:
+        return "empty_ready"
+    if run_rows > 100000:
+        return "needs_batch_migration_plan"
+    return "ready_with_jsonb_mapping"
+
+
+def _json_field_risks() -> list[dict[str, Any]]:
+    return [
+        {
+            "area": "执行历史 script/results/execution_options",
+            "risk_level": "medium",
+            "detail": "当前 SQLite data 字段承载完整 JSON，PG 迁移时如果全量拆列会放大 schema 变更成本。",
+            "mitigation": "保留核心检索字段拆列，复杂结构映射为 JSONB，并为 project_id/status/run_at 等字段建立索引。",
+        },
+        {
+            "area": "项目认证、环境变量、headers",
+            "risk_level": "high",
+            "detail": "认证配置和变量可能包含敏感值，直接迁移会带来明文扩散风险。",
+            "mitigation": "迁移前做敏感键扫描，生产库使用密文或引用 Secret，不在执行历史中重复落敏感值。",
+        },
+        {
+            "area": "接口资产 request_body/responses/security",
+            "risk_level": "low",
+            "detail": "接口资产天然是半结构化数据，适合 JSONB，但依赖手工编辑字段的兼容性。",
+            "mitigation": "模块、方法、路径、状态等稳定字段拆列，其余 OpenAPI 片段保留 JSONB。",
+        },
+    ]
+
+
+def _retention_plan(counts: dict[str, int]) -> dict[str, Any]:
+    run_count = counts.get("runs", 0)
+    event_log_count = counts.get("event_logs", 0)
+    ai_call_log_count = counts.get("ai_call_logs", 0)
+    archive_strategy = [
+        "执行历史默认在线保留最近 90-180 天，按项目和月份导出归档快照。",
+        "失败、已沉淀知识、策略阻断的记录延长保留，普通通过记录可优先归档。",
+        "事件日志继续使用现有清理能力，error 级别保留更长周期。",
+    ]
+    if run_count > 5000 or event_log_count > 50000:
+        recommendation = "建议先建立月度归档任务，再执行 PG 双写或批量迁移。"
+    else:
+        recommendation = "当前数据量可直接做一次性迁移演练，归档策略先以配置和文档落地。"
+    return {
+        "run_count": run_count,
+        "event_log_count": event_log_count,
+        "ai_call_log_count": ai_call_log_count,
+        "recommendation": recommendation,
+        "archive_strategy": archive_strategy,
+    }
+
+
+def _pg_recommended_steps() -> list[str]:
+    return [
+        "先固定 PG 表结构：稳定检索字段拆列，复杂 payload 映射 JSONB。",
+        "迁移脚本按表分页读取 SQLite data，写入 PG 后校验 row_count、核心字段和 JSON hash。",
+        "上线前做只读双跑：SQLite 仍为主库，PG 用于校验查询和报表。",
+        "通过后再切换写入，保留 SQLite 备份和回滚窗口。",
+    ]
 
 
 

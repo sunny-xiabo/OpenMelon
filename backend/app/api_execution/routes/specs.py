@@ -30,6 +30,11 @@ async def get_spec_operations(spec_id: str):
     return get_spec_operations_service(spec_id)
 
 
+@router.get("/specs/{spec_id}", response_model=OpenAPIParseResponse)
+async def get_spec(spec_id: str):
+    return get_spec_service(spec_id)
+
+
 @router.post("/dsl/generate", response_model=APITestCaseDsl)
 async def generate_dsl(request: GenerateDslRequest):
     return generate_dsl_service(request)

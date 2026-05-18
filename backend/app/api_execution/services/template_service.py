@@ -28,7 +28,7 @@ def upsert_flow_template_service(request: APIFlowTemplateUpsertRequest) -> dict[
     definition_id = f"flow-template:{template_id}"
     existing = api_execution_store.get_automation_definition(definition_id) or {}
     tags = [tag.strip() for tag in request.tags if tag.strip()]
-    name = request.name.strip() or request.script.name or "API 流程模板"
+    name = request.name.strip() or request.script.name or "API 测试任务"
     script = {
         **request.script.model_dump(),
         "flow_template_id": template_id,
@@ -59,9 +59,9 @@ def delete_flow_template_service(template_id: str) -> dict[str, bool]:
     definition_id = template_id if template_id.startswith("flow-template:") else f"flow-template:{template_id}"
     existing = api_execution_store.get_automation_definition(definition_id)
     if not existing or existing.get("definition_type") != FLOW_TEMPLATE_DEFINITION_TYPE:
-        raise NotFoundError(message=str("流程模板不存在"))
+        raise NotFoundError(message=str("测试任务不存在"))
     if not api_execution_store.delete_automation_definition(definition_id):
-        raise NotFoundError(message=str("流程模板不存在"))
+        raise NotFoundError(message=str("测试任务不存在"))
     return {"deleted": True}
 
 

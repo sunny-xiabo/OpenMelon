@@ -22,6 +22,7 @@ def _single_step_report(script: APITestCaseDsl, result: dict[str, Any], executio
 
 def _save_run_report(report: dict[str, Any]) -> dict[str, Any]:
     from app.api_execution.services.knowledge_service import _save_knowledge_ingest_candidate
+    from app.api_execution.services.asset_service import update_interface_test_results
 
     script = _script_from_report(report)
     if script:
@@ -33,6 +34,7 @@ def _save_run_report(report: dict[str, Any]) -> dict[str, Any]:
     }
     api_execution_store.save_run(saved)
     _save_unified_automation_records(saved)
+    update_interface_test_results(saved)
     _save_knowledge_ingest_candidate(saved)
     _log_run_event(saved)
     return saved
@@ -98,6 +100,14 @@ def _script_from_report(report: dict[str, Any]) -> APITestCaseDsl | None:
     return None
 
 
+def _script_with_environment_variables(script: APITestCaseDsl, environment_snapshot: dict[str, Any] | None) -> APITestCaseDsl:
+    variables = dict((environment_snapshot or {}).get("variables") or {})
+    if not variables:
+        return script
+    variables.update(script.variables or {})
+    return script.model_copy(update={"variables": variables})
+
+
 def _assert_policy_allowed(
     request: RunScriptRequest,
     *,
@@ -111,6 +121,7 @@ def _assert_policy_allowed(
             step_ids=step_ids,
             project_id=request.project_id,
             environment_id=request.environment_id,
+            approved_high_risk=request.approved_high_risk,
             project_policy_snapshot=request.project_policy_snapshot,
             environment_snapshot=request.environment_snapshot,
         )
@@ -557,15 +568,17 @@ async def auto_repair_and_rerun_service(run_id: str) -> dict[str, Any]:
 
 async def run_single_step_service(request: RunScriptRequest) -> dict[str, Any]:
     try:
+        executable_script = _script_with_environment_variables(request.script, request.environment_snapshot)
+        request = request.model_copy(update={"script": executable_script})
         policy_decision = _assert_policy_allowed(request, step_id=request.step_id)
         result = await run_single_step(
-            request.script,
+            executable_script,
             step_id=request.step_id,
             base_url=request.base_url,
             global_headers=request.global_headers,
             timeout_ms=request.timeout_ms,
         )
-        saved_report = _save_run_report(_single_step_report(request.script, result, _execution_options(request, policy_decision)))
+        saved_report = _save_run_report(_single_step_report(executable_script, result, _execution_options(request, policy_decision)))
         return (saved_report.get("results") or [result])[0]
     except ValueError as exc:
         raise InvalidRequestError(message=str(exc)) from exc
@@ -575,9 +588,11 @@ async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
     try:
         if request.replace_run_id and not api_execution_store.get_run(request.replace_run_id):
             raise NotFoundError(message=str("要更新的执行历史不存在"))
+        executable_script = _script_with_environment_variables(request.script, request.environment_snapshot)
+        request = request.model_copy(update={"script": executable_script})
         policy_decision = _assert_policy_allowed(request, step_ids=request.step_ids)
         report = await run_all_steps(
-            request.script,
+            executable_script,
             base_url=request.base_url,
             global_headers=request.global_headers,
             timeout_ms=request.timeout_ms,
@@ -585,17 +600,17 @@ async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
             continue_on_failure=request.continue_on_failure,
             step_ids=request.step_ids,
         )
-        report["case_name"] = request.script.name
+        report["case_name"] = executable_script.name
         report["mode"] = "batch"
-        report["script"] = request.script.model_dump()
+        report["script"] = executable_script.model_dump()
         report["execution_options"] = _execution_options(request, policy_decision)
         if request.replace_run_id:
             report["run_id"] = request.replace_run_id
             existing = api_execution_store.get_run(request.replace_run_id) or {}
             if request.step_ids:
-                report = _merge_partial_run_report(existing, report, request.script)
-            if request.script.ai_repair_source:
-                report = _append_applied_repair_summary(existing, report, request.script, request.step_ids, policy_decision)
+                report = _merge_partial_run_report(existing, report, executable_script)
+            if executable_script.ai_repair_source:
+                report = _append_applied_repair_summary(existing, report, executable_script, request.step_ids, policy_decision)
         return _save_run_report(report)
     except ValueError as exc:
         raise InvalidRequestError(message=str(exc)) from exc
@@ -603,6 +618,8 @@ async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
 
 async def create_background_run_service(request: RunScriptRequest) -> dict[str, Any]:
     try:
+        executable_script = _script_with_environment_variables(request.script, request.environment_snapshot)
+        request = request.model_copy(update={"script": executable_script})
         policy_decision = _assert_policy_allowed(request)
         queued_run = await enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
         return {"run_id": queued_run["run_id"], "status": queued_run["status"]}

@@ -161,6 +161,8 @@ def test_task_center_summary_groups_status_type_risk_and_project(monkeypatch, tm
 def test_flow_template_helpers_roundtrip(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
     monkeypatch.setattr(routers, "api_execution_store", store)
+    store.save_run(_run("tpl_passed", "passed", duration_ms=120, passed=1, failed=0, flow_template_id="template-1", flow_template_name="登录流程"))
+    store.save_run(_run("tpl_failed_latest", "failed", duration_ms=340, passed=0, failed=1, flow_template_id="template-1", flow_template_name="登录流程"))
     definition = store.save_automation_definition(
         {
             "definition_id": "flow-template:template-1",
@@ -181,6 +183,10 @@ def test_flow_template_helpers_roundtrip(monkeypatch, tmp_path):
     assert template["template_id"] == "template-1"
     assert template["project_id"] == "project_a"
     assert template["script"]["case_id"] == "case-1"
+    assert template["performance_snapshot"]["run_count"] == 2
+    assert template["performance_snapshot"]["last_status"] == "failed"
+    assert template["performance_snapshot"]["last_run_id"] == "tpl_failed_latest"
+    assert template["performance_snapshot"]["last_duration_ms"] == 340
 
 
 def test_list_endpoints_use_unified_pagination_shape(monkeypatch, tmp_path):

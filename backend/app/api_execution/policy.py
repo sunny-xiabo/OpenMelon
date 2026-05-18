@@ -31,6 +31,7 @@ def evaluate_execution_policy(
     step_ids: list[str] | None = None,
     project_id: str | None = None,
     environment_id: str | None = None,
+    approved_high_risk: bool = False,
     project_policy_snapshot: dict[str, Any] | None = None,
     environment_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -64,8 +65,10 @@ def evaluate_execution_policy(
         if allowlist and not _matches(signature, allowlist):
             violations.append(f"{signature} 不在项目接口白名单内，已阻断执行。")
             continue
-        if step_risk["risk_level"] == "high" and not _matches(signature, allowlist):
-            violations.append(f"{signature} 属于高风险接口（{step_risk['reason']}），必须加入项目白名单后才能执行。")
+        if step_risk["risk_level"] == "blocked":
+            violations.append(f"{signature} 已被标记为阻断风险，禁止执行。")
+        if step_risk["risk_level"] == "high" and not approved_high_risk and not _matches(signature, allowlist):
+            violations.append(f"{signature} 属于高风险接口（{step_risk['reason']}），必须加入项目白名单或人工确认后才能执行。")
         if step_risk["risk_level"] == "medium":
             warnings.append(f"{signature} 属于中风险接口：{step_risk['reason']}。")
 
@@ -92,6 +95,7 @@ def evaluate_execution_policy(
         "allow_scheduled_execution": bool(policy.get("allow_scheduled_execution")),
         "allow_ai_generate_dsl": bool(policy.get("allow_ai_generate_dsl", True)),
         "allow_overwrite_history": bool(policy.get("allow_overwrite_history", True)),
+        "approved_high_risk": bool(approved_high_risk),
         "max_auto_repairs": _positive_int(policy.get("max_auto_repairs")),
         "max_reruns": _positive_int(policy.get("max_reruns")),
         "max_requests_per_run": max_requests,
@@ -122,12 +126,13 @@ def _resolve_environment(environment_id: str | None, snapshot: dict[str, Any] | 
 
 
 def _selected_steps(script: APITestCaseDsl, *, step_id: str | None, step_ids: list[str] | None):
+    all_steps = [*(script.steps or []), *(script.cleanup_steps or [])]
     if step_ids:
         selected = set(step_ids)
-        return [step for step in script.steps if step.id in selected]
+        return [step for step in all_steps if step.id in selected]
     if step_id:
-        return [step for step in script.steps if step.id == step_id]
-    return list(script.steps)
+        return [step for step in all_steps if step.id == step_id]
+    return all_steps
 
 
 def _patterns(value: Any) -> list[str]:

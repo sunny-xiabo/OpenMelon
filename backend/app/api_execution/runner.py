@@ -205,9 +205,10 @@ async def run_all_steps(
             raise ValueError("测试脚本中找不到要重跑的步骤")
     if max_steps and max_steps > 0:
         runnable_steps = runnable_steps[:max_steps]
+    cleanup_steps = list(script.cleanup_steps or []) if not step_ids else []
 
     variables = _init_variables(script)
-    progress_total = len(runnable_steps)
+    progress_total = len(runnable_steps) + len(cleanup_steps)
     use_dag = _needs_dag_execution(runnable_steps)
 
     async with httpx.AsyncClient(timeout=timeout_ms / 1000) as client:
@@ -221,10 +222,23 @@ async def run_all_steps(
                 client, runnable_steps, resolved_base_url, global_headers,
                 variables, progress_total, results, continue_on_failure, progress_callback,
             )
+        if cleanup_steps:
+            cleanup_dag = _needs_dag_execution(cleanup_steps)
+            if cleanup_dag:
+                results = await _run_dag(
+                    client, cleanup_steps, resolved_base_url, global_headers,
+                    variables, progress_total, results, True, progress_callback, phase="cleanup",
+                )
+            else:
+                results = await _run_sequential(
+                    client, cleanup_steps, resolved_base_url, global_headers,
+                    variables, progress_total, results, True, progress_callback, phase="cleanup",
+                )
 
     passed = sum(1 for result in results if result.status == "passed")
     failed = len(results) - passed
-    skipped = max(len(script.steps) - len(results), 0)
+    expected_total = len(runnable_steps) + len(cleanup_steps)
+    skipped = max(expected_total - len(results), 0)
     report = APIRunReport(
         status="passed" if failed == 0 and skipped == 0 else "failed",
         duration_ms=int((time.perf_counter() - started_at) * 1000),
@@ -251,6 +265,7 @@ async def _run_sequential(
     results: list[APIStepRunResult],
     continue_on_failure: bool,
     progress_callback: ProgressCallback | None,
+    phase: str = "main",
 ) -> list[APIStepRunResult]:
     for step in runnable_steps:
         if progress_callback:
@@ -274,6 +289,7 @@ async def _run_sequential(
             "body": _body_preview(body),
         }
         result = await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables)
+        result.phase = phase
         results.append(result)
         if progress_callback:
             await progress_callback(
@@ -301,6 +317,7 @@ async def _run_dag(
     results: list[APIStepRunResult],
     continue_on_failure: bool,
     progress_callback: ProgressCallback | None,
+    phase: str = "main",
 ) -> list[APIStepRunResult]:
     levels = _build_step_levels(runnable_steps)
 
@@ -309,7 +326,7 @@ async def _run_dag(
             # Single step — run sequentially, share variables directly
             result = await _execute_one_step(
                 client, level[0], base_url, global_headers, variables, progress_callback,
-                progress_total, results,
+                progress_total, results, phase=phase,
             )
             results.append(result)
             if result.status != "passed" and not continue_on_failure:
@@ -332,7 +349,7 @@ async def _run_dag(
             tasks = [
                 _execute_one_step(
                     client, step, base_url, global_headers, dict(variables), None,
-                    progress_total, results,
+                    progress_total, results, phase=phase,
                 )
                 for step in level
             ]
@@ -342,9 +359,17 @@ async def _run_dag(
             for step, step_result in zip(level, level_results):
                 if isinstance(step_result, BaseException):
                     step_result = APIStepRunResult(
-                        step_id=step.id, name=step.name, method=step.method,
-                        url="", status="failed", duration_ms=0, error=str(step_result),
+                        step_id=step.id,
+                        name=step.name,
+                        method=step.method,
+                        url="",
+                        status="failed",
+                        duration_ms=0,
+                        error=str(step_result),
+                        phase=phase,
                     )
+                else:
+                    step_result.phase = phase
                 results.append(step_result)
                 # Merge extracted variables back
                 if step_result.extracted:
@@ -379,6 +404,7 @@ async def _execute_one_step(
     progress_callback: ProgressCallback | None,
     progress_total: int,
     results: list[APIStepRunResult],
+    phase: str = "main",
 ) -> APIStepRunResult:
     url = _build_url(base_url, step, variables)
     headers = _substitute_data(_merge_headers(global_headers, step.headers), variables)
@@ -389,7 +415,9 @@ async def _execute_one_step(
         "query": query,
         "body": _body_preview(body),
     }
-    return await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables)
+    result = await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables)
+    result.phase = phase
+    return result
 
 
 async def _run_step(

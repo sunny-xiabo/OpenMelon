@@ -47,4 +47,9 @@ async def trigger_spec_sync():
     return trigger_spec_sync_service()
 
 
+@router.get("/storage/migration-readiness", response_model=StorageMigrationReadinessResponse)
+async def get_storage_migration_readiness():
+    return get_storage_migration_readiness_service()
+
+
 __all__ = [name for name in globals() if not name.startswith("__")]

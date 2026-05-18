@@ -55,6 +55,7 @@ DEMO_ENVIRONMENT_ID = "demo-api-flow-local"
 
 
 def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
+    from app.api_execution.services.asset_service import sync_project_spec_assets
     from app.api_execution.services.run_service import _save_run_report
 
     now = _now_iso()
@@ -102,6 +103,7 @@ def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
             "updated_at": now,
         }
     )
+    asset_sync = sync_project_spec_assets(project, spec)
     script = _demo_script(spec, base_url)
     seeded_runs = [
         _save_run_report(_demo_run_report(script, "demo-run-passed", "passed")),
@@ -118,6 +120,7 @@ def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
         "spec": spec,
         "project": project,
         "environment": environment,
+        "asset_diff_summary": asset_sync.get("diff_summary", {}),
         "seeded_run_ids": [run.get("run_id", "") for run in seeded_runs],
         "knowledge_item_count": len([item for item in knowledge_ids if item]),
         "pending_task_count": len(pending_tasks),
@@ -328,6 +331,8 @@ def list_projects_service() -> dict[str, Any]:
 
 
 def upsert_project_service(request: APIProjectUpsertRequest) -> dict[str, Any]:
+    from app.api_execution.services.asset_service import ensure_project_assets
+
     now = _now_iso()
     project_id = request.project_id or str(uuid.uuid4())
     existing = api_execution_store.get_project(project_id) or {}
@@ -338,7 +343,9 @@ def upsert_project_service(request: APIProjectUpsertRequest) -> dict[str, Any]:
         "created_at": existing.get("created_at") or now,
         "updated_at": now,
     }
-    return api_execution_store.save_project(project)
+    saved = api_execution_store.save_project(project)
+    ensure_project_assets(saved)
+    return saved
 
 
 def get_project_service(project_id: str) -> dict[str, Any]:
@@ -475,6 +482,13 @@ def get_spec_operations_service(spec_id: str) -> dict[str, Any]:
         "operation_count": spec.get("operation_count", 0),
         "operations": spec.get("operations", []),
     }
+
+
+def get_spec_service(spec_id: str) -> dict[str, Any]:
+    spec = api_execution_store.get_spec(spec_id)
+    if not spec:
+        raise NotFoundError(message=str("OpenAPI 资产不存在"))
+    return spec
 
 
 def generate_dsl_service(request: GenerateDslRequest) -> APITestCaseDsl:
