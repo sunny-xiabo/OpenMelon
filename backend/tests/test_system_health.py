@@ -1,0 +1,67 @@
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from app.api.routers import system
+
+
+def test_overall_health_status_prioritizes_core_sqlite_down():
+    components = {
+        "api": {"status": "ok"},
+        "sqlite": {"status": "down"},
+        "neo4j": {"status": "ok"},
+    }
+
+    assert system._overall_health_status(components) == "down"
+
+
+def test_overall_health_status_reports_degraded_for_optional_failures():
+    components = {
+        "api": {"status": "ok"},
+        "sqlite": {"status": "ok"},
+        "neo4j": {"status": "degraded"},
+        "qdrant": {"status": "disabled"},
+    }
+
+    assert system._overall_health_status(components) == "degraded"
+
+
+def test_system_health_endpoint_returns_component_statuses(monkeypatch):
+    app = FastAPI()
+    app.include_router(system.router)
+
+    monkeypatch.setattr(
+        system,
+        "_check_sqlite_health",
+        lambda: {"status": "ok", "message": "sqlite ok"},
+    )
+    monkeypatch.setattr(
+        system,
+        "_check_llm_config_health",
+        lambda: {"status": "ok", "message": "llm ok"},
+    )
+
+    async def fake_neo4j_health(_request):
+        return {"status": "degraded", "message": "neo4j unavailable"}
+
+    async def fake_qdrant_health(_request):
+        return {"status": "disabled", "message": "qdrant disabled"}
+
+    async def fake_reranker_health():
+        return {"status": "not_loaded", "message": "reranker not loaded"}
+
+    monkeypatch.setattr(system, "_check_neo4j_health", fake_neo4j_health)
+    monkeypatch.setattr(system, "_check_qdrant_health", fake_qdrant_health)
+    monkeypatch.setattr(system, "_check_reranker_health", fake_reranker_health)
+
+    response = TestClient(app).get("/system/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "degraded"
+    assert data["version"]
+    assert data["components"]["api"]["status"] == "ok"
+    assert data["components"]["sqlite"]["status"] == "ok"
+    assert data["components"]["neo4j"]["status"] == "degraded"
+    assert data["components"]["qdrant"]["status"] == "disabled"
+    assert data["components"]["reranker"]["status"] == "not_loaded"
+    assert "runtime" in data

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Annotated
 
+from app.api.deps import require_production_auth
 from app.api_execution.router_support import *
 from app.governance_center import services as governance_services
 
@@ -16,12 +17,19 @@ async def list_flow_templates(
     return governance_services.list_templates(project_id=project_id, limit=limit, offset=offset)
 
 
-@router.post("/flow-templates", response_model=APIFlowTemplate)
+@router.post(
+    "/flow-templates",
+    response_model=APIFlowTemplate,
+    dependencies=[Depends(require_production_auth)],
+)
 async def upsert_flow_template(request: APIFlowTemplateUpsertRequest):
     return governance_services.upsert_template(request)
 
 
-@router.delete("/flow-templates/{template_id}")
+@router.delete(
+    "/flow-templates/{template_id}",
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_flow_template(template_id: str):
     return governance_services.delete_template(template_id)
 

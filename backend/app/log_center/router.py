@@ -3,8 +3,9 @@ from app.api.errors import InvalidRequestError, NotFoundError
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.deps import require_production_auth
 from app.api.logging_service import AUDIT_EVENT_SCHEMA_VERSION, AUDIT_EVENT_TYPES, AUDIT_EVENT_TYPE_PREFIXES, AUDIT_MODULES
 from app.api.ai_observability_service import get_ai_debug_settings, get_debug_snapshot, update_ai_debug_settings
 from app.api_execution.storage import api_execution_store
@@ -153,7 +154,11 @@ async def list_related_event_logs(event_id: str, limit: Annotated[int, Query(ge=
     return {"total": len(items), "limit": safe_limit, "offset": 0, "items": items}
 
 
-@router.delete("/events", response_model=EventLogDeleteResponse)
+@router.delete(
+    "/events",
+    response_model=EventLogDeleteResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_event_logs(
     older_than_days: int = 90,
     level: str = "non_error",
@@ -163,7 +168,11 @@ async def delete_event_logs(
     return _delete_event_logs_by_policy(older_than_days, level, project_id, module)
 
 
-@router.post("/events/cleanup", response_model=EventLogDeleteResponse)
+@router.post(
+    "/events/cleanup",
+    response_model=EventLogDeleteResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def cleanup_event_logs(request: EventLogCleanupRequest):
     return _delete_event_logs_by_policy(
         request.older_than_days,
@@ -218,7 +227,11 @@ async def get_ai_debug_config():
     return get_ai_debug_settings()
 
 
-@router.put("/ai-debug/settings", response_model=AIDebugSettingsResponse)
+@router.put(
+    "/ai-debug/settings",
+    response_model=AIDebugSettingsResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def update_ai_debug_config(request: AIDebugSettingsRequest):
     return update_ai_debug_settings(request.model_dump())
 

@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     DEBUG: bool = False
     CORS_ALLOW_ORIGINS: str = ""
+    PROTECT_ADMIN_API: bool = False
+    ADMIN_API_KEYS: str = ""
+    ADMIN_JWT_SECRET: str = ""
     API_KEY: str = ""
     API_BASE_URL: str = ""
     CHAT_MODEL: str = ""
@@ -100,6 +103,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV.lower() in {"prod", "production"}
+
+    @property
+    def admin_api_keys(self) -> list[str]:
+        return [
+            key.strip()
+            for key in self.ADMIN_API_KEYS.split(",")
+            if key.strip()
+        ]
 
     @property
     def cors_allow_origins(self) -> list[str]:

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 
+from app.api.deps import require_production_auth
 from app.api.logging_service import safe_log_event
 from app.api.schemas import (
     PromptHubMutationResponse,
@@ -61,7 +62,11 @@ async def get_prompt_hub_skill_categories():
         raise InternalError(details=str(exc)) from exc
 
 
-@router.post("/templates", response_model=PromptHubMutationResponse)
+@router.post(
+    "/templates",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def create_prompt_hub_template(payload: PromptHubTemplatePayload):
     try:
         result = prompt_hub_tracker.create_template(payload.model_dump())
@@ -71,7 +76,11 @@ async def create_prompt_hub_template(payload: PromptHubTemplatePayload):
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.put("/templates/{template_id}", response_model=PromptHubMutationResponse)
+@router.put(
+    "/templates/{template_id}",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def update_prompt_hub_template(
     template_id: str, payload: PromptHubTemplatePayload
 ):
@@ -83,7 +92,11 @@ async def update_prompt_hub_template(
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.delete("/templates/{template_id}", response_model=PromptHubMutationResponse)
+@router.delete(
+    "/templates/{template_id}",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_prompt_hub_template(template_id: str):
     try:
         result = prompt_hub_tracker.delete_template(template_id)
@@ -93,7 +106,11 @@ async def delete_prompt_hub_template(template_id: str):
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.post("/skills", response_model=PromptHubMutationResponse)
+@router.post(
+    "/skills",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def create_prompt_hub_skill(payload: PromptHubSkillPayload):
     try:
         result = prompt_hub_tracker.create_skill(payload.model_dump())
@@ -103,7 +120,11 @@ async def create_prompt_hub_skill(payload: PromptHubSkillPayload):
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.put("/skills/{skill_id}", response_model=PromptHubMutationResponse)
+@router.put(
+    "/skills/{skill_id}",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def update_prompt_hub_skill(skill_id: str, payload: PromptHubSkillPayload):
     try:
         result = prompt_hub_tracker.update_skill(skill_id, payload.model_dump())
@@ -113,7 +134,11 @@ async def update_prompt_hub_skill(skill_id: str, payload: PromptHubSkillPayload)
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.delete("/skills/{skill_id}", response_model=PromptHubMutationResponse)
+@router.delete(
+    "/skills/{skill_id}",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_prompt_hub_skill(skill_id: str):
     try:
         result = prompt_hub_tracker.delete_skill(skill_id)
@@ -123,7 +148,11 @@ async def delete_prompt_hub_skill(skill_id: str):
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.post("/skill-categories", response_model=PromptHubMutationResponse)
+@router.post(
+    "/skill-categories",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def create_prompt_hub_skill_category(payload: PromptHubSkillCategoryPayload):
     try:
         result = prompt_hub_tracker.create_skill_category(payload.model_dump())
@@ -133,7 +162,11 @@ async def create_prompt_hub_skill_category(payload: PromptHubSkillCategoryPayloa
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.put("/skill-categories/{category_id}", response_model=PromptHubMutationResponse)
+@router.put(
+    "/skill-categories/{category_id}",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def update_prompt_hub_skill_category(
     category_id: str, payload: PromptHubSkillCategoryPayload
 ):
@@ -145,7 +178,11 @@ async def update_prompt_hub_skill_category(
         raise InvalidRequestError(message=str(exc)) from exc
 
 
-@router.delete("/skill-categories/{category_id}", response_model=PromptHubMutationResponse)
+@router.delete(
+    "/skill-categories/{category_id}",
+    response_model=PromptHubMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_prompt_hub_skill_category(category_id: str):
     try:
         result = prompt_hub_tracker.delete_skill_category(category_id)

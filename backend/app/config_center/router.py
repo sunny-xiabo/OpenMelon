@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import require_production_auth
 from app.config_center import service
 from app.config_center.schemas import (
     ConfigInitializeRequest,
@@ -27,14 +28,22 @@ async def get_config_values():
     return {"status": service.get_status(), "values": service.list_values()}
 
 
-@router.post("/validate", response_model=ConfigValidateResponse)
+@router.post(
+    "/validate",
+    response_model=ConfigValidateResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def validate_config_values(request: ConfigSaveRequest):
     errors = service.validate_values(request.values)
     warnings = service.validate_warnings(request.values)
     return {"valid": not errors, "errors": errors, "warnings": warnings}
 
 
-@router.post("/preview", response_model=ConfigPreviewResponse)
+@router.post(
+    "/preview",
+    response_model=ConfigPreviewResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def preview_config_values(request: ConfigSaveRequest):
     return service.build_effective_preview(request.values)
 
@@ -44,22 +53,37 @@ async def get_config_providers():
     return {"items": service.list_providers()}
 
 
-@router.post("/providers", response_model=ProviderConfigResponse)
+@router.post(
+    "/providers",
+    response_model=ProviderConfigResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def save_config_provider(request: ProviderConfigRequest):
     return {"provider": service.save_provider(request.model_dump())}
 
 
-@router.delete("/providers/{provider_key}")
+@router.delete(
+    "/providers/{provider_key}",
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_config_provider(provider_key: str):
     service.remove_provider(provider_key)
     return {"ok": True}
 
 
-@router.put("/values", response_model=ConfigSaveResponse)
+@router.put(
+    "/values",
+    response_model=ConfigSaveResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def save_config_values(request: ConfigSaveRequest):
     return service.save_values(request.values)
 
 
-@router.post("/initialize", response_model=ConfigSaveResponse)
+@router.post(
+    "/initialize",
+    response_model=ConfigSaveResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def initialize_config(request: ConfigInitializeRequest):
     return service.initialize_env(request.mode, request.values)

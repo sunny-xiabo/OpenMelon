@@ -30,6 +30,7 @@ from app.api.deps import (
     get_vector_ops,
     get_llm_client,
     get_coverage_service,
+    require_production_auth,
 )
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -91,7 +92,11 @@ async def graph_node_types():
     except Exception as e:
         raise InternalError(details=str(e))
 
-@router.post("/node-types", response_model=NodeTypeMutationResponse)
+@router.post(
+    "/node-types",
+    response_model=NodeTypeMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def create_graph_node_type(payload: NodeTypeConfigUpsertRequest):
     trace_id = f"graph_type_{uuid.uuid4().hex}"
     try:
@@ -132,7 +137,11 @@ async def create_graph_node_type(payload: NodeTypeConfigUpsertRequest):
         )
         raise InternalError(details=str(e))
 
-@router.put("/node-types/{node_type}", response_model=NodeTypeMutationResponse)
+@router.put(
+    "/node-types/{node_type}",
+    response_model=NodeTypeMutationResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def update_graph_node_type(
     node_type: str, payload: NodeTypeConfigUpdateRequest
 ):
@@ -179,7 +188,11 @@ async def update_graph_node_type(
         )
         raise InternalError(details=str(e))
 
-@router.delete("/node-types/{node_type}", response_model=NodeTypeDeleteResponse)
+@router.delete(
+    "/node-types/{node_type}",
+    response_model=NodeTypeDeleteResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_graph_node_type(node_type: str):
     trace_id = f"graph_type_{uuid.uuid4().hex}"
     try:

@@ -4,9 +4,10 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.api.deps import require_production_auth
 from app.api.logging_service import safe_log_event
 from app.api_execution.storage import api_execution_store
 from app.index_governance.tasks import TERMINAL_STATUSES, task_manager
@@ -102,7 +103,7 @@ async def list_index_governance_diagnostics(request: Request) -> dict[str, Any]:
     return {"items": diagnostics, "total": len(diagnostics)}
 
 
-@router.post("/scan")
+@router.post("/scan", dependencies=[Depends(require_production_auth)])
 async def scan_index_governance(request: Request) -> dict[str, Any]:
     assets = await _build_assets(request)
     diagnostics = _build_diagnostics_from_assets(assets)
@@ -196,7 +197,7 @@ def _build_diagnostics_from_assets(assets: list[dict[str, Any]]) -> list[dict[st
     return diagnostics
 
 
-@router.post("/sync-status")
+@router.post("/sync-status", dependencies=[Depends(require_production_auth)])
 async def sync_index_governance_status(request: Request) -> dict[str, Any]:
     """Sync governance status for API knowledge into derived indexes."""
     items = [
@@ -221,7 +222,7 @@ async def sync_index_governance_status(request: Request) -> dict[str, Any]:
     }
 
 
-@router.post("/cleanup-orphans")
+@router.post("/cleanup-orphans", dependencies=[Depends(require_production_auth)])
 async def cleanup_index_governance_orphans(request: Request, body: CleanupRequest) -> dict[str, Any]:
     _require_confirm(body.confirm, "清理孤儿向量")
     asset = _get_asset_definition(body.asset_key)
@@ -257,7 +258,7 @@ async def cleanup_index_governance_orphans(request: Request, body: CleanupReques
     }
 
 
-@router.post("/cleanup-source-orphans")
+@router.post("/cleanup-source-orphans", dependencies=[Depends(require_production_auth)])
 async def cleanup_index_governance_source_orphans(request: Request, body: CleanupRequest) -> dict[str, Any]:
     _require_confirm(body.confirm, "清理源缺失索引")
     if body.asset_key != "api_knowledge":
@@ -281,12 +282,12 @@ async def cleanup_index_governance_source_orphans(request: Request, body: Cleanu
     }
 
 
-@router.post("/rebuild-qdrant")
+@router.post("/rebuild-qdrant", dependencies=[Depends(require_production_auth)])
 async def rebuild_index_governance_qdrant(request: Request, body: CleanupRequest) -> dict[str, Any]:
     return await create_rebuild_qdrant_task(request, body)
 
 
-@router.post("/rebuild-qdrant/tasks")
+@router.post("/rebuild-qdrant/tasks", dependencies=[Depends(require_production_auth)])
 async def create_rebuild_qdrant_task(request: Request, body: CleanupRequest) -> dict[str, Any]:
     _require_confirm(body.confirm, "重建 Qdrant 向量")
     asset = _get_asset_definition(body.asset_key)
@@ -322,7 +323,7 @@ async def get_index_governance_task(task_id: str) -> dict[str, Any]:
     return task.to_dict()
 
 
-@router.post("/tasks/{task_id}/cancel")
+@router.post("/tasks/{task_id}/cancel", dependencies=[Depends(require_production_auth)])
 async def cancel_index_governance_task(task_id: str, body: TaskActionRequest) -> dict[str, Any]:
     _require_confirm(body.confirm, "取消索引治理任务")
     task = task_manager.get(task_id)
@@ -342,7 +343,7 @@ async def cancel_index_governance_task(task_id: str, body: TaskActionRequest) ->
     return {"task": task.to_dict() if task else None, "message": "已请求取消任务"}
 
 
-@router.post("/tasks/{task_id}/retry")
+@router.post("/tasks/{task_id}/retry", dependencies=[Depends(require_production_auth)])
 async def retry_index_governance_task(request: Request, task_id: str, body: TaskActionRequest) -> dict[str, Any]:
     _require_confirm(body.confirm, "重试索引治理任务")
     previous = task_manager.get(task_id)

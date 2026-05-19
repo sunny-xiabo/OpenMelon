@@ -1,16 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import require_production_auth
 from app.api_execution.router_support import *
 
 router = APIRouter()
 
 
-@router.post("/export/pytest")
+@router.post("/export/pytest", dependencies=[Depends(require_production_auth)])
 async def export_pytest_script(request: ExportScriptRequest):
     return export_pytest_script_service(request)
 
 
-@router.post("/export/postman")
+@router.post("/export/postman", dependencies=[Depends(require_production_auth)])
 async def export_postman_collection(request: ExportScriptRequest):
     return export_postman_collection_service(request)
 

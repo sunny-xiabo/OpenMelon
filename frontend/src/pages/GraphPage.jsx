@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Box } from '@mui/material';
 import LoadingOverlay from '../components/LoadingOverlay';
 import EmptyState from '../components/EmptyState';
@@ -21,6 +21,7 @@ export default function GraphPage({ isActive = true }) {
   const networkRef = useRef(null);
   const graphLibRef = useRef(null);
   const [graphEngineLoading, setGraphEngineLoading] = useState(false);
+  const [graphEngineReady, setGraphEngineReady] = useState(false);
   
   // 筛选与交互状态
   const [searchText, setSearchText] = useState('');
@@ -40,14 +41,14 @@ export default function GraphPage({ isActive = true }) {
   const graphParams = useMemo(() => ({ doc_type: docType, module: moduleFilter, include_chunks: showChunks }), [docType, moduleFilter, showChunks]);
   
   const { data: graphData, isLoading: isGraphLoading, error: graphError, refetch: refetchGraph } = useFullGraph(graphParams, graphReady && isActive);
-  const getNodeDetailMutation = useGetNodeDetail();
+  const { mutateAsync: getNodeDetail } = useGetNodeDetail();
   const searchEntityMutation = useSearchEntity();
 
-  // 初始化 vis-network
+  // 只有图谱页激活且确实有数据时才加载 vis-network。
   useEffect(() => {
     let cancelled = false;
     async function initNetwork() {
-      if (!containerRef.current || networkRef.current) return;
+      if (!isActive || !graphReady || !containerRef.current || networkRef.current) return;
       setGraphEngineLoading(true);
       const [{ Network }, { DataSet }] = await Promise.all([
         import('vis-network'),
@@ -63,6 +64,7 @@ export default function GraphPage({ isActive = true }) {
       
       const network = new Network(containerRef.current, { nodes: new DataSet([]), edges: new DataSet([]) }, options);
       networkRef.current = network;
+      setGraphEngineReady(true);
       setGraphEngineLoading(false);
 
       network.on('click', async (params) => {
@@ -71,7 +73,7 @@ export default function GraphPage({ isActive = true }) {
           setDetailOpen(true);
           setDetailCollapsed(false);
           try {
-            const detail = await getNodeDetailMutation.mutateAsync(nodeId);
+            const detail = await getNodeDetail(nodeId);
             setSelectedNode(detail);
           } catch (e) { console.error(e); }
         } else {
@@ -87,6 +89,7 @@ export default function GraphPage({ isActive = true }) {
     }
     initNetwork().catch((error) => {
       console.error('Failed to load graph engine:', error);
+      setGraphEngineReady(false);
       setGraphEngineLoading(false);
     });
     
@@ -96,11 +99,14 @@ export default function GraphPage({ isActive = true }) {
         networkRef.current.destroy();
         networkRef.current = null;
       }
+      graphLibRef.current = null;
+      setGraphEngineReady(false);
+      setGraphEngineLoading(false);
     };
-  }, []);
+  }, [getNodeDetail, graphReady, isActive]);
 
   // 渲染图谱逻辑 (增加健壮性检查)
-  const renderGraph = (data, focusLabel) => {
+  const renderGraph = useCallback((data, focusLabel) => {
     // 关键修复：检查 Network 实例及其内部渲染体是否存在
     const DataSet = graphLibRef.current?.DataSet;
     if (!networkRef.current || !networkRef.current.body || !DataSet || !data) return;
@@ -132,22 +138,24 @@ export default function GraphPage({ isActive = true }) {
     } catch (e) {
       console.warn('Vis-network rendering suppressed due to internal state:', e.message);
     }
-  };
+  }, [legend]);
 
   // 数据变化时重新渲染
   useEffect(() => {
     // 只有当元数据和图谱数据都就绪，且渲染引擎 body 存在时才渲染
-    if (graphData && legend.length > 0 && networkRef.current?.body) {
+    if (graphData && graphEngineReady && networkRef.current?.body) {
       renderGraph(graphData);
     }
-  }, [graphData, legend, isActive]);
+  }, [graphData, graphEngineReady, isActive, renderGraph]);
 
   const handleSearch = async () => {
     if (!searchText.trim()) return;
     try {
       const data = await searchEntityMutation.mutateAsync(searchText);
       renderGraph(data, searchText);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Graph search failed:', e);
+    }
   };
 
   const resetFilters = () => {
@@ -181,14 +189,16 @@ export default function GraphPage({ isActive = true }) {
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
           {(isGraphLoading || graphEngineLoading) && <LoadingOverlay message="图谱计算中..." />}
           
-          <Box
-            ref={containerRef}
-            sx={{
-              flex: 1, minHeight: 0, outline: 'none',
-              backgroundImage: 'radial-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px)',
-              backgroundSize: '32px 32px',
-            }}
-          />
+          {graphReady && (
+            <Box
+              ref={containerRef}
+              sx={{
+                flex: 1, minHeight: 0, outline: 'none',
+                backgroundImage: 'radial-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px)',
+                backgroundSize: '32px 32px',
+              }}
+            />
+          )}
 
           {graphError && (
             <Box sx={{ position: 'absolute', inset: 0, display: 'flex', zIndex: 10, bgcolor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(4px)' }}>

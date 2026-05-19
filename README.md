@@ -111,9 +111,13 @@ OPENMELON_NODE_BIN=/path/to/node scripts/check.sh
 APP_ENV=production
 DEBUG=false
 CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
+PROTECT_ADMIN_API=true
+ADMIN_API_KEYS=replace-with-long-random-key
+# 可选：如前置网关签发 JWT，可配置 HS256 Bearer Token 校验密钥
+ADMIN_JWT_SECRET=replace-with-long-random-secret
 ```
 
-`APP_ENV=production` 且未配置 `CORS_ALLOW_ORIGINS` 时，后端不会默认放开任意跨域来源；`DEBUG=false` 时，接口不会向客户端返回内部异常详情。
+`APP_ENV=production` 且未配置 `CORS_ALLOW_ORIGINS` 时，后端不会默认放开任意跨域来源；`DEBUG=false` 时，接口不会向客户端返回内部异常详情。`PROTECT_ADMIN_API=true` 后，删除、清空、配置保存、执行触发、AI 生成和索引治理等高风险接口需要 `X-API-Key` 或 `Authorization: Bearer <jwt>`。
 
 ---
 

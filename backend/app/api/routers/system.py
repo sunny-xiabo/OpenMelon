@@ -1,13 +1,227 @@
+import asyncio
 import os
+from datetime import UTC, datetime
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
-from app.api.deps import get_metrics_collector, get_session_manager
+from app.api.deps import get_metrics_collector, get_session_manager, require_production_auth
+from app.api_execution.storage import api_execution_store
+from app.config import settings
+from app.runtime_paths import DB_DIR, DB_PATH, LOG_DIR as RUNTIME_LOG_DIR, RUNTIME_ROOT, UPLOAD_STORE_DIR
+from app.version import APP_VERSION
 
 router = APIRouter(tags=["system"])
+
+
+def _health_component(status: str, message: str = "", **details):
+    return {"status": status, "message": message, **details}
+
+
+def _overall_health_status(components: dict) -> str:
+    hard_down = {"sqlite"}
+    for name in hard_down:
+        if components.get(name, {}).get("status") == "down":
+            return "down"
+    if any(
+        component.get("status") in {"down", "degraded", "missing_config"}
+        for component in components.values()
+    ):
+        return "degraded"
+    return "ok"
+
+
+def _check_sqlite_health() -> dict:
+    try:
+        row = api_execution_store._query_one("SELECT 1 AS ok")
+        query_ok = bool(row and row["ok"] == 1)
+        db_dir_writable = DB_DIR.exists() and os.access(DB_DIR, os.W_OK)
+        status = "ok" if query_ok and db_dir_writable else "down"
+        message = "SQLite 可用" if status == "ok" else "SQLite 查询或数据目录写入检查失败"
+        return _health_component(
+            status,
+            message,
+            path=str(DB_PATH),
+            data_dir=str(DB_DIR),
+            query_ok=query_ok,
+            data_dir_writable=db_dir_writable,
+        )
+    except Exception as exc:
+        return _health_component(
+            "down",
+            f"SQLite 检查失败: {exc}",
+            path=str(DB_PATH),
+            data_dir=str(DB_DIR),
+            query_ok=False,
+            data_dir_writable=False,
+        )
+
+
+def _check_llm_config_health() -> dict:
+    has_api_key = bool(settings.API_KEY.strip())
+    return _health_component(
+        "ok" if has_api_key else "missing_config",
+        "LLM 配置已提供 API Key" if has_api_key else "未配置 API_KEY，LLM/RAG 能力将不可用",
+        provider=settings.LLM_PROVIDER,
+        chat_model=settings.CHAT_MODEL,
+        embedding_model=settings.EMBEDDING_MODEL,
+        api_base_url=settings.API_BASE_URL,
+        api_key_configured=has_api_key,
+    )
+
+
+async def _check_neo4j_health(request: Request) -> dict:
+    state = request.app.state
+    client = getattr(state, "neo4j_client", None)
+    startup_available = bool(getattr(state, "neo4j_available", False))
+    if client is None:
+        return _health_component(
+            "degraded",
+            "Neo4j 客户端未初始化",
+            uri=settings.NEO4J_URI,
+            startup_available=startup_available,
+        )
+    try:
+        ok = await asyncio.wait_for(client.health_check(), timeout=3.0)
+        return _health_component(
+            "ok" if ok else "degraded",
+            "Neo4j 可用" if ok else "Neo4j 健康检查未通过",
+            uri=settings.NEO4J_URI,
+            database=settings.NEO4J_DATABASE,
+            startup_available=startup_available,
+        )
+    except asyncio.TimeoutError:
+        return _health_component(
+            "degraded",
+            "Neo4j 健康检查超时",
+            uri=settings.NEO4J_URI,
+            database=settings.NEO4J_DATABASE,
+            startup_available=startup_available,
+        )
+    except Exception as exc:
+        return _health_component(
+            "degraded",
+            f"Neo4j 健康检查失败: {exc}",
+            uri=settings.NEO4J_URI,
+            database=settings.NEO4J_DATABASE,
+            startup_available=startup_available,
+        )
+
+
+async def _check_qdrant_health(request: Request) -> dict:
+    if not settings.USE_EXTERNAL_VECTOR:
+        return _health_component(
+            "disabled",
+            "外部向量库未启用",
+            provider=settings.VECTOR_PROVIDER,
+        )
+    vector_ops = getattr(request.app.state, "vector_ops", None)
+    client = getattr(vector_ops, "_qdrant_client", None)
+    if client is None:
+        return _health_component(
+            "degraded",
+            "Qdrant 客户端未初始化",
+            provider=settings.VECTOR_PROVIDER,
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+        )
+    try:
+        collections = await asyncio.wait_for(client.get_collections(), timeout=3.0)
+        collection_names = [item.name for item in getattr(collections, "collections", [])]
+        return _health_component(
+            "ok",
+            "Qdrant 可用",
+            provider=settings.VECTOR_PROVIDER,
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            collections=collection_names,
+        )
+    except asyncio.TimeoutError:
+        return _health_component(
+            "degraded",
+            "Qdrant 健康检查超时",
+            provider=settings.VECTOR_PROVIDER,
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+        )
+    except Exception as exc:
+        return _health_component(
+            "degraded",
+            f"Qdrant 健康检查失败: {exc}",
+            provider=settings.VECTOR_PROVIDER,
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+        )
+
+
+async def _check_reranker_health() -> dict:
+    backend = (settings.RERANKER_BACKEND or "local").strip().lower()
+    if not settings.USE_RERANKER or backend == "disabled":
+        return _health_component(
+            "disabled",
+            "Reranker 未启用",
+            backend="disabled",
+        )
+    if backend == "sidecar":
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=min(settings.RERANKER_TIMEOUT_SECONDS, 3.0)) as client:
+                response = await client.get(f"{settings.RERANKER_URL.rstrip('/')}/health")
+            return _health_component(
+                "ok" if response.status_code == 200 else "degraded",
+                "Reranker sidecar 可用" if response.status_code == 200 else "Reranker sidecar 响应异常",
+                backend=backend,
+                url=settings.RERANKER_URL,
+                status_code=response.status_code,
+            )
+        except Exception as exc:
+            return _health_component(
+                "degraded",
+                f"Reranker sidecar 检查失败: {exc}",
+                backend=backend,
+                url=settings.RERANKER_URL,
+            )
+
+    try:
+        from app.engine.reranker import reranker
+
+        loaded = getattr(reranker, "model", None) is not None
+    except Exception:
+        loaded = False
+    return _health_component(
+        "ok" if loaded else "not_loaded",
+        "本地 Reranker 已加载" if loaded else "本地 Reranker 已配置，尚未加载模型",
+        backend=backend,
+        model=settings.RERANKER_MODEL_NAME,
+        device=settings.RERANKER_DEVICE,
+    )
 
 @router.get("/ping")
 async def ping():
     return {"status": "success", "message": "pong"}
+
+
+@router.get("/system/health")
+async def system_health(request: Request):
+    components = {
+        "api": _health_component("ok", "API 服务可用", version=APP_VERSION),
+        "sqlite": _check_sqlite_health(),
+        "llm": _check_llm_config_health(),
+        "neo4j": await _check_neo4j_health(request),
+        "qdrant": await _check_qdrant_health(request),
+        "reranker": await _check_reranker_health(),
+    }
+    return {
+        "status": _overall_health_status(components),
+        "version": APP_VERSION,
+        "checked_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "runtime": {
+            "root": str(RUNTIME_ROOT),
+            "data_dir": str(DB_DIR),
+            "log_dir": str(RUNTIME_LOG_DIR),
+            "upload_dir": str(UPLOAD_STORE_DIR),
+        },
+        "components": components,
+    }
 
 @router.get("/metrics")
 async def get_metrics(collector = Depends(get_metrics_collector)):
@@ -18,7 +232,7 @@ async def get_metrics(collector = Depends(get_metrics_collector)):
     except Exception as e:
         raise InternalError(details=str(e))
 
-@router.post("/metrics/reset")
+@router.post("/metrics/reset", dependencies=[Depends(require_production_auth)])
 async def reset_metrics(collector = Depends(get_metrics_collector)):
     try:
         if collector:
@@ -33,7 +247,10 @@ async def list_sessions(session_manager = Depends(get_session_manager)):
     sessions = session_manager.list_sessions_with_meta()
     return {"sessions": sessions}
 
-@router.patch("/sessions/{session_id}/rename")
+@router.patch(
+    "/sessions/{session_id}/rename",
+    dependencies=[Depends(require_production_auth)],
+)
 async def rename_session(session_id: str, req: Request, session_manager = Depends(get_session_manager)):
     body = await req.json()
     title = body.get("title", "")
@@ -52,7 +269,10 @@ async def history(session_id: str, session_manager = Depends(get_session_manager
     except Exception as e:
         raise InternalError(details=str(e))
 
-@router.delete("/history/{session_id}")
+@router.delete(
+    "/history/{session_id}",
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_session_history(session_id: str, session_manager = Depends(get_session_manager)):
     try:
         deleted = session_manager.delete_session(session_id)

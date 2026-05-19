@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Box, Paper, Typography } from '@mui/material';
-import { alpha } from '@mui/material/styles';
-import SettingsSuggestOutlined from '@mui/icons-material/SettingsSuggestOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import FolderOpenOutlined from '@mui/icons-material/FolderOpenOutlined';
@@ -9,6 +7,7 @@ import ManageSearchOutlined from '@mui/icons-material/ManageSearchOutlined';
 import ReceiptLongOutlined from '@mui/icons-material/ReceiptLongOutlined';
 import QueryStatsOutlined from '@mui/icons-material/QueryStatsOutlined';
 import DisplaySettingsOutlined from '@mui/icons-material/DisplaySettingsOutlined';
+import MonitorHeartOutlined from '@mui/icons-material/MonitorHeartOutlined';
 import PageHeader from '../components/PageHeader';
 import NavMenuButton from '../components/NavMenuButton';
 import { SETTINGS_SECTION_EVENT } from '../constants/events';
@@ -19,54 +18,73 @@ import GovernanceCenter from '../features/GovernanceCenter';
 import LogCenter from '../features/LogCenter';
 import AIObservabilityPanel from '../features/AIObservability';
 import ConfigCenter from '../features/ConfigCenter';
+import SystemHealth from '../features/SystemHealth';
 
 const SECTIONS = [
   {
     key: 'node-types',
     label: '节点类型配置',
     description: '管理服务端节点类型与前端展示样式',
+    component: NodeTypeConfigPage,
     icon: <TuneOutlined fontSize="small" />,
   },
   {
     key: 'prompt-hub',
     label: 'Prompt Hub',
     description: '管理测试用例模板、技能与默认策略',
+    component: PromptHubConfigPage,
     icon: <AutoAwesomeOutlined fontSize="small" />,
   },
   {
     key: 'project-env',
     label: '项目与环境',
     description: '管理 API 自动化的项目和测试环境配置',
+    component: ProjectEnvConfigPage,
     icon: <FolderOpenOutlined fontSize="small" />,
   },
   {
     key: 'governance',
     label: '治理中心',
     description: '统一管理知识、任务、模板和数据资产状态',
+    component: GovernanceCenter,
     icon: <ManageSearchOutlined fontSize="small" />,
   },
   {
     key: 'logs',
     label: '日志中心',
     description: '查看执行、策略、任务和知识写入事件',
+    component: LogCenter,
     icon: <ReceiptLongOutlined fontSize="small" />,
   },
   {
     key: 'ai-observability',
     label: 'AI/RAG 观测',
     description: '查看模型调用、耗时、token 和降级失败',
+    component: AIObservabilityPanel,
     icon: <QueryStatsOutlined fontSize="small" />,
   },
   {
     key: 'runtime-config',
     label: '运行配置',
     description: '初始化和管理当前 .env 运行配置',
+    component: ConfigCenter,
     icon: <DisplaySettingsOutlined fontSize="small" />,
+  },
+  {
+    key: 'system-health',
+    label: '健康检查',
+    description: '查看后端依赖和运行态可用性',
+    component: SystemHealth,
+    icon: <MonitorHeartOutlined fontSize="small" />,
   },
 ];
 
-export default function SettingsPage() {
+export default function SettingsPage({ isActive = true }) {
   const [activeSection, setActiveSection] = useState(() => sessionStorage.getItem('openmelon_settings_section') || 'node-types');
+  const activeSectionConfig = useMemo(() => {
+    return SECTIONS.find((section) => section.key === activeSection) || SECTIONS[0];
+  }, [activeSection]);
+  const ActiveSectionComponent = activeSectionConfig.component;
 
   const selectSection = (section) => {
     setActiveSection(section);
@@ -153,13 +171,7 @@ export default function SettingsPage() {
               display: 'flex',
               flexDirection: 'column'
             }}>
-              {activeSection === 'node-types' && <NodeTypeConfigPage embedded />}
-              {activeSection === 'prompt-hub' && <PromptHubConfigPage embedded />}
-              {activeSection === 'project-env' && <ProjectEnvConfigPage embedded />}
-              {activeSection === 'governance' && <GovernanceCenter />}
-              {activeSection === 'logs' && <LogCenter />}
-              {activeSection === 'ai-observability' && <AIObservabilityPanel />}
-              {activeSection === 'runtime-config' && <ConfigCenter />}
+              {isActive && <ActiveSectionComponent embedded />}
             </Box>
           </Box>
         </Box>

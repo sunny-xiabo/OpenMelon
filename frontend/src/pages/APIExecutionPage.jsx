@@ -28,7 +28,7 @@ import {
 import { alpha } from '@mui/material/styles';
 import { APIExecutionProvider, useAPIExecution } from '../features/APIExecution/context';
 import LoadingOverlay from '../components/LoadingOverlay';
-
+import { useProjectAssets } from '../features/APIExecution/hooks/useAPIExecutionQueries';
 import StepImport from '../features/APIExecution/components/StepImport';
 import StepScope from '../features/APIExecution/components/StepScope';
 import StepOrchestrate from '../features/APIExecution/components/StepOrchestrate';
@@ -36,7 +36,6 @@ import StepResult from '../features/APIExecution/components/StepResult';
 import RunHistory from '../features/APIExecution/components/RunHistory';
 import AssetAgentWorkbench from '../features/APIExecution/components/AssetAgentWorkbench';
 import SavedTestTasksPanel from '../features/APIExecution/components/SavedTestTasksPanel';
-import { useProjectAssets } from '../features/APIExecution/hooks/useAPIExecutionQueries';
 
 const SECTION_BY_STEP = {
   0: 'config',
@@ -106,6 +105,52 @@ const FLOW_STATUS_META = {
   active: { label: '进行中', color: 'primary.main', bg: 'primary.light' },
   pending: { label: '待处理', color: 'text.disabled', bg: 'action.hover' },
   warning: { label: '待诊断', color: 'error.main', bg: 'error.light' },
+};
+
+function AgentSection() {
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
+
+  return (
+    <Stack spacing={2.5}>
+      <SavedTestTasksPanel />
+      <AssetAgentWorkbench focus="agent" />
+      <Accordion
+        disableGutters
+        elevation={0}
+        expanded={advancedOpen}
+        onChange={(_, expanded) => setAdvancedOpen(expanded)}
+        sx={{ border: '1px solid rgba(15, 23, 42, 0.08)', borderRadius: 1, '&:before': { display: 'none' } }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
+          <Box>
+            <Typography variant="subtitle2" fontWeight={800}>
+              高级：按 OpenAPI 规范挑选接口
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              保留旧的规范范围选择和业务目标草稿能力，需要时再展开。
+            </Typography>
+          </Box>
+        </AccordionSummary>
+        <Divider />
+        <AccordionDetails sx={{ p: { xs: 2, md: 3 }, bgcolor: '#f8fafc' }}>
+          {advancedOpen && <StepScope showAssetWorkbench={false} title="规范范围与 AI 流程草稿" />}
+        </AccordionDetails>
+      </Accordion>
+    </Stack>
+  );
+}
+
+function AssetsSection() {
+  return <AssetAgentWorkbench focus="assets" />;
+}
+
+const WORKBENCH_SECTION_COMPONENTS = {
+  config: StepImport,
+  assets: AssetsSection,
+  agent: AgentSection,
+  orchestrate: StepOrchestrate,
+  reports: StepResult,
+  history: RunHistory,
 };
 
 function WorkflowProgressRail({ steps, activeSection, onNavigate }) {
@@ -292,6 +337,7 @@ function APIExecutionContent() {
   };
 
   const activeSectionMeta = WORKBENCH_SECTIONS.find((item) => item.id === activeSection) || WORKBENCH_SECTIONS[0];
+  const LoadedWorkbenchSection = WORKBENCH_SECTION_COMPONENTS[activeSection] || StepImport;
   const workflowSteps = React.useMemo(() => {
     const baseSteps = [
       {
@@ -431,33 +477,7 @@ function APIExecutionContent() {
             }}
           >
             <Box sx={{ minWidth: 0 }}>
-              {activeSection === 'config' && <StepImport />}
-              {activeSection === 'assets' && <AssetAgentWorkbench focus="assets" />}
-              {activeSection === 'agent' && (
-                <Stack spacing={2.5}>
-                  <SavedTestTasksPanel />
-                  <AssetAgentWorkbench focus="agent" />
-                  <Accordion disableGutters elevation={0} sx={{ border: '1px solid rgba(15, 23, 42, 0.08)', borderRadius: 1, '&:before': { display: 'none' } }}>
-                    <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
-                      <Box>
-                        <Typography variant="subtitle2" fontWeight={800}>
-                          高级：按 OpenAPI 规范挑选接口
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          保留旧的规范范围选择和业务目标草稿能力，需要时再展开。
-                        </Typography>
-                      </Box>
-                    </AccordionSummary>
-                    <Divider />
-                    <AccordionDetails sx={{ p: { xs: 2, md: 3 }, bgcolor: '#f8fafc' }}>
-                      <StepScope showAssetWorkbench={false} title="规范范围与 AI 流程草稿" />
-                    </AccordionDetails>
-                  </Accordion>
-                </Stack>
-              )}
-              {activeSection === 'orchestrate' && <StepOrchestrate />}
-              {activeSection === 'reports' && <StepResult />}
-              {activeSection === 'history' && <RunHistory />}
+              <LoadedWorkbenchSection />
             </Box>
 
             <WorkflowProgressRail

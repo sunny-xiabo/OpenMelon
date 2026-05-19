@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import Request
 import os
 
+from app.api.deps import require_production_auth
 from app.api.logging_service import safe_log_event
 from app.api.schemas import (
     FileListResponse,
@@ -31,7 +32,11 @@ async def list_files(req: Request):
         raise InternalError(details=str(e))
 
 
-@router.delete("/files/{record_id}", response_model=DeleteResponse)
+@router.delete(
+    "/files/{record_id}",
+    response_model=DeleteResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_file(record_id: str, req: Request):
     try:
         tracker = req.app.state.file_tracker
@@ -103,7 +108,11 @@ async def delete_file(record_id: str, req: Request):
         raise InternalError(details=str(e))
 
 
-@router.delete("/files", response_model=DeleteResponse)
+@router.delete(
+    "/files",
+    response_model=DeleteResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_file_by_name(
     req: Request, filename: str = Query(..., description="Filename to delete")
 ):
@@ -155,7 +164,11 @@ async def delete_file_by_name(
         raise InternalError(details=str(e))
 
 
-@router.post("/files/{record_id}/reindex", response_model=ReindexResponse)
+@router.post(
+    "/files/{record_id}/reindex",
+    response_model=ReindexResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def reindex_file(record_id: str, req: Request):
     try:
         tracker = req.app.state.file_tracker

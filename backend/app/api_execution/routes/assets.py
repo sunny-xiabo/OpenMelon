@@ -1,7 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.deps import require_production_auth
 from app.api_execution.router_support import *
 
 router = APIRouter()
@@ -17,12 +18,20 @@ async def preview_project_assets(project_id: str, spec_id: str | None = None):
     return preview_project_assets_service(project_id, spec_id=spec_id)
 
 
-@router.post("/projects/{project_id}/assets/sync", response_model=APIAssetSyncResponse)
+@router.post(
+    "/projects/{project_id}/assets/sync",
+    response_model=APIAssetSyncResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def sync_project_assets(project_id: str, spec_id: str | None = None):
     return sync_project_assets_service(project_id, spec_id=spec_id)
 
 
-@router.post("/projects/{project_id}/assets/test-plan", response_model=APIAssetTestPlanResponse)
+@router.post(
+    "/projects/{project_id}/assets/test-plan",
+    response_model=APIAssetTestPlanResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def build_asset_test_plan(project_id: str, request: APIAssetTestPlanRequest):
     return build_asset_test_plan_service(project_id, request)
 
@@ -37,7 +46,11 @@ async def list_project_modules(project_id: str):
     return list_project_modules_service(project_id)
 
 
-@router.post("/projects/{project_id}/modules", response_model=APIAssetModule)
+@router.post(
+    "/projects/{project_id}/modules",
+    response_model=APIAssetModule,
+    dependencies=[Depends(require_production_auth)],
+)
 async def create_project_module(project_id: str, request: APIAssetModuleCreateRequest):
     return create_project_module_service(project_id, request)
 
@@ -63,17 +76,25 @@ async def list_project_interfaces(
     )
 
 
-@router.post("/projects/{project_id}/interfaces", response_model=APIAssetInterface)
+@router.post(
+    "/projects/{project_id}/interfaces",
+    response_model=APIAssetInterface,
+    dependencies=[Depends(require_production_auth)],
+)
 async def create_project_interface(project_id: str, request: APIAssetInterfaceCreateRequest):
     return create_project_interface_service(project_id, request)
 
 
-@router.patch("/interfaces/{interface_id}", response_model=APIAssetInterface)
+@router.patch(
+    "/interfaces/{interface_id}",
+    response_model=APIAssetInterface,
+    dependencies=[Depends(require_production_auth)],
+)
 async def update_project_interface(interface_id: str, request: APIAssetInterfaceUpdateRequest):
     return update_project_interface_service(interface_id, request)
 
 
-@router.delete("/interfaces/{interface_id}")
+@router.delete("/interfaces/{interface_id}", dependencies=[Depends(require_production_auth)])
 async def delete_project_interface(interface_id: str):
     return delete_project_interface_service(interface_id)
 

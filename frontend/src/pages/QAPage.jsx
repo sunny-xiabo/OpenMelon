@@ -152,11 +152,11 @@ export default function QAPage({ isActive = true }) {
     }
   }, [docType, moduleFilter, renderGraph, showChunks, showSnackbar]);
 
-  // 1. 初始化图谱。graphReady 可能异步变化，容器出现后再创建实例。
+  // 1. 初始化图谱。只有页面激活且图谱有数据时才下载 vis 引擎。
   useEffect(() => {
     let cancelled = false;
     async function initNetwork() {
-      if (!containerRef.current || networkRef.current) return;
+      if (!isActive || !graphReady || !containerRef.current || networkRef.current) return;
       const [{ Network }, { DataSet }] = await Promise.all([
         import('vis-network'),
         import('vis-data'),
@@ -176,12 +176,13 @@ export default function QAPage({ isActive = true }) {
     }
     initNetwork().catch((error) => {
       console.error('Failed to load QA graph engine:', error);
+      setGraphEngineReady(false);
       setGraphError(error);
     });
     return () => {
       cancelled = true;
     };
-  }, [graphError, graphReady]);
+  }, [graphReady, isActive]);
 
   useEffect(() => {
     return () => {
@@ -228,7 +229,9 @@ export default function QAPage({ isActive = true }) {
       const r = await chatMutation.mutateAsync({ question: q, sessionId: sid, includeHistory });
       if (!currentSessionId) setCurrentSessionId(r.session_id);
       if (r.graph_data?.nodes?.length > 0) renderGraph(r.graph_data);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Chat request failed:', e);
+    }
   };
 
   const handleNewSession = () => {

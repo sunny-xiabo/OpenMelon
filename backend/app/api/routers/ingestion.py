@@ -20,7 +20,7 @@ from app.services.file_parser import (
     auto_detect_module,
     SUPPORTED_FORMATS,
 )
-from app.api.deps import get_indexer
+from app.api.deps import get_indexer, require_production_auth
 from app.services.upload_task_manager import upload_task_manager
 
 router = APIRouter(tags=["ingestion"])
@@ -50,7 +50,11 @@ def _parse_file_sync(content_bytes: bytes, filename: str):
     import asyncio as _asyncio
     return _asyncio.run(parse_file(_TempFile(content_bytes, filename)))
 
-@router.post("/index/file", response_model=IndexResponse)
+@router.post(
+    "/index/file",
+    response_model=IndexResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def index_file(request: IndexFileRequest, indexer = Depends(get_indexer)):
     trace_id = f"index_file_{uuid.uuid4().hex}"
     try:
@@ -93,7 +97,11 @@ async def index_file(request: IndexFileRequest, indexer = Depends(get_indexer)):
         )
         raise InternalError(details=str(e))
 
-@router.post("/index/directory", response_model=IndexResponse)
+@router.post(
+    "/index/directory",
+    response_model=IndexResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def index_directory(request: IndexDirectoryRequest, indexer = Depends(get_indexer)):
     trace_id = f"index_dir_{uuid.uuid4().hex}"
     try:
@@ -150,7 +158,11 @@ async def index_directory(request: IndexDirectoryRequest, indexer = Depends(get_
         )
         raise InternalError(details=str(e))
 
-@router.post("/upload", response_model=UploadResponse)
+@router.post(
+    "/upload",
+    response_model=UploadResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def upload_files(
     files: List[UploadFile] = File(...),
     doc_type: Optional[str] = Form(None),
@@ -272,7 +284,11 @@ async def upload_files(
         )
         raise InternalError(details=str(e))
 
-@router.post("/upload/directory", response_model=UploadResponse)
+@router.post(
+    "/upload/directory",
+    response_model=UploadResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def upload_directory(
     files: List[UploadFile] = File(...),
     doc_type: Optional[str] = Form(None),
@@ -567,7 +583,7 @@ async def _process_upload_task(
             data={"task_id": task.task_id, "error": str(e)},
         )
 
-@router.post("/upload/async")
+@router.post("/upload/async", dependencies=[Depends(require_production_auth)])
 async def upload_files_async(
     files: List[UploadFile] = File(...),
     doc_type: Optional[str] = Form(None),

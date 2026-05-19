@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { Box } from '@mui/material';
 import {
   QuestionAnswerRounded,
@@ -8,7 +8,6 @@ import {
   PieChartRounded,
   SettingsRounded,
   AutoGraphRounded,
-  StorageRounded,
 } from '@mui/icons-material';
 import IndexGovernanceIcon from './components/icons/IndexGovernanceIcon';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -16,14 +15,14 @@ import { SnackbarProvider } from './components/SnackbarProvider';
 import ErrorBoundary from './components/ErrorBoundary';
 import TopNav from './components/TopNav';
 import { SWITCH_TAB_EVENT } from './constants/events';
-import QAPage from './pages/QAPage';
-import GraphPage from './pages/GraphPage';
 import ManagePage from './pages/ManagePage';
-import DashboardPage from './pages/DashboardPage';
+import GraphPage from './pages/GraphPage';
+import QAPage from './pages/QAPage';
 import TestCasePage from './pages/TestCasePage';
-import SettingsPage from './pages/SettingsPage';
 import APIExecutionPage from './pages/APIExecutionPage';
+import DashboardPage from './pages/DashboardPage';
 import IndexGovernancePage from './pages/IndexGovernancePage';
+import SettingsPage from './pages/SettingsPage';
 
 // 初始化 TanStack Query 客户端
 const queryClient = new QueryClient({
@@ -41,35 +40,50 @@ const queryClient = new QueryClient({
 
 // 顶部导航栏配置
 const TABS = [
-  { label: '导入管理', component: ManagePage, icon: <CloudUploadRounded fontSize="small" /> },
-  { label: '图谱总览', component: GraphPage, icon: <HubRounded fontSize="small" /> },
-  { label: '问答', component: QAPage, icon: <QuestionAnswerRounded fontSize="small" /> },
-  { label: '测试用例生成', component: TestCasePage, icon: <AssignmentTurnedInRounded fontSize="small" /> },
-  { label: 'API 自动化', component: APIExecutionPage, icon: <AutoGraphRounded fontSize="small" /> },
-  { label: '数据仪表盘', component: DashboardPage, icon: <PieChartRounded fontSize="small" /> },
-  { label: '索引治理', component: IndexGovernancePage, icon: <IndexGovernanceIcon fontSize="small" /> },
-  { label: '设置', component: SettingsPage, icon: <SettingsRounded fontSize="small" /> },
+  { key: 'manage', label: '导入管理', component: ManagePage, icon: <CloudUploadRounded fontSize="small" /> },
+  { key: 'graph', label: '图谱总览', component: GraphPage, icon: <HubRounded fontSize="small" /> },
+  { key: 'qa', label: '问答', component: QAPage, icon: <QuestionAnswerRounded fontSize="small" /> },
+  { key: 'testCase', label: '测试用例生成', component: TestCasePage, icon: <AssignmentTurnedInRounded fontSize="small" /> },
+  { key: 'apiExecution', label: 'API 自动化', component: APIExecutionPage, icon: <AutoGraphRounded fontSize="small" /> },
+  { key: 'dashboard', label: '数据仪表盘', component: DashboardPage, icon: <PieChartRounded fontSize="small" /> },
+  { key: 'indexGovernance', label: '索引治理', component: IndexGovernancePage, icon: <IndexGovernanceIcon fontSize="small" /> },
+  { key: 'settings', label: '设置', component: SettingsPage, icon: <SettingsRounded fontSize="small" /> },
 ];
 
-function App() {
-  const [tab, setTab] = useState(() => {
-    const saved = sessionStorage.getItem('openmelon_active_tab');
-    return saved !== null ? parseInt(saved, 10) : 0;
-  });
-  
-  const [mountedTabs, setMountedTabs] = useState(() => {
-    const saved = sessionStorage.getItem('openmelon_active_tab');
-    const initialTab = saved !== null ? parseInt(saved, 10) : 0;
-    return [initialTab];
-  });
+const getInitialTab = () => {
+  const saved = sessionStorage.getItem('openmelon_active_tab');
+  const savedTab = saved !== null ? Number.parseInt(saved, 10) : 0;
+  return Number.isInteger(savedTab) && savedTab >= 0 && savedTab < TABS.length ? savedTab : 0;
+};
 
-  const handleTabChange = (newIndex) => {
+const PageSlot = memo(function PageSlot({ tabConfig, active }) {
+  const Page = tabConfig.component;
+  return (
+    <Box
+      sx={{
+        display: active ? 'flex' : 'none',
+        flex: 1,
+        overflow: 'hidden',
+        flexDirection: 'column',
+        position: 'relative',
+      }}
+    >
+      <ErrorBoundary>
+        <Page isActive={active} />
+      </ErrorBoundary>
+    </Box>
+  );
+});
+
+function App() {
+  const [tab, setTab] = useState(getInitialTab);
+  const [mountedTabs, setMountedTabs] = useState(() => [getInitialTab()]);
+
+  const handleTabChange = useCallback((newIndex) => {
     setTab(newIndex);
     sessionStorage.setItem('openmelon_active_tab', newIndex.toString());
-    if (!mountedTabs.includes(newIndex)) {
-      setMountedTabs((prev) => [...prev, newIndex]);
-    }
-  };
+    setMountedTabs((prev) => (prev.includes(newIndex) ? prev : [...prev, newIndex]));
+  }, []);
 
   useEffect(() => {
     const handleSwitchTab = (event) => {
@@ -80,21 +94,7 @@ function App() {
     };
     window.addEventListener(SWITCH_TAB_EVENT, handleSwitchTab);
     return () => window.removeEventListener(SWITCH_TAB_EVENT, handleSwitchTab);
-  }, [mountedTabs]);
-
-  useEffect(() => {
-    const mountAllTabs = () => {
-      setMountedTabs(TABS.map((_, index) => index));
-    };
-
-    if ('requestIdleCallback' in window) {
-      const idleId = window.requestIdleCallback(mountAllTabs, { timeout: 1600 });
-      return () => window.cancelIdleCallback(idleId);
-    }
-
-    const timer = window.setTimeout(mountAllTabs, 900);
-    return () => window.clearTimeout(timer);
-  }, []);
+  }, [handleTabChange]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -119,23 +119,12 @@ function App() {
           <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {TABS.map((t, i) => {
               if (!mountedTabs.includes(i)) return null;
-              
-              const Page = t.component;
               return (
-                <Box
+                <PageSlot
                   key={t.label}
-                  sx={{
-                    display: tab === i ? 'flex' : 'none',
-                    flex: 1,
-                    overflow: 'hidden',
-                    flexDirection: 'column',
-                    position: 'relative',
-                  }}
-                >
-                  <ErrorBoundary>
-                    <Page isActive={tab === i} />
-                  </ErrorBoundary>
-                </Box>
+                  tabConfig={t}
+                  active={tab === i}
+                />
               );
             })}
           </Box>

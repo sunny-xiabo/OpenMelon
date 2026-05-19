@@ -34,8 +34,9 @@ ENV HOME=/app
 ENV UV_CACHE_DIR=/app/.cache/uv
 ENV UV_LINK_MODE=copy
 
-RUN adduser --system --group appuser && chown -R appuser:appuser /app
+RUN adduser --system --group appuser \
+    && mkdir -p /app/runtime \
+    && chown -R appuser:appuser /app
 USER appuser
 
 CMD ["sh", "-c", "uv run uvicorn ${APP_MODULE} --host 0.0.0.0 --port ${APP_PORT}"]
-
