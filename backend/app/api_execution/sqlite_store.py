@@ -62,8 +62,7 @@ class SQLiteStore(BaseSQLiteStore):
         return max(1, min(int(limit or 1), max_limit)), max(0, int(offset or 0))
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
-        columns = {row["name"] for row in self._query(f"PRAGMA table_info({table})")}
-        if column not in columns:
+        if column not in self._table_columns(table):
             self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self._conn.commit()
 
@@ -1074,9 +1073,9 @@ class SQLiteStore(BaseSQLiteStore):
 
     def save_ai_debug_settings(self, settings_data: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO ai_debug_settings (key, data) VALUES ('settings', ?)",
-                (json.dumps(settings_data, ensure_ascii=False),),
+            self._replace(
+                "ai_debug_settings",
+                {"key": "settings", "data": json.dumps(settings_data, ensure_ascii=False)},
             )
             self._conn.commit()
             return settings_data

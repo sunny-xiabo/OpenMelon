@@ -546,6 +546,14 @@ class StorageTableProfile(BaseModel):
     data_bytes: int = 0
     indexed_columns: list[str] = []
     pg_strategy: str = ""
+    pg_jsonb_column: str = ""
+    invalid_json_rows: int = 0
+    empty_primary_keys: int = 0
+    duplicate_primary_keys: int = 0
+    time_format_issues: int = 0
+    max_data_bytes: int = 0
+    sensitive_keys: list[str] = []
+    json_hash: str = ""
 
 
 class StorageJsonRisk(BaseModel):

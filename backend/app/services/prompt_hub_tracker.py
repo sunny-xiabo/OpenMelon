@@ -27,9 +27,8 @@ class PromptHubTracker(BaseSQLiteStore):
         super().__init__(db_path)
 
     def _init_schema(self) -> None:
+        self._enable_foreign_keys()
         self._conn.executescript("""
-            PRAGMA foreign_keys = ON;
-
             CREATE TABLE IF NOT EXISTS prompt_hub_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL

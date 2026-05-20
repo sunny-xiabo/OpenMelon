@@ -57,6 +57,7 @@ class BaseSQLiteStore:
     """
 
     def __init__(self, db_path: Path | None = None) -> None:
+        self._db_path = (db_path or (_DEFAULT_DB_DIR / "openmelon.db")).expanduser().resolve()
         self._conn = get_shared_connection(db_path)
         self._lock = get_shared_lock(db_path)
         self._init_schema()
@@ -65,6 +66,16 @@ class BaseSQLiteStore:
         """Override in subclasses to CREATE TABLE / INDEX."""
 
     # ---- low-level helpers ----
+
+    @property
+    def db_path(self) -> Path:
+        return self._db_path
+
+    def _enable_foreign_keys(self) -> None:
+        self._conn.execute("PRAGMA foreign_keys = ON")
+
+    def _table_columns(self, table: str) -> set[str]:
+        return {row["name"] for row in self._query(f"PRAGMA table_info({table})")}
 
     def _query(self, sql: str, params: tuple = ()) -> list[sqlite3.Row]:
         return self._conn.execute(sql, params).fetchall()
@@ -89,6 +100,14 @@ class BaseSQLiteStore:
             (id_val, json.dumps(data, ensure_ascii=False)) + tuple(vals),
         )
         self._conn.commit()
+
+    def _replace(self, table: str, columns: dict[str, Any]) -> None:
+        col_names = ", ".join(columns.keys())
+        placeholders = ", ".join(["?"] * len(columns))
+        self._conn.execute(
+            f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})",
+            tuple(columns.values()),
+        )
 
     def _row_to_data(self, row: sqlite3.Row | None) -> dict[str, Any] | None:
         if row is None:

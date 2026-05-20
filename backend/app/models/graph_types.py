@@ -83,21 +83,17 @@ class NodeTypeStore(BaseSQLiteStore):
             self._conn.commit()
 
     def _save_config_no_lock(self, config: Dict, sort_order: int) -> None:
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO graph_node_types
-                (type, category, bg, border, size, sort_order, data)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                config["type"],
-                config["category"],
-                config["color"]["bg"],
-                config["color"]["border"],
-                int(config["size"]),
-                sort_order,
-                json.dumps(config, ensure_ascii=False),
-            ),
+        self._replace(
+            "graph_node_types",
+            {
+                "type": config["type"],
+                "category": config["category"],
+                "bg": config["color"]["bg"],
+                "border": config["color"]["border"],
+                "size": int(config["size"]),
+                "sort_order": sort_order,
+                "data": json.dumps(config, ensure_ascii=False),
+            },
         )
 
 

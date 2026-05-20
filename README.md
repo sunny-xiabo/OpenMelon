@@ -224,6 +224,8 @@ OpenMelon/
 
 后端所有的运行时产物（数据库、日志、导出文件、上传文件）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
 
+当前业务元数据运行时仍使用 SQLite。仓库提供可选的 `docker-compose.pg.yml` 作为 PostgreSQL 迁移演练环境，后端不会因为配置 `DATABASE_URL` 自动切换数据库；正式切换前可通过 `GET /api/api-execution/storage/migration-readiness` 查看 SQLite -> PostgreSQL JSONB 映射、表规模与数据风险，迁移步骤见 `docs/Knowledge/sqlite-to-postgres-migration-runbook.md`。
+
 ---
 
 ## 文档导航
