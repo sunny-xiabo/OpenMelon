@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -46,11 +48,15 @@ def test_system_health_endpoint_returns_component_statuses(monkeypatch):
     async def fake_qdrant_health(_request):
         return {"status": "disabled", "message": "qdrant disabled"}
 
+    async def fake_postgres_health():
+        return {"status": "disabled", "message": "postgres disabled"}
+
     async def fake_reranker_health():
         return {"status": "not_loaded", "message": "reranker not loaded"}
 
     monkeypatch.setattr(system, "_check_neo4j_health", fake_neo4j_health)
     monkeypatch.setattr(system, "_check_qdrant_health", fake_qdrant_health)
+    monkeypatch.setattr(system, "_check_postgres_health", fake_postgres_health)
     monkeypatch.setattr(system, "_check_reranker_health", fake_reranker_health)
 
     response = TestClient(app).get("/system/health")
@@ -63,5 +69,29 @@ def test_system_health_endpoint_returns_component_statuses(monkeypatch):
     assert data["components"]["sqlite"]["status"] == "ok"
     assert data["components"]["neo4j"]["status"] == "degraded"
     assert data["components"]["qdrant"]["status"] == "disabled"
+    assert data["components"]["postgres"]["status"] == "disabled"
     assert data["components"]["reranker"]["status"] == "not_loaded"
     assert "runtime" in data
+
+
+def test_postgres_health_disabled_by_default(monkeypatch):
+    monkeypatch.setattr(system.settings, "POSTGRES_HEALTHCHECK_ENABLED", False)
+    monkeypatch.setattr(system.settings, "DATABASE_URL", "")
+    monkeypatch.setattr(system.settings, "POSTGRES_HOST", "localhost")
+    monkeypatch.setattr(system.settings, "POSTGRES_PORT", 5432)
+
+    data = asyncio.run(system._check_postgres_health())
+
+    assert data["status"] == "disabled"
+    assert data["migration_target"] is True
+
+
+def test_postgres_health_uses_database_url(monkeypatch):
+    monkeypatch.setattr(system.settings, "DATABASE_URL", "postgresql://openmelon:secret@pg-host:15432/openmelon")
+
+    host, port, database, user = system._postgres_target()
+
+    assert host == "pg-host"
+    assert port == 15432
+    assert database == "openmelon"
+    assert user == "openmelon"

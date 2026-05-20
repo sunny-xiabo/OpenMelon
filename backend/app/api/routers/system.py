@@ -1,6 +1,7 @@
 import asyncio
 import os
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from app.api.deps import get_metrics_collector, get_session_manager, require_production_auth
@@ -152,6 +153,67 @@ async def _check_qdrant_health(request: Request) -> dict:
         )
 
 
+def _postgres_target() -> tuple[str, int, str, str]:
+    database_url = settings.DATABASE_URL.strip()
+    if database_url:
+        parsed = urlparse(database_url)
+        return (
+            parsed.hostname or settings.POSTGRES_HOST,
+            parsed.port or settings.POSTGRES_PORT,
+            parsed.path.lstrip("/") or settings.POSTGRES_DB,
+            parsed.username or settings.POSTGRES_USER,
+        )
+    return settings.POSTGRES_HOST, settings.POSTGRES_PORT, settings.POSTGRES_DB, settings.POSTGRES_USER
+
+
+async def _check_postgres_health() -> dict:
+    configured = settings.POSTGRES_HEALTHCHECK_ENABLED or bool(settings.DATABASE_URL.strip())
+    host, port, database, user = _postgres_target()
+    if not configured:
+        return _health_component(
+            "disabled",
+            "PostgreSQL 迁移库未启用健康检查",
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            migration_target=True,
+        )
+    try:
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=3.0)
+        writer.close()
+        await writer.wait_closed()
+        return _health_component(
+            "ok",
+            "PostgreSQL 端口可用",
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            migration_target=True,
+        )
+    except asyncio.TimeoutError:
+        return _health_component(
+            "degraded",
+            "PostgreSQL 健康检查超时",
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            migration_target=True,
+        )
+    except Exception as exc:
+        return _health_component(
+            "degraded",
+            f"PostgreSQL 健康检查失败: {exc}",
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            migration_target=True,
+        )
+
+
 async def _check_reranker_health() -> dict:
     backend = (settings.RERANKER_BACKEND or "local").strip().lower()
     if not settings.USE_RERANKER or backend == "disabled":
@@ -208,6 +270,7 @@ async def system_health(request: Request):
         "llm": _check_llm_config_health(),
         "neo4j": await _check_neo4j_health(request),
         "qdrant": await _check_qdrant_health(request),
+        "postgres": await _check_postgres_health(),
         "reranker": await _check_reranker_health(),
     }
     return {

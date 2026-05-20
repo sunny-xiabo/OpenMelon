@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     QDRANT_API_KEY: str = ""
     VECTOR_FALLBACK_TO_NEO4J: bool = True
 
+    POSTGRES_HEALTHCHECK_ENABLED: bool = False
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "openmelon"
+    POSTGRES_USER: str = "openmelon"
+    DATABASE_URL: str = ""
+
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_DEPTH: int = 2
     RERANKER_TOP_K: int = 5

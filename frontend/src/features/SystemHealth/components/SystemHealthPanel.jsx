@@ -22,6 +22,7 @@ import PsychologyOutlined from '@mui/icons-material/PsychologyOutlined';
 import RefreshOutlined from '@mui/icons-material/RefreshOutlined';
 import SettingsEthernetOutlined from '@mui/icons-material/SettingsEthernetOutlined';
 import StorageOutlined from '@mui/icons-material/StorageOutlined';
+import TableChartOutlined from '@mui/icons-material/TableChartOutlined';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import { useSystemHealth } from '../hooks/useSystemHealth';
 
@@ -41,6 +42,7 @@ const COMPONENTS = [
   { key: 'llm', label: 'LLM Provider', icon: PsychologyOutlined },
   { key: 'neo4j', label: 'Neo4j', icon: HubOutlined },
   { key: 'qdrant', label: 'Qdrant', icon: SettingsEthernetOutlined },
+  { key: 'postgres', label: 'PostgreSQL', icon: TableChartOutlined },
   { key: 'reranker', label: 'Reranker', icon: MemoryOutlined },
 ];
 
@@ -182,7 +184,7 @@ export default function SystemHealthPanel() {
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 800, mb: 0.5 }}>运行态健康检查</Typography>
           <Typography variant="body2" color="text.secondary">
-            汇总后端 API、SQLite、LLM、Neo4j、Qdrant 与 Reranker 的当前可用性。
+            汇总后端 API、SQLite、LLM、Neo4j、Qdrant、PostgreSQL 与 Reranker 的当前可用性。
           </Typography>
         </Box>
         <Button
