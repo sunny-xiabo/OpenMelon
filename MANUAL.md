@@ -242,7 +242,7 @@ flowchart TD
     Entity["LLM 实体提取\nextract_entities"] -->|"图谱写入"| Neo4j
     Qdrant[(Qdrant 向量库\n可选)] -->|"向量检索\ndoc_chunks"| QD
     Neo4j[(Neo4j 图数据库)] -->|"图谱检索\n节点与关系"| KG
-    Neo4j --> Tracker["文件追踪记录\nSQLite file_records"]
+    Neo4j --> Tracker["文件追踪记录\n元数据库 file_records"]
     Neo4j --> Save["原始文件保存\nbackend/runtime/data/uploads/"]
 
     style Neo4j fill:#f9d0c4
@@ -261,7 +261,7 @@ flowchart TD
 | 向量写入 | 默认写入 Neo4j/共享存储中的向量索引；开启 `USE_EXTERNAL_VECTOR=true` 后同步写入 Qdrant 的 `doc_chunks` 集合并优先外部检索 |
 | 实体提取 | LLM 从文本中识别实体（模块、功能、接口、人员等） |
 | 图谱构建 | 在 Neo4j 中创建实体节点和 `RELATED_TO` 关系 |
-| 文件追踪 | 记录到共享 SQLite 的 `file_records` 表，包含文件名、类型、分块数、时间 |
+| 文件追踪 | 记录到当前元数据库的 `file_records` 表，包含文件名、类型、分块数、时间；PG 模式下写入 PostgreSQL |
 
 ### 1.3 读取流：智能问答
 
@@ -1089,7 +1089,7 @@ curl -X POST "http://localhost:8000/api/test-cases/generate-mindmap" \
 
 相关存储与接口：
 
-- 持久化配置：共享 SQLite `backend/runtime/data/openmelon.db` 中的 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表
+- 持久化配置：当前元数据库中的 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表；PG 模式下写入 PostgreSQL，SQLite 模式下写入 `backend/runtime/data/openmelon.db`
 - 迁移兼容源：[backend/runtime/data/prompt_hub.json](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/runtime/data/prompt_hub.json) 仅在空库初始化时读取，不再作为正常写入目标
 - 后端读取与校验：[backend/app/services/prompt_hub_tracker.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/services/prompt_hub_tracker.py)
 - 管理接口：[backend/app/api/routers/prompt_hub.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/api/routers/prompt_hub.py)
@@ -1594,7 +1594,7 @@ flowchart TD
 
 ### 8.15 执行历史管理
 
-执行历史位于「API 自动化」页面底部的「执行历史」区域，存储在 `backend/runtime/data/openmelon.db` 的 `runs` 表中。
+执行历史位于「API 自动化」页面底部的「执行历史」区域，存储在当前元数据库的 `runs` 表中；PG 模式下写入 PostgreSQL，SQLite 模式下写入 `backend/runtime/data/openmelon.db`。
 
 **搜索与筛选**
 
@@ -1909,7 +1909,7 @@ GET    /api/history/{session_id}             # 获取会话聊天记录
 
 ### 12.2 配置管理
 
-**服务端配置**：共享 SQLite `backend/runtime/data/openmelon.db` 中的 `graph_node_types` 表，通过「设置 > 节点类型配置」页面管理。
+**服务端配置**：当前元数据库中的 `graph_node_types` 表，通过「设置 > 节点类型配置」页面管理；PG 模式下写入 PostgreSQL，SQLite 模式下写入 `backend/runtime/data/openmelon.db`。
 
 **初始化种子**：`backend/config/node_types.json` 仅在空库初始化时读取，不再作为页面 CRUD 的写入目标。
 
@@ -2014,15 +2014,16 @@ GET /api/query 200 3200ms
 
 ### 13.6 本地运行期存储
 
-OpenMelon 的本地运行期数据统一使用共享 SQLite 数据库：
+OpenMelon 的结构化运行期数据使用共享元数据库，具体后端由 `STORAGE_BACKEND` 决定：
 
-| 文件 | 说明 |
+| 配置 | 说明 |
 |------|------|
-| `backend/runtime/data/openmelon.db` | 本地运行期主库 |
-| `backend/runtime/data/openmelon.db-wal` | SQLite WAL 日志文件 |
-| `backend/runtime/data/openmelon.db-shm` | SQLite 共享内存辅助文件 |
+| `STORAGE_BACKEND=sqlite` | 使用 `backend/runtime/data/openmelon.db` 作为本地元数据库 |
+| `STORAGE_BACKEND=postgres` | 使用 `DATABASE_URL` 指向的 PostgreSQL 作为主运行元数据库 |
+| `backend/runtime/data/openmelon.db` | SQLite 本地库；PG 模式下作为 legacy 回滚备份和迁移一致性参考 |
+| `backend/runtime/data/openmelon.db-wal` / `.db-shm` | SQLite WAL / 共享内存辅助文件，仅 SQLite 写入期需要关注 |
 
-当前写入共享 SQLite 的数据包括：
+当前写入共享元数据库的数据包括：
 
 - API 自动化项目、环境、接口资产、执行记录、策略审计、自动化任务、知识候选和报告制品元数据
 - 统一事件日志（`event_logs`）和 AI 调用观测日志（`ai_call_logs`）
@@ -2032,7 +2033,7 @@ OpenMelon 的本地运行期数据统一使用共享 SQLite 数据库：
 
 旧 JSON 文件如 `backend/runtime/data/file_tracker.json`、`backend/runtime/data/prompt_hub.json` 等只作为空库初始化和迁移兼容源保留，正常写入不再回写 JSON。
 
-> SQLite 主库和 WAL/SHM 文件属于运行期产物，已通过 `.gitignore` 排除，不应提交到代码仓库。
+> SQLite 数据库和 WAL/SHM 文件属于运行期产物，已通过 `.gitignore` 排除，不应提交到代码仓库。PG 观察期内 SQLite 保留为 legacy 回滚备份，不再作为主运行库。
 
 API 自动化已提供只读迁移准备检查：
 
@@ -2044,7 +2045,7 @@ curl "http://127.0.0.1:8000/api/api-execution/storage/migration-readiness"
 
 ### 13.7 日志中心
 
-「设置 -> 日志中心」读取共享 SQLite 中的统一事件日志，适合排查“某个操作发生了什么、是否被策略阻断、关联任务在哪一步失败”。
+「设置 -> 日志中心」读取当前元数据库中的统一事件日志；PG 模式下读取 PostgreSQL 的 `event_logs`，SQLite 模式下读取 `openmelon.db`。它适合排查“某个操作发生了什么、是否被策略阻断、关联任务在哪一步失败”。
 
 | 能力 | 说明 |
 |------|------|

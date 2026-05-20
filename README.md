@@ -203,12 +203,12 @@ OpenMelon/
 │   │   └── sqlite_filters.py # 执行记录查询过滤条件构建
 │   ├── index_governance/    # 索引治理模块（Neo4j/Qdrant 一致性扫描、清理、回填任务）
 │   ├── engine/              # RAG 核心编排层（意图路由、多路召回、Rerank）
-│   ├── storage/             # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
+│   ├── storage/             # 存储底座（SQLite / PostgreSQL 元数据库、Neo4j 知识图谱与 Qdrant 向量库）
 │   ├── services/            # 业务逻辑（文档解析、覆盖率计算、会话管理、企业 Webhook 等）
 │   ├── testcase_gen/        # 基于 AutoGen 的多智能体测试用例生成模块
 │   └── runtime_paths.py     # 集中管理所有运行时产物路径，支持 OPENMELON_DATA_DIR 环境变量
 ├── backend/runtime/         # 运行时产物（数据库、日志、上传文件等，不提交 git）
-│   ├── data/openmelon.db    # SQLite 主库（执行历史、项目、知识、Prompt Hub 等所有结构化数据）
+│   ├── data/openmelon.db    # SQLite 本地库与 PG 回滚备份（PG 模式下不再作为主运行库）
 │   ├── data/uploads/        # 用户上传的原始文件
 │   └── logs/                # 应用日志
 ├── frontend/src/
@@ -224,7 +224,9 @@ OpenMelon/
 
 后端所有的运行时产物（数据库、日志、导出文件、上传文件）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
 
-当前业务元数据运行时仍使用 SQLite。仓库提供可选的 `docker-compose.pg.yml` 作为 PostgreSQL 迁移演练环境，后端不会因为配置 `DATABASE_URL` 自动切换数据库；正式切换前可通过 `GET /api/api-execution/storage/migration-readiness` 查看 SQLite -> PostgreSQL JSONB 映射、表规模与数据风险，迁移步骤见 `docs/Knowledge/sqlite-to-postgres-migration-runbook.md`。
+当前业务元数据库由 `STORAGE_BACKEND` 决定：默认仍可使用 SQLite；设置 `STORAGE_BACKEND=postgres` 且提供 `DATABASE_URL` 后，API execution、FileTracker、Prompt Hub、NodeTypeStore、日志中心事件日志和 AI 调用日志会写入 PostgreSQL。PG 模式下 SQLite 在系统健康中标记为 `legacy`，主要作为回滚备份和迁移一致性参考。
+
+PostgreSQL 本地环境可通过 `docker-compose.pg.yml` 启动，迁移和观察期操作见 `docs/Knowledge/sqlite-to-postgres-migration-runbook.md` 与 `docs/Knowledge/postgres-runtime-observation-smoke.md`。进入 PG 观察期后不要再执行 `copy --truncate` 覆盖 PG 新写入，日常只运行 `verify` / `compare` 做只读参考。
 
 ---
 
