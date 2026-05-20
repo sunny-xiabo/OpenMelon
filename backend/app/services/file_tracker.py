@@ -5,7 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.config import settings
 from app.runtime_paths import LEGACY_JSON_DIR
+from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_sqlite
 from app.storage.sqlite_store import BaseSQLiteStore
 
 logger = logging.getLogger(__name__)
@@ -163,5 +165,48 @@ class FileTracker(BaseSQLiteStore):
             return migrated
 
 
+class PostgresFileTracker(BasePostgresStore, FileTracker):
+    def __init__(
+        self,
+        database_url: str,
+        json_path: Path | None = None,
+    ) -> None:
+        self._json_path = json_path or self._JSON_FILE
+        BasePostgresStore.__init__(self, database_url)
+        self._migrate_from_json_if_empty()
+
+    def _init_schema(self) -> None:
+        self._conn.executescript(
+            postgres_schema_from_sqlite(
+                """
+                CREATE TABLE IF NOT EXISTS file_records (
+                    id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL DEFAULT '',
+                    doc_type TEXT NOT NULL DEFAULT '',
+                    module TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT '',
+                    indexed_at TEXT NOT NULL DEFAULT '',
+                    file_path TEXT DEFAULT '',
+                    chunk_count INTEGER NOT NULL DEFAULT 0,
+                    data TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_file_records_filename ON file_records(filename);
+                CREATE INDEX IF NOT EXISTS idx_file_records_module ON file_records(module);
+                CREATE INDEX IF NOT EXISTS idx_file_records_status ON file_records(status);
+                """
+            )
+        )
+
+
+def _create_default_tracker() -> FileTracker:
+    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
+    if storage_backend == "postgres":
+        logger.info("Using PostgreSQL file tracker store")
+        return PostgresFileTracker(settings.DATABASE_URL)
+    if storage_backend != "sqlite":
+        raise ValueError(f"Unsupported STORAGE_BACKEND: {settings.STORAGE_BACKEND}")
+    return FileTracker()
+
+
 # Singleton instance used across the app
-file_tracker = FileTracker()
+file_tracker = _create_default_tracker()

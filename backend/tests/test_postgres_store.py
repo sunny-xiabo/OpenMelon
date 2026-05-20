@@ -1,6 +1,10 @@
 import json
 
 from app.api_execution.postgres_store import PostgresRow, _translate_sql, _postgres_schema_sql
+from app.models.graph_types import PostgresNodeTypeStore
+from app.services.file_tracker import PostgresFileTracker
+from app.services.prompt_hub_tracker import PostgresPromptHubTracker
+from app.storage.postgres_store import postgres_schema_from_sqlite
 
 
 def test_postgres_row_serializes_jsonb_data_for_sqlite_store_methods():
@@ -22,3 +26,27 @@ def test_postgres_schema_maps_data_to_jsonb():
 
     assert "data JSONB NOT NULL" in schema
     assert "data TEXT NOT NULL" not in schema
+
+
+def test_shared_postgres_schema_mapper_keeps_index_columns_and_maps_payload():
+    schema = postgres_schema_from_sqlite(
+        """
+        CREATE TABLE IF NOT EXISTS sample_records (
+            id TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT '',
+            count INTEGER NOT NULL DEFAULT 0,
+            data TEXT NOT NULL
+        );
+        """
+    )
+
+    assert "status TEXT NOT NULL DEFAULT ''" in schema
+    assert "count INTEGER NOT NULL DEFAULT 0" in schema
+    assert "data JSONB NOT NULL" in schema
+    assert "data TEXT NOT NULL" not in schema
+
+
+def test_metadata_postgres_store_classes_are_runtime_overrides():
+    assert PostgresFileTracker.storage_engine == "postgres"
+    assert PostgresPromptHubTracker.storage_engine == "postgres"
+    assert PostgresNodeTypeStore.storage_engine == "postgres"

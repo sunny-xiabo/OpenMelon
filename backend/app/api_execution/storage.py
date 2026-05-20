@@ -1,7 +1,7 @@
 """API execution storage entrypoint.
 
-The API automation module now persists runtime data through SQLite only.
-Legacy JSON files are read once as migration seeds when the shared DB is empty.
+SQLite remains the default runtime. PostgreSQL is available only when
+STORAGE_BACKEND=postgres is explicitly configured.
 """
 
 import logging
