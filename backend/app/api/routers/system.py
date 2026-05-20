@@ -18,19 +18,38 @@ def _health_component(status: str, message: str = "", **details):
 
 
 def _overall_health_status(components: dict) -> str:
-    hard_down = {"sqlite"}
+    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
+    hard_down = set()
+    ignored_components = set()
+    if storage_backend == "postgres":
+        ignored_components.add("sqlite")
+    else:
+        hard_down.add("sqlite")
     for name in hard_down:
         if components.get(name, {}).get("status") == "down":
             return "down"
     if any(
         component.get("status") in {"down", "degraded", "missing_config"}
-        for component in components.values()
+        for name, component in components.items()
+        if name not in ignored_components
     ):
         return "degraded"
     return "ok"
 
 
 def _check_sqlite_health() -> dict:
+    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
+    if storage_backend == "postgres":
+        backup_path = DB_DIR / "openmelon.db.pg-cutover-backup"
+        return _health_component(
+            "legacy",
+            "SQLite 已降级为 PG 回滚备份，不参与运行时健康判断",
+            path=str(DB_PATH),
+            data_dir=str(DB_DIR),
+            backup_path=str(backup_path),
+            backup_exists=backup_path.exists(),
+            runtime_store="postgres",
+        )
     try:
         row = api_execution_store._query_one("SELECT 1 AS ok")
         query_ok = bool(row and row["ok"] == 1)

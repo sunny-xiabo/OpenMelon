@@ -1,6 +1,6 @@
 # SQLite -> PostgreSQL Migration Runbook
 
-> Current status: OpenMelon defaults to SQLite. PostgreSQL can be enabled as an optional runtime for the shared metadata stores during migration drills.
+> Current status: OpenMelon can run on PostgreSQL for shared metadata stores. SQLite is kept as a legacy rollback path during the migration observation period.
 
 ## Preflight
 
@@ -78,16 +78,19 @@ uv run --extra postgres python backend/scripts/sqlite_to_postgres.py compare \
   --database-url "$DATABASE_URL"
 ```
 
-## Optional PostgreSQL Runtime
+## PostgreSQL Runtime And SQLite Sunset
 
-The default runtime store remains SQLite. PostgreSQL is only used when explicitly enabled:
+PostgreSQL is used when explicitly enabled:
 
 ```bash
 STORAGE_BACKEND=postgres
 DATABASE_URL=postgresql://openmelon:openmelon@postgres:5432/openmelon
+POSTGRES_HEALTHCHECK_ENABLED=true
 ```
 
-The optional PostgreSQL runtime covers API execution, file tracker, Prompt Hub, and node type configuration. Keep `STORAGE_BACKEND=sqlite` in normal local development unless you are explicitly testing the PostgreSQL runtime path.
+The PostgreSQL runtime covers API execution, file tracker, Prompt Hub, and node type configuration. In `STORAGE_BACKEND=postgres` mode, SQLite health is reported as `legacy` and does not decide the overall runtime status. Keep the SQLite database file and cutover backup until the PostgreSQL observation period is complete.
+
+Do not run fresh `copy --truncate` after new writes have reached PostgreSQL unless you intentionally want to discard those PG writes. During the observation period, use PostgreSQL as the source of truth and keep SQLite only for rollback investigation.
 
 ## Rollback
 

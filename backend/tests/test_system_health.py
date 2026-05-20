@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 from app.api.routers import system
 
 
-def test_overall_health_status_prioritizes_core_sqlite_down():
+def test_overall_health_status_prioritizes_core_sqlite_down(monkeypatch):
+    monkeypatch.setattr(system.settings, "STORAGE_BACKEND", "sqlite")
     components = {
         "api": {"status": "ok"},
         "sqlite": {"status": "down"},
@@ -16,7 +17,19 @@ def test_overall_health_status_prioritizes_core_sqlite_down():
     assert system._overall_health_status(components) == "down"
 
 
-def test_overall_health_status_reports_degraded_for_optional_failures():
+def test_overall_health_status_ignores_legacy_sqlite_down_in_postgres_mode(monkeypatch):
+    monkeypatch.setattr(system.settings, "STORAGE_BACKEND", "postgres")
+    components = {
+        "api": {"status": "ok"},
+        "sqlite": {"status": "down"},
+        "postgres": {"status": "ok"},
+    }
+
+    assert system._overall_health_status(components) == "ok"
+
+
+def test_overall_health_status_reports_degraded_for_optional_failures(monkeypatch):
+    monkeypatch.setattr(system.settings, "STORAGE_BACKEND", "sqlite")
     components = {
         "api": {"status": "ok"},
         "sqlite": {"status": "ok"},
@@ -95,3 +108,16 @@ def test_postgres_health_uses_database_url(monkeypatch):
     assert port == 15432
     assert database == "openmelon"
     assert user == "openmelon"
+
+
+def test_sqlite_health_is_legacy_in_postgres_mode(monkeypatch, tmp_path):
+    monkeypatch.setattr(system.settings, "STORAGE_BACKEND", "postgres")
+    monkeypatch.setattr(system, "DB_DIR", tmp_path)
+    monkeypatch.setattr(system, "DB_PATH", tmp_path / "openmelon.db")
+    (tmp_path / "openmelon.db.pg-cutover-backup").write_text("backup", encoding="utf-8")
+
+    data = system._check_sqlite_health()
+
+    assert data["status"] == "legacy"
+    assert data["runtime_store"] == "postgres"
+    assert data["backup_exists"] is True
