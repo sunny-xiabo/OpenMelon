@@ -53,7 +53,7 @@ class PostgresConnection:
             raise RuntimeError(
                 "Install PostgreSQL runtime dependencies with: uv sync --extra postgres"
             ) from exc
-        self._conn = psycopg.connect(database_url, row_factory=dict_row)
+        self._conn = psycopg.connect(database_url, row_factory=dict_row, autocommit=True)
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> PostgresCursor:
         cursor = self._conn.execute(
