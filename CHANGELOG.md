@@ -5,6 +5,28 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.8.7] - 2026-05-20
+
+### PostgreSQL 运行时迁移与观察期
+
+#### 新增 (Added)
+- **可选 PostgreSQL 运行时**：新增 `STORAGE_BACKEND=sqlite|postgres` 运行时开关，默认仍保留 SQLite；显式设置 `STORAGE_BACKEND=postgres` 与 `DATABASE_URL` 后，API execution、FileTracker、Prompt Hub 和 NodeTypeStore 可使用 PostgreSQL 作为共享元数据库。
+- **PostgreSQL 迁移演练工具**：固化 SQLite 到 PostgreSQL 的 `plan`、`schema`、`copy`、`verify`、`compare` 流程，支持迁移前规划、JSONB schema 生成、数据复制、一致性校验和只读双跑对比。
+- **PostgreSQL 健康检查卡片**：系统健康接口和设置页健康面板新增 PostgreSQL 组件；默认不启用 PG healthcheck，显式配置后展示 PG 连接状态。
+- **PG 运行时 smoke 脚本**：新增 `backend/scripts/postgres_runtime_smoke.py`，覆盖系统健康、API execution、FileTracker、Prompt Hub、NodeTypeStore、事件日志和 AI 调用日志的真实运行路径。
+- **PG 观察期 runbook**：新增 `docs/Knowledge/postgres-runtime-observation-smoke.md`，记录 smoke 顺序、只读 verify/compare 原则、观察清单、回滚原则和暂不重构表结构的判断标准。
+
+#### 变更 (Changed)
+- **SQLite 进入 legacy 角色**：在 `STORAGE_BACKEND=postgres` 模式下，SQLite 健康状态标记为 `legacy`，作为回滚备份和历史参考，不再作为主运行库。
+- **PG schema 延续迁移期模型**：继续采用普通索引列 + `data JSONB` 的结构，不在迁移阶段拆分业务表；后续仅在观察到明确慢查询、增长压力或 JSONB 兼容问题后再做针对性优化。
+- **PostgreSQL 连接改为 autocommit**：共享 PG 连接使用 autocommit，贴合当前 store 的单语句同步写入模式，降低开发期中断进程留下 idle transaction 后影响 schema 初始化和索引创建的风险。
+
+#### 验证 (Verified)
+- **PG runtime smoke**：`uv run --extra postgres python scripts/postgres_runtime_smoke.py --pretty` 通过，输出 `ok: true`，并确认临时 smoke 数据已清理。
+- **后端回归**：`uv run --group dev pytest tests/test_system_health.py tests/test_postgres_store.py tests/test_postgres_migration.py tests/test_file_tracker_sqlite.py tests/test_prompt_hub_tracker.py tests/test_graph_node_type_sqlite.py tests/test_event_logs.py tests/test_api_execution_dashboard.py tests/test_api_execution_run_queue.py` 通过，合计 48 个用例。
+- **迁移一致性**：`sqlite_to_postgres.py verify` 与 `sqlite_to_postgres.py compare --sample-size 5` 均返回 `ok: true`。
+- **前端构建**：`npm --prefix frontend run build` 通过。
+
 ## [0.2.8.6] - 2026-05-18
 
 ### API 自动化资产化与 Agent MVP
