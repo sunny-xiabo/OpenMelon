@@ -275,6 +275,24 @@ def trigger_spec_sync_service() -> dict[str, Any]:
 def get_storage_migration_readiness_service() -> dict[str, Any]:
     from app.storage.migration_readiness import build_sqlite_to_pg_readiness
 
+    if getattr(api_execution_store, "storage_engine", "sqlite") == "postgres":
+        return {
+            "generated_at": _now_iso(),
+            "storage_engine": "postgres",
+            "database_path": "postgresql",
+            "journal_mode": "",
+            "pg_readiness": "runtime_on_postgres",
+            "table_profiles": [],
+            "json_field_risks": [],
+            "retention_plan": {
+                "run_count": 0,
+                "event_log_count": 0,
+                "ai_call_log_count": 0,
+                "recommendation": "当前 API execution 运行时已使用 PostgreSQL；SQLite -> PG readiness 不再适用。",
+                "archive_strategy": [],
+            },
+            "recommended_steps": ["使用 sqlite_to_postgres.py verify 校验最近一次迁移快照。"],
+        }
     return build_sqlite_to_pg_readiness(api_execution_store, generated_at=_now_iso())
 
 

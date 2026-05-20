@@ -67,6 +67,25 @@ uv run --extra postgres python backend/scripts/sqlite_to_postgres.py verify \
   --database-url "$DATABASE_URL"
 ```
 
+Run a read-only comparison with primary-key samples:
+
+```bash
+uv run --extra postgres python backend/scripts/sqlite_to_postgres.py compare \
+  --sqlite backend/runtime/data/openmelon.db \
+  --database-url "$DATABASE_URL"
+```
+
+## Optional PostgreSQL Runtime
+
+The default runtime store remains SQLite. PostgreSQL is only used by API execution when explicitly enabled:
+
+```bash
+STORAGE_BACKEND=postgres
+DATABASE_URL=postgresql://openmelon:openmelon@postgres:5432/openmelon
+```
+
+Only the API execution store is covered by the first PostgreSQL runtime phase. File tracker, Prompt Hub, and node type configuration remain on the shared SQLite store until a later cutover phase. Keep `STORAGE_BACKEND=sqlite` in normal local development unless you are explicitly testing the PostgreSQL runtime path.
+
 ## Rollback
 
 If smoke tests fail before new writes are accepted, point the runtime entrypoint back to SQLite and keep the PostgreSQL import for investigation. If writes have already reached PostgreSQL, export changed rows first before rollback.

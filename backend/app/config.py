@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     QDRANT_API_KEY: str = ""
     VECTOR_FALLBACK_TO_NEO4J: bool = True
 
+    STORAGE_BACKEND: str = "sqlite"
     POSTGRES_HEALTHCHECK_ENABLED: bool = False
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432

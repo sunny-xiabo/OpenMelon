@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from app.config import settings
 from app.api_execution.sqlite_store import SQLiteStore
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,15 @@ def _sqlite_has_api_execution_data(store: SQLiteStore) -> bool:
 
 
 def _create_default_store() -> Any:
+    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
+    if storage_backend == "postgres":
+        from app.api_execution.postgres_store import PostgresStore
+
+        logger.info("Using PostgreSQL API execution store")
+        return PostgresStore(settings.DATABASE_URL)
+    if storage_backend != "sqlite":
+        raise ValueError(f"Unsupported STORAGE_BACKEND: {settings.STORAGE_BACKEND}")
+
     store = APIExecutionStore()
     if _sqlite_has_api_execution_data(store):
         return store

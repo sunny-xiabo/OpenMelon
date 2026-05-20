@@ -6,6 +6,7 @@ from app.storage.postgres_migration import (
     build_migration_plan,
     build_postgres_schema_sql,
     canonical_json_hash,
+    compare_sqlite_to_postgres,
     inspect_sqlite_database,
 )
 
@@ -72,3 +73,19 @@ def test_build_migration_plan_reports_strategy(tmp_path):
 
 def test_canonical_json_hash_is_order_insensitive():
     assert canonical_json_hash({"b": 2, "a": 1}) == canonical_json_hash({"a": 1, "b": 2})
+
+
+def test_compare_sqlite_to_postgres_adds_samples(monkeypatch, tmp_path):
+    db_path = tmp_path / "openmelon.db"
+    _seed_db(db_path)
+
+    monkeypatch.setattr(
+        "app.storage.postgres_migration.verify_sqlite_to_postgres",
+        lambda **_kwargs: {"ok": True, "tables": []},
+    )
+
+    result = compare_sqlite_to_postgres(db_path=db_path, database_url="postgresql://example", sample_size=1)
+
+    assert result["ok"] is True
+    assert result["samples"][0]["table"] == "runs"
+    assert result["samples"][0]["sample_keys"] == [("run-1",)]

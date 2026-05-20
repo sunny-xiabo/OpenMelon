@@ -23,6 +23,7 @@ from app.storage.sqlite_store import BaseSQLiteStore
 class SQLiteStore(BaseSQLiteStore):
     """SQLite-backed storage for API execution. Same public API as APIExecutionStore."""
 
+    storage_engine = "sqlite"
     _EVENT_LOG_PRUNE_INTERVAL_SECONDS = 300
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:

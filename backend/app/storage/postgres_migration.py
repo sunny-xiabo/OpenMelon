@@ -207,6 +207,33 @@ def verify_sqlite_to_postgres(*, db_path: Path | str, database_url: str) -> dict
     }
 
 
+def compare_sqlite_to_postgres(*, db_path: Path | str, database_url: str, sample_size: int = 5) -> dict[str, Any]:
+    verification = verify_sqlite_to_postgres(db_path=db_path, database_url=database_url)
+    tables = inspect_sqlite_database(db_path)
+    sqlite_conn = sqlite3.connect(str(db_path))
+    sqlite_conn.row_factory = sqlite3.Row
+    samples: list[dict[str, Any]] = []
+    try:
+        for table in tables:
+            primary_key = table.primary_key
+            if not primary_key:
+                continue
+            order_by = ", ".join(quote_ident(column) for column in primary_key)
+            rows = sqlite_conn.execute(
+                f"SELECT {', '.join(quote_ident(column) for column in primary_key)} "
+                f"FROM {quote_ident(table.name)} ORDER BY {order_by} LIMIT ?",
+                (max(1, sample_size),),
+            ).fetchall()
+            samples.append({
+                "table": table.name,
+                "primary_key": list(primary_key),
+                "sample_keys": [tuple(row[column] for column in primary_key) for row in rows],
+            })
+    finally:
+        sqlite_conn.close()
+    return {**verification, "samples": samples}
+
+
 def quote_ident(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 

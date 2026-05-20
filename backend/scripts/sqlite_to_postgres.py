@@ -6,6 +6,7 @@ Examples:
   uv run python backend/scripts/sqlite_to_postgres.py schema --sqlite backend/runtime/data/openmelon.db
   uv run --extra postgres python backend/scripts/sqlite_to_postgres.py copy --sqlite backend/runtime/data/openmelon.db --database-url "$DATABASE_URL"
   uv run --extra postgres python backend/scripts/sqlite_to_postgres.py verify --sqlite backend/runtime/data/openmelon.db --database-url "$DATABASE_URL"
+  uv run --extra postgres python backend/scripts/sqlite_to_postgres.py compare --sqlite backend/runtime/data/openmelon.db --database-url "$DATABASE_URL"
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from app.storage.postgres_migration import (
     build_migration_plan,
     build_postgres_schema_sql,
     copy_sqlite_to_postgres,
+    compare_sqlite_to_postgres,
     inspect_sqlite_database,
     verify_sqlite_to_postgres,
 )
@@ -33,11 +35,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SQLite -> PostgreSQL migration drill tool")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    for name in ("plan", "schema", "copy", "verify"):
+    for name in ("plan", "schema", "copy", "verify", "compare"):
         command = subparsers.add_parser(name)
         command.add_argument("--sqlite", default=str(DB_PATH), help="SQLite database path")
-        if name in {"copy", "verify"}:
+        if name in {"copy", "verify", "compare"}:
             command.add_argument("--database-url", required=True, help="PostgreSQL connection URL")
+        if name == "compare":
+            command.add_argument("--sample-size", type=int, default=5)
         if name == "copy":
             command.add_argument("--batch-size", type=int, default=500)
             command.add_argument("--no-schema", action="store_true", help="Do not create PostgreSQL tables/indexes")
@@ -66,6 +70,14 @@ def main() -> int:
         return 0
     if args.command == "verify":
         result = verify_sqlite_to_postgres(db_path=sqlite_path, database_url=args.database_url)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ok"] else 1
+    if args.command == "compare":
+        result = compare_sqlite_to_postgres(
+            db_path=sqlite_path,
+            database_url=args.database_url,
+            sample_size=max(1, args.sample_size),
+        )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
     parser.error("unknown command")
