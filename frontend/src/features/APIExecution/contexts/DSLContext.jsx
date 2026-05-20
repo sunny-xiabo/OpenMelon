@@ -187,7 +187,7 @@ export const DSLProvider = ({ children }) => {
     downloadBlob(blob, buildReportFilename());
   };
 
-  const value = {
+  const value = useMemo(() => ({
     dslText, setDslText,
     assertionStepId, setAssertionStepId,
     runStepId, setRunStepId,
@@ -206,7 +206,7 @@ export const DSLProvider = ({ children }) => {
     exportPytestScript,
     exportPostmanCollection,
     exportRunReport,
-  };
+  }), [dslText, assertionStepId, runStepId, assertionType, assertionPath, assertionExpected, aiPatch, aiEnhancing, disabledFlowStepIds, parsedScript]);
 
   return (
     <DSLContext.Provider value={value}>

@@ -128,7 +128,7 @@ export default function ConfigCenter() {
     setDraft({});
   };
 
-  if (isSchemaLoading && !schema) return <EmptyState variant="loading" title="正在加载配置..." />;
+  if (isSchemaLoading && !schema) return <EmptyState variant="loading" title="配置准备中..." />;
   if (!schema && !isSchemaLoading) return <EmptyState variant="error" title="配置不可用" onAction={() => refetchSchema()} />;
 
   const isSaving = saveConfigMutation.isPending || saveProviderMutation.isPending || deleteProviderMutation.isPending;

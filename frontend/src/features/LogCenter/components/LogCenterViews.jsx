@@ -199,7 +199,7 @@ export function LogTable({
         </Box>
       ) : loading && !filteredLogs.length ? (
         <Box sx={{ p: 2 }}>
-          <EmptyState compact variant="loading" title="正在加载日志" />
+          <EmptyState compact variant="loading" title="日志准备中" />
         </Box>
       ) : filteredLogs.length ? (
         <>

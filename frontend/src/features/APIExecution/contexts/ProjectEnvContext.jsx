@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import {
   formatLineList,
@@ -313,7 +313,15 @@ export const ProjectEnvProvider = ({ children }) => {
     };
   };
 
-  const value = {
+  const restoreProjectSnapshot = useCallback((snapshot) => {
+    if (snapshot) applyProjectValues(snapshot);
+  }, [applyProjectValues]);
+
+  const restoreEnvironmentSnapshot = useCallback((snapshot) => {
+    if (snapshot) applyEnvironmentValues(snapshot);
+  }, [applyEnvironmentValues]);
+
+  const value = useMemo(() => ({
     projects, environments,
     selectedProjectId, setSelectedProjectId,
     selectedEnvironmentId, setSelectedEnvironmentId,
@@ -342,13 +350,15 @@ export const ProjectEnvProvider = ({ children }) => {
     cleanupStepsText, setCleanupStepsText,
     applyProjectValues,
     applyEnvironmentValues,
+    restoreProjectSnapshot,
+    restoreEnvironmentSnapshot,
     handleDeleteProject,
     handleDeleteEnvironment,
     buildProjectPayload,
     buildRunOptions,
     saveCurrentEnvironment,
     buildProjectPolicySnapshot,
-  };
+  }), [projects, environments, selectedProjectId, selectedEnvironmentId, projectName, environmentName, environmentType, environmentVariablesText, environmentTimeoutMs, baseUrl, bearerToken, globalHeadersText, allowAiExecution, allowAiRepair, allowScheduledExecution, allowAiGenerateDsl, allowOverwriteHistory, maxAutoRepairs, maxReruns, maxRequestsPerRun, riskOverridesText, operationAllowlistText, operationBlocklistText, authConfigText, setupStepsText, cleanupStepsText]);
 
   return (
     <ProjectEnvContext.Provider value={value}>

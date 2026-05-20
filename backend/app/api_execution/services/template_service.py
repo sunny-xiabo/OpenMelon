@@ -1,8 +1,15 @@
-from app.api_execution.router_deps import *
+import uuid
+from typing import Any
+
+from app.api.errors import NotFoundError
+from app.api_execution.router_deps import FLOW_TEMPLATE_DEFINITION_TYPE
+from app.api_execution.schemas import APIFlowTemplateUpsertRequest
+from app.api_execution.storage import api_execution_store
+from app.api_execution.utils import now_iso as _now_iso
 
 
 def list_flow_templates_service(project_id: str | None = None, limit: int = 100, offset: int = 0) -> dict[str, Any]:
-    from app.api_execution.services.dashboard_service import _flow_template_from_definition
+    from app.api_execution.services.dashboard_service import flow_template_from_definition
 
     safe_limit = max(1, min(limit, 200))
     safe_offset = max(0, offset)
@@ -12,7 +19,7 @@ def list_flow_templates_service(project_id: str | None = None, limit: int = 100,
         project_id=project_id,
         definition_type=FLOW_TEMPLATE_DEFINITION_TYPE,
     )
-    items = [_flow_template_from_definition(item) for item in definitions]
+    items = [flow_template_from_definition(item) for item in definitions]
     total = api_execution_store.count_automation_definitions(
         project_id=project_id,
         definition_type=FLOW_TEMPLATE_DEFINITION_TYPE,
@@ -21,14 +28,14 @@ def list_flow_templates_service(project_id: str | None = None, limit: int = 100,
 
 
 def upsert_flow_template_service(request: APIFlowTemplateUpsertRequest) -> dict[str, Any]:
-    from app.api_execution.services.dashboard_service import _flow_template_from_definition
+    from app.api_execution.services.dashboard_service import flow_template_from_definition
 
     now = _now_iso()
     template_id = request.template_id or str(uuid.uuid4())
     definition_id = f"flow-template:{template_id}"
     existing = api_execution_store.get_automation_definition(definition_id) or {}
     tags = [tag.strip() for tag in request.tags if tag.strip()]
-    name = request.name.strip() or request.script.name or "API 测试任务"
+    name = request.name.strip() or request.script.name or "API 流程模板"
     script = {
         **request.script.model_dump(),
         "flow_template_id": template_id,
@@ -52,16 +59,16 @@ def upsert_flow_template_service(request: APIFlowTemplateUpsertRequest) -> dict[
         "updated_at": now,
     }
     saved = api_execution_store.save_automation_definition(definition)
-    return _flow_template_from_definition(saved)
+    return flow_template_from_definition(saved)
 
 
 def delete_flow_template_service(template_id: str) -> dict[str, bool]:
     definition_id = template_id if template_id.startswith("flow-template:") else f"flow-template:{template_id}"
     existing = api_execution_store.get_automation_definition(definition_id)
     if not existing or existing.get("definition_type") != FLOW_TEMPLATE_DEFINITION_TYPE:
-        raise NotFoundError(message=str("测试任务不存在"))
+        raise NotFoundError(message=str("流程模板不存在"))
     if not api_execution_store.delete_automation_definition(definition_id):
-        raise NotFoundError(message=str("测试任务不存在"))
+        raise NotFoundError(message=str("流程模板不存在"))
     return {"deleted": True}
 
 

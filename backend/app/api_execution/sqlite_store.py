@@ -165,6 +165,12 @@ class SQLiteStore(BaseSQLiteStore):
             )
             return self._row_to_data(row)
 
+    def delete_api_module(self, module_id: str) -> bool:
+        with self._lock:
+            existed = self._query_one("SELECT 1 FROM api_modules WHERE module_id = ?", (module_id,)) is not None
+            self._execute("DELETE FROM api_modules WHERE module_id = ?", (module_id,))
+            return existed
+
     def list_api_modules(self, project_id: str, status: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
             conditions = ["project_id = ?"]

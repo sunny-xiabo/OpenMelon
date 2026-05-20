@@ -1,4 +1,31 @@
-from app.api_execution.router_deps import *
+import hashlib
+import json
+import os
+import tempfile
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import httpx
+from fastapi import HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
+
+from app.api.errors import InvalidRequestError, NotFoundError
+from app.api_execution.dsl_generator import generate_api_dsl
+from app.api_execution.knowledge import build_run_knowledge_items
+from app.api_execution.schemas import (
+    APIEnvironmentUpsertRequest,
+    APIOperationAsset,
+    APIProjectUpsertRequest,
+    APITestCaseDsl,
+    GenerateDslRequest,
+    ParseUrlRequest,
+    ValidateDslRequest,
+)
+from app.api_execution.spec_parser import SUPPORTED_EXTENSIONS, parse_api_description_file, parse_api_description_url
+from app.api_execution.storage import api_execution_store
+from app.api_execution.utils import now_iso as _now_iso
 
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 _VALID_ASSERTION_TYPES = {
@@ -55,8 +82,7 @@ DEMO_ENVIRONMENT_ID = "demo-api-flow-local"
 
 
 def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
-    from app.api_execution.services.asset_service import sync_project_spec_assets
-    from app.api_execution.services.run_service import _save_run_report
+    from app.api_execution.services.run_service import save_run_report
 
     now = _now_iso()
     base_url = (spec.get("servers") or [{}])[0].get("url") or "http://localhost:18080"
@@ -103,12 +129,11 @@ def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
             "updated_at": now,
         }
     )
-    asset_sync = sync_project_spec_assets(project, spec)
     script = _demo_script(spec, base_url)
     seeded_runs = [
-        _save_run_report(_demo_run_report(script, "demo-run-passed", "passed")),
-        _save_run_report(_demo_run_report(script, "demo-run-failed", "failed")),
-        _save_run_report(_demo_run_report(script, "demo-run-repaired", "repaired")),
+        save_run_report(_demo_run_report(script, "demo-run-passed", "passed")),
+        save_run_report(_demo_run_report(script, "demo-run-failed", "failed")),
+        save_run_report(_demo_run_report(script, "demo-run-repaired", "repaired")),
     ]
     knowledge_ids: set[str] = set()
     for run in seeded_runs:
@@ -120,7 +145,6 @@ def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
         "spec": spec,
         "project": project,
         "environment": environment,
-        "asset_diff_summary": asset_sync.get("diff_summary", {}),
         "seeded_run_ids": [run.get("run_id", "") for run in seeded_runs],
         "knowledge_item_count": len([item for item in knowledge_ids if item]),
         "pending_task_count": len(pending_tasks),
@@ -331,8 +355,6 @@ def list_projects_service() -> dict[str, Any]:
 
 
 def upsert_project_service(request: APIProjectUpsertRequest) -> dict[str, Any]:
-    from app.api_execution.services.asset_service import ensure_project_assets
-
     now = _now_iso()
     project_id = request.project_id or str(uuid.uuid4())
     existing = api_execution_store.get_project(project_id) or {}
@@ -343,9 +365,7 @@ def upsert_project_service(request: APIProjectUpsertRequest) -> dict[str, Any]:
         "created_at": existing.get("created_at") or now,
         "updated_at": now,
     }
-    saved = api_execution_store.save_project(project)
-    ensure_project_assets(saved)
-    return saved
+    return api_execution_store.save_project(project)
 
 
 def get_project_service(project_id: str) -> dict[str, Any]:

@@ -9,6 +9,9 @@ from app.api_execution.schemas import (
     APIAssetInterfaceCreateRequest,
     APIAssetInterfaceUpdateRequest,
     APIAssetModuleCreateRequest,
+    APIAssetModuleMergeRequest,
+    APIAssetModuleRemoveRequest,
+    APIAssetModuleUpdateRequest,
     APIAssetTestPlanRequest,
     APIProjectUpsertRequest,
     RunScriptRequest,
@@ -953,6 +956,8 @@ def test_hidden_interface_is_skipped_by_asset_test_plan(tmp_path, monkeypatch):
     assert result["risk_summary"]["included"] == 0
     assert result["risk_summary"]["skipped"] == 1
     assert result["skipped_interfaces"][0]["reason"] == "接口已隐藏，默认不纳入 Agent 测试"
+    hidden_list = asset_service.list_project_interfaces_service("project-1", status="hidden")
+    assert hidden_list["total"] == 1
 
 
 def test_create_manual_module_and_interface_then_delete(tmp_path, monkeypatch):
@@ -1006,3 +1011,153 @@ def test_openapi_interface_cannot_be_physically_deleted(tmp_path, monkeypatch):
 
     with pytest.raises(InvalidRequestError):
         asset_service.delete_project_interface_service(interface["interface_id"])
+
+
+def test_openapi_interface_exclusion_survives_spec_resync(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(asset_service, "api_execution_store", store)
+    project = store.save_project({"project_id": "project-1", "name": "Catalog Project", "spec_id": "spec-1"})
+    first = store.save_spec(
+        {
+            "spec_id": "spec-1",
+            "parsed_at": "2026-05-15T00:00:00Z",
+            "operation_count": 1,
+            "operations": [
+                {"id": "GET /users", "method": "GET", "path": "/users", "operation_id": "listUsers", "summary": "List users", "tags": ["User"]},
+            ],
+        }
+    )
+    sync = asset_service.sync_project_spec_assets(project, first)
+    interface = sync["interfaces"][0]
+
+    excluded = asset_service.update_project_interface_service(interface["interface_id"], APIAssetInterfaceUpdateRequest(status="excluded"))
+    assert excluded["status"] == "excluded"
+    assert excluded["hidden"] is True
+
+    second = store.save_spec(
+        {
+            "spec_id": "spec-2",
+            "parsed_at": "2026-05-15T00:01:00Z",
+            "operation_count": 1,
+            "operations": [
+                {"id": "GET /users", "method": "GET", "path": "/users", "operation_id": "listUsers", "summary": "List users v2", "tags": ["User"]},
+            ],
+        }
+    )
+    result = asset_service.sync_project_spec_assets(project, second)
+
+    assert result["diff_summary"]["changed"] == 1
+    updated = store.get_api_interface(interface["interface_id"])
+    assert updated["status"] == "excluded"
+    assert updated["summary"] == "List users v2"
+    excluded_list = asset_service.list_project_interfaces_service("project-1", status="excluded")
+    assert excluded_list["total"] == 1
+
+
+def test_interface_status_change_from_excluded_clears_exclusion_metadata(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(asset_service, "api_execution_store", store)
+    project = store.save_project({"project_id": "project-1", "name": "Catalog Project"})
+    spec = store.save_spec(
+        {
+            "spec_id": "spec-1",
+            "parsed_at": "2026-05-15T00:00:00Z",
+            "operation_count": 1,
+            "operations": [
+                {"id": "GET /users", "method": "GET", "path": "/users", "operation_id": "listUsers", "summary": "List users", "tags": ["User"]},
+            ],
+        }
+    )
+    sync = asset_service.sync_project_spec_assets(project, spec)
+    interface = sync["interfaces"][0]
+
+    excluded = asset_service.update_project_interface_service(interface["interface_id"], APIAssetInterfaceUpdateRequest(status="excluded"))
+    assert excluded["hidden"] is True
+    assert excluded["excluded_by_user"] is True
+    assert excluded["excluded_at"]
+
+    deprecated = asset_service.update_project_interface_service(interface["interface_id"], APIAssetInterfaceUpdateRequest(status="deprecated"))
+
+    assert deprecated["status"] == "deprecated"
+    assert deprecated["hidden"] is False
+    assert deprecated["excluded_by_user"] is False
+    assert "excluded_at" not in deprecated
+
+
+def test_empty_manual_module_can_delete_but_non_empty_module_must_be_migrated_or_excluded(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(asset_service, "api_execution_store", store)
+    store.save_project({"project_id": "project-1", "name": "Catalog Project"})
+
+    empty_module = asset_service.create_project_module_service("project-1", APIAssetModuleCreateRequest(name="空模块"))
+    deleted = asset_service.delete_project_module_service(empty_module["module_id"])
+    assert deleted["deleted"] is True
+    assert store.get_api_module(empty_module["module_id"]) is None
+
+    module = asset_service.create_project_module_service("project-1", APIAssetModuleCreateRequest(name="手工模块"))
+    asset_service.create_project_interface_service(
+        "project-1",
+        APIAssetInterfaceCreateRequest(module_id=module["module_id"], method="GET", path="/manual/users"),
+    )
+
+    with pytest.raises(InvalidRequestError):
+        asset_service.delete_project_module_service(module["module_id"])
+
+
+def test_module_merge_moves_interfaces_and_excludes_source_module(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(asset_service, "api_execution_store", store)
+    project = store.save_project({"project_id": "project-1", "name": "Catalog Project"})
+    spec = store.save_spec(
+        {
+            "spec_id": "spec-1",
+            "parsed_at": "2026-05-15T00:00:00Z",
+            "operation_count": 2,
+            "operations": [
+                {"id": "GET /users", "method": "GET", "path": "/users", "operation_id": "listUsers", "summary": "List users", "tags": ["User"]},
+                {"id": "GET /orders", "method": "GET", "path": "/orders", "operation_id": "listOrders", "summary": "List orders", "tags": ["Order"]},
+            ],
+        }
+    )
+    asset_service.sync_project_spec_assets(project, spec)
+    user_module = store.get_api_module_by_key("project-1", "user")
+    order_module = store.get_api_module_by_key("project-1", "order")
+
+    merged = asset_service.merge_project_module_service(
+        order_module["module_id"],
+        APIAssetModuleMergeRequest(target_module_id=user_module["module_id"]),
+    )
+
+    order_interface = store.get_api_interface_by_key("project-1", "GET /orders")
+    assert merged["status"] == "excluded"
+    assert merged["merged_into_module_id"] == user_module["module_id"]
+    assert order_interface["module_id"] == user_module["module_id"]
+    assert order_interface["module_name"] == user_module["name"]
+
+
+def test_module_exclusion_excludes_interfaces_and_asset_test_plan(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(asset_service, "api_execution_store", store)
+    project = store.save_project({"project_id": "project-1", "name": "Catalog Project"})
+    spec = store.save_spec(
+        {
+            "spec_id": "spec-1",
+            "parsed_at": "2026-05-15T00:00:00Z",
+            "operation_count": 1,
+            "operations": [
+                {"id": "GET /users", "method": "GET", "path": "/users", "operation_id": "listUsers", "summary": "List users", "tags": ["User"]},
+            ],
+        }
+    )
+    sync = asset_service.sync_project_spec_assets(project, spec)
+    module = sync["modules"][0]
+    interface = sync["interfaces"][0]
+
+    removed = asset_service.remove_project_module_service(module["module_id"], APIAssetModuleRemoveRequest(mode="exclude"))
+
+    assert removed["status"] == "excluded"
+    assert store.get_api_interface(interface["interface_id"])["status"] == "excluded"
+    assert store.get_api_interface(interface["interface_id"])["hidden"] is True
+    plan = asset_service.build_asset_test_plan_service("project-1", APIAssetTestPlanRequest(module_id=module["module_id"]))
+    assert plan["risk_summary"]["included"] == 0
+    assert plan["risk_summary"]["skipped"] == 1

@@ -1,12 +1,12 @@
 import asyncio
 
-from app.api_execution import routers
+from app.api_execution.services import automation_service
 from app.api_execution.storage import APIExecutionStore
 
 
 def test_spec_sync_regenerates_dsl_when_spec_changed(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
     store.save_spec(
         {
             "spec_id": "spec-1",
@@ -38,7 +38,7 @@ def test_spec_sync_regenerates_dsl_when_spec_changed(tmp_path, monkeypatch):
         }
     )
 
-    response = asyncio.run(routers.trigger_spec_sync())
+    response = automation_service.trigger_spec_sync_service()
 
     assert response["items"][0]["status"] == "updated"
     project = store.get_project("project-1")
@@ -48,7 +48,7 @@ def test_spec_sync_regenerates_dsl_when_spec_changed(tmp_path, monkeypatch):
 
 def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
     store.save_spec(
         {
             "spec_id": "spec-1",
@@ -101,9 +101,9 @@ def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
         assert policy_decision["allowed"] is True
         return {"run_id": "run-1", "status": "queued"}
 
-    monkeypatch.setattr(routers, "enqueue_run", fake_enqueue_run)
+    monkeypatch.setattr(automation_service, "enqueue_run", fake_enqueue_run)
 
-    response = asyncio.run(routers.trigger_scheduled_runs())
+    response = asyncio.run(automation_service.trigger_scheduled_runs_service())
 
     assert response["items"][0]["status"] == "queued"
     assert response["items"][0]["run_id"] == "run-1"
@@ -112,7 +112,7 @@ def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
 
 def test_scheduled_trigger_blocks_when_project_policy_disabled(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
     store.save_project(
         {
             "project_id": "project-1",
@@ -123,7 +123,7 @@ def test_scheduled_trigger_blocks_when_project_policy_disabled(tmp_path, monkeyp
         }
     )
 
-    response = asyncio.run(routers.trigger_scheduled_runs())
+    response = asyncio.run(automation_service.trigger_scheduled_runs_service())
 
     assert response["items"][0]["status"] == "blocked"
     assert "AI 自动执行" in response["items"][0]["reason"]
@@ -131,7 +131,7 @@ def test_scheduled_trigger_blocks_when_project_policy_disabled(tmp_path, monkeyp
 
 def test_storage_migration_readiness_reports_jsonb_and_retention_plan(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
     store.save_project(
         {
             "project_id": "project-1",
@@ -153,11 +153,39 @@ def test_storage_migration_readiness_reports_jsonb_and_retention_plan(tmp_path, 
         }
     )
 
-    response = asyncio.run(routers.get_storage_migration_readiness())
+    response = automation_service.get_storage_migration_readiness_service()
 
     assert response["storage_engine"] == "sqlite"
     assert response["pg_readiness"] == "ready_with_jsonb_mapping"
-    assert any(item["table"] == "runs" and item["row_count"] == 1 for item in response["table_profiles"])
-    assert any("JSONB" in step for step in response["recommended_steps"])
+    assert response["database_path"].endswith("api_execution.db")
+    runs_profile = next(item for item in response["table_profiles"] if item["table"] == "runs")
+    projects_profile = next(item for item in response["table_profiles"] if item["table"] == "projects")
+    assert runs_profile["row_count"] == 1
+    assert runs_profile["pg_jsonb_column"] == "data"
+    assert runs_profile["invalid_json_rows"] == 0
+    assert "project_id" in runs_profile["indexed_columns"]
+    assert projects_profile["row_count"] == 1
     assert response["retention_plan"]["run_count"] == 1
-    assert any(risk["risk_level"] == "high" for risk in response["json_field_risks"])
+    assert response["recommended_steps"]
+    assert any(risk["area"] == "projects" and risk["risk_level"] == "medium" for risk in response["json_field_risks"])
+
+
+def test_storage_migration_readiness_flags_invalid_json_payloads(tmp_path, monkeypatch):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
+    with store._lock:
+        store._conn.execute(
+            """
+            INSERT INTO runs (run_id, status, project_id, case_id, case_name, run_at, data)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("bad-json", "failed", "project-1", "case-1", "Bad JSON", "2026-05-18T10:00:00Z", "{bad"),
+        )
+        store._conn.commit()
+
+    response = automation_service.get_storage_migration_readiness_service()
+
+    assert response["pg_readiness"] == "needs_cleanup"
+    runs_profile = next(item for item in response["table_profiles"] if item["table"] == "runs")
+    assert runs_profile["invalid_json_rows"] == 1
+    assert any(risk["area"] == "runs" and risk["risk_level"] == "high" for risk in response["json_field_risks"])

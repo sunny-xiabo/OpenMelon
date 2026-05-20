@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from typing import Optional
 import uuid
@@ -41,6 +41,15 @@ _virtual_node_cache = {}
 def _log_graph_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
     return safe_log_event(level, "graph", event_type, title, message, **kwargs)
 
+
+def _empty_graph_filters(reason: str = ""):
+    return {
+        "doc_types": [],
+        "modules": [],
+        "graph_available": False,
+        "message": reason,
+    }
+
 @router.get("/full", response_model=GraphData)
 async def graph_full(
     limit: int = Query(default=1000, ge=1, le=5000),
@@ -72,18 +81,61 @@ async def graph_full(
         raise InternalError(details=str(e))
 
 @router.get("/filters")
-async def graph_filters(graph_ops = Depends(get_graph_ops)):
+async def graph_filters(request: Request):
+    graph_ops = getattr(request.app.state, "graph_ops", None)
+    if graph_ops is None:
+        return _empty_graph_filters("图谱服务当前不可用")
     try:
-        return await graph_ops.get_doc_types_and_modules()
+        filters = await graph_ops.get_doc_types_and_modules()
+        return {
+            "doc_types": sorted(filters.get("doc_types") or []),
+            "modules": sorted(filters.get("modules") or []),
+            "graph_available": True,
+            "message": "",
+        }
     except Exception as e:
-        raise InternalError(details=str(e))
+        _log_graph_event(
+            "warning",
+            "graph_filters_degraded",
+            "图谱筛选项降级为空",
+            str(e),
+            data={"error": str(e)},
+        )
+        return _empty_graph_filters("图谱筛选项暂不可用")
 
 @router.get("/status")
-async def graph_status(graph_ops = Depends(get_graph_ops)):
+async def graph_status(request: Request):
+    graph_ops = getattr(request.app.state, "graph_ops", None)
+    if graph_ops is None:
+        return {
+            "has_data": False,
+            "node_count": 0,
+            "relationship_count": 0,
+            "graph_available": False,
+            "message": "图谱服务当前不可用",
+        }
     try:
-        return await graph_ops.get_graph_status()
+        status = await graph_ops.get_graph_status()
+        return {
+            **status,
+            "graph_available": True,
+            "message": "",
+        }
     except Exception as e:
-        raise InternalError(details=str(e))
+        _log_graph_event(
+            "warning",
+            "graph_status_degraded",
+            "图谱状态降级为空",
+            str(e),
+            data={"error": str(e)},
+        )
+        return {
+            "has_data": False,
+            "node_count": 0,
+            "relationship_count": 0,
+            "graph_available": False,
+            "message": "图谱状态暂不可用",
+        }
 
 @router.get("/node-types", response_model=NodeTypeConfigResponse)
 async def graph_node_types():

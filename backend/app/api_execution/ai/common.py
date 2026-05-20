@@ -13,6 +13,7 @@ from app.api_execution.schemas import APITestCaseDsl
 
 
 AI_ASSISTANT_TIMEOUT_SECONDS = 20
+AI_ASSISTANT_ENHANCE_TIMEOUT_SECONDS = 6
 
 
 def _log_ai_event(level: str, event_type: str, title: str, message: str = "", **kwargs):

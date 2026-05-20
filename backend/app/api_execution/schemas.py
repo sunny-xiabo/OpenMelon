@@ -164,6 +164,9 @@ class APIAssetModule(BaseModel):
     path_prefixes: list[str] = []
     tag_aliases: list[str] = []
     interface_count: int = 0
+    excluded_at: Optional[str] = None
+    excluded_by_user: bool = False
+    merged_into_module_id: Optional[str] = None
     updated_at: str = ""
 
 
@@ -191,6 +194,9 @@ class APIAssetInterface(BaseModel):
     last_test_status: str = ""
     last_status_code: int | None = None
     last_failure_summary: str = ""
+    hidden: bool = False
+    excluded_at: Optional[str] = None
+    excluded_by_user: bool = False
     operation: dict[str, Any] = {}
 
 
@@ -253,6 +259,22 @@ class APIAssetTestPlanRequest(BaseModel):
 class APIAssetModuleCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
+
+
+class APIAssetModuleUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class APIAssetModuleRemoveRequest(BaseModel):
+    mode: str
+    target_module_id: Optional[str] = None
+
+
+class APIAssetModuleMergeRequest(BaseModel):
+    target_module_id: str
 
 
 class APIAssetInterfaceCreateRequest(BaseModel):
@@ -368,6 +390,46 @@ class APIAssetTestPlanResponse(BaseModel):
     orchestration_summary: str = ""
     requires_high_risk_confirmation: bool = False
     summary: str = ""
+
+
+class APIAgentAction(BaseModel):
+    action: str
+    label: str
+    description: str = ""
+    section: str = ""
+    scope_strategy: str = ""
+    module_id: str = ""
+    interface_ids: list[str] = []
+    intent: str = "smoke"
+
+
+class APIAgentContextResponse(BaseModel):
+    project_id: str
+    project_name: str = ""
+    readiness: dict[str, Any] = {}
+    asset_summary: dict[str, Any] = {}
+    risk_summary: dict[str, Any] = {}
+    skipped_reason_groups: list[dict[str, Any]] = []
+    recent_run: dict[str, Any] | None = None
+    pending_task_count: int = 0
+    recommendation: APIAgentAction
+    quick_actions: list[APIAgentAction] = []
+    summary: str = ""
+
+
+class APIAgentTestPlanRequest(BaseModel):
+    intent: str = "smoke"
+    scope_strategy: str = "auto"
+    module_id: Optional[str] = None
+    interface_ids: list[str] = []
+    include_high_risk: bool = False
+    business_goal: str = ""
+
+
+class APIAgentTestPlanResponse(APIAssetTestPlanResponse):
+    agent_summary: str = ""
+    next_action: APIAgentAction
+    skipped_reason_groups: list[dict[str, Any]] = []
 
 
 class ValidateDslRequest(BaseModel):

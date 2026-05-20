@@ -12,13 +12,14 @@ async def _build_patch_with_llm(
     base_url = settings.API_BASE_URL
     model_name = settings.CHAT_MODEL
     max_tokens = min(settings.GENERATION_MAX_TOKENS or 2000, 3000)
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    timeout_seconds = AI_ASSISTANT_ENHANCE_TIMEOUT_SECONDS if task == "enhance_dsl" else AI_ASSISTANT_TIMEOUT_SECONDS
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=timeout_seconds, max_retries=0)
     response = await client.chat.completions.create(
         model=model_name,
         messages=_build_llm_messages(task, script, report, project_policy_snapshot, fallback),
         temperature=0.1,
         max_tokens=max_tokens,
-        timeout=AI_ASSISTANT_TIMEOUT_SECONDS,
+        timeout=timeout_seconds,
     )
     content = response.choices[0].message.content or ""
     payload = _extract_json_object(content)
@@ -32,12 +33,17 @@ async def _build_patch_with_llm(
         project_policy_snapshot=project_policy_snapshot,
     )
     safe_operations = bool(patch_operations) and all(item.get("safe_to_apply") for item in patch_operations)
-    repair_draft = _build_repair_draft(
-        patched_script.model_dump(),
-        patch_operations,
-        report or {},
-        historical_context=project_policy_snapshot.get("historical_repair_context") or [],
-    )
+    if task == "repair_patch":
+        from app.api_execution.ai.repair_patch import _build_repair_draft
+
+        repair_draft = _build_repair_draft(
+            patched_script.model_dump(),
+            patch_operations,
+            report or {},
+            historical_context=project_policy_snapshot.get("historical_repair_context") or [],
+        )
+    else:
+        repair_draft = {}
     return {
         "patched_script": patched_script,
         "patch_operations": patch_operations,

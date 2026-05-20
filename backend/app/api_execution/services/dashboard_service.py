@@ -1,4 +1,13 @@
-from app.api_execution.router_deps import *
+from collections import Counter
+from typing import Any
+
+from app.api_execution.router_deps import (
+    RUN_STATUSES,
+    TASK_ACTION_BUCKETS,
+    TASK_CENTER_STATUSES,
+    TASK_TYPE_LABELS,
+)
+from app.api_execution.storage import api_execution_store
 
 
 def get_dashboard_summary_service(project_id: str | None = None, limit: int = 50) -> dict[str, Any]:
@@ -94,7 +103,7 @@ def _dashboard_summary(project_id: str | None = None, limit: int = 50) -> dict[s
     }
 
 
-def _task_center_summary(project_id: str | None = None, limit: int = 50) -> dict[str, Any]:
+def task_center_summary(project_id: str | None = None, limit: int = 50) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 200))
     project_filter = project_id.strip() if project_id else None
     tasks_by_status = {
@@ -187,7 +196,7 @@ def _rate(count: int, total: int) -> float:
     return round((count / total) * 100, 1) if total else 0
 
 
-def _flow_template_performance(project_id: str | None = None, limit: int = 200) -> dict[str, dict[str, Any]]:
+def flow_template_performance(project_id: str | None = None, limit: int = 200) -> dict[str, dict[str, Any]]:
     performance: dict[str, dict[str, Any]] = {}
     for run in api_execution_store.list_runs(limit=limit, project_id=project_id):
         template_id = str((run.get("execution_options") or {}).get("flow_template_id") or "").strip()
@@ -202,22 +211,13 @@ def _flow_template_performance(project_id: str | None = None, limit: int = 200) 
                 "failed": 0,
                 "cancelled": 0,
                 "last_run_at": "",
-                "last_status": "",
-                "last_run_id": "",
-                "last_case_name": "",
-                "last_duration_ms": 0,
             },
         )
         item["run_count"] += 1
         if status in {"passed", "failed", "cancelled"}:
             item[status] += 1
-        run_at = str(run.get("run_at") or "")
-        if not item["last_run_at"] or run_at > item["last_run_at"]:
-            item["last_run_at"] = run_at
-            item["last_status"] = status
-            item["last_run_id"] = run.get("run_id") or ""
-            item["last_case_name"] = run.get("case_name") or run.get("case_id") or ""
-            item["last_duration_ms"] = _safe_int(run.get("duration_ms"))
+        if not item["last_run_at"] or str(run.get("run_at") or "") > item["last_run_at"]:
+            item["last_run_at"] = str(run.get("run_at") or "")
     for item in performance.values():
         finished = item["passed"] + item["failed"] + item["cancelled"]
         item["pass_rate"] = round(item["passed"] / finished, 3) if finished else 0
@@ -274,7 +274,7 @@ def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _flow_template_from_definition(definition: dict[str, Any]) -> dict[str, Any]:
+def flow_template_from_definition(definition: dict[str, Any]) -> dict[str, Any]:
     template_id = definition.get("template_id") or definition.get("definition_id", "").replace("flow-template:", "", 1)
     project_id = definition.get("project_id", "")
     return {
@@ -287,7 +287,7 @@ def _flow_template_from_definition(definition: dict[str, Any]) -> dict[str, Any]
         "version": definition.get("version") or "v1",
         "deprecated": bool(definition.get("deprecated", False)),
         "scope": definition.get("scope") or ("项目内" if project_id else "全项目可用"),
-        "performance_snapshot": definition.get("performance_snapshot") or _flow_template_performance(project_id or None).get(template_id, {}),
+        "performance_snapshot": definition.get("performance_snapshot") or flow_template_performance(project_id or None).get(template_id, {}),
         "created_at": definition.get("created_at", ""),
         "updated_at": definition.get("updated_at", ""),
     }

@@ -36,6 +36,15 @@ export const apiExecutionAPI = {
     return fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/assets/impact${suffix}`);
   },
 
+  getAgentContext: (projectId) =>
+    fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/agent/context`),
+
+  buildAgentTestPlan: (projectId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/agent/test-plan`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   listProjectModules: (projectId) =>
     fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/modules`),
 
@@ -43,6 +52,29 @@ export const apiExecutionAPI = {
     fetchJSON(`${API_BASE}/api-execution/projects/${encodeURIComponent(projectId)}/modules`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  updateProjectModule: (moduleId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/modules/${encodeURIComponent(moduleId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  removeProjectModule: (moduleId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/modules/${encodeURIComponent(moduleId)}/remove`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  mergeProjectModule: (moduleId, payload) =>
+    fetchJSON(`${API_BASE}/api-execution/modules/${encodeURIComponent(moduleId)}/merge`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteProjectModule: (moduleId) =>
+    fetchJSON(`${API_BASE}/api-execution/modules/${encodeURIComponent(moduleId)}`, {
+      method: 'DELETE',
     }),
 
   listProjectInterfaces: ({ projectId, moduleId = '', status = '', riskLevel = '', keyword = '', limit = 500, offset = 0 } = {}) => {

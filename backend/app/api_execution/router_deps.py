@@ -7,11 +7,11 @@ import uuid
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -38,12 +38,19 @@ from app.api_execution.schemas import (
     APIProjectUpsertRequest,
     APIAssetModule,
     APIAssetModuleCreateRequest,
+    APIAssetModuleMergeRequest,
+    APIAssetModuleRemoveRequest,
+    APIAssetModuleUpdateRequest,
     APIAssetInterface,
     APIAssetInterfaceCreateRequest,
     APIAssetSyncResponse,
     APIAssetInterfaceUpdateRequest,
     APIAssetTestPlanRequest,
     APIAssetTestPlanResponse,
+    APIAgentAction,
+    APIAgentContextResponse,
+    APIAgentTestPlanRequest,
+    APIAgentTestPlanResponse,
     APIAssetImpactResponse,
     APIProjectAssetsResponse,
     APIInterfaceListResponse,
@@ -110,4 +117,52 @@ TASK_ACTION_BUCKETS = (
 )
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    # Stdlib
+    "hashlib", "json", "os", "tempfile", "uuid", "Counter",
+    "UTC", "datetime", "Path", "Annotated", "Any",
+    # Third-party
+    "httpx", "run_in_threadpool",
+    # FastAPI
+    "APIRouter", "Depends", "File", "HTTPException", "Query", "Request", "UploadFile",
+    "Response", "StreamingResponse",
+    # Internal infrastructure
+    "settings", "log_event",
+    # Internal errors
+    "InternalError", "InvalidRequestError", "NotFoundError", "UnauthorizedError",
+    # Internal modules
+    "api_execution_store", "enrich_run_report", "generate_api_dsl",
+    "build_run_knowledge_items", "write_run_to_graph_with_retry", "build_graph_write_failure_task",
+    "generate_postman_collection", "generate_pytest_script",
+    "assert_execution_allowed", "cancel_run", "enqueue_run", "subscribe_sse", "unsubscribe_sse",
+    "run_all_steps", "run_single_step",
+    "SUPPORTED_EXTENSIONS", "parse_api_description_file", "parse_api_description_url",
+    "_execution_options", "_now_iso",
+    # AI assistant
+    "build_flow_draft", "build_repair_patch", "build_repair_patch_with_configured_ai",
+    "enhance_dsl_with_configured_ai",
+    # Schemas
+    "APIEnvironmentConfig", "APIEnvironmentListResponse", "APIEnvironmentUpsertRequest",
+    "APIFlowTemplate", "APIFlowTemplateListResponse", "APIFlowTemplateUpsertRequest",
+    "AIDslEnhanceRequest", "AIFlowDraftRequest", "AIFlowDraftResponse",
+    "AIRepairPatchRequest", "AIPatchResponse",
+    "AutomationTaskCenterSummaryResponse", "AutomationTaskListResponse", "AutomationTaskRecord",
+    "APIOperationAsset", "APIProjectConfig", "APIProjectListResponse", "APIProjectUpsertRequest",
+    "APIAssetModule", "APIAssetModuleCreateRequest", "APIAssetModuleMergeRequest",
+    "APIAssetModuleRemoveRequest", "APIAssetModuleUpdateRequest",
+    "APIAssetInterface", "APIAssetInterfaceCreateRequest", "APIAssetSyncResponse",
+    "APIAssetInterfaceUpdateRequest", "APIAssetTestPlanRequest", "APIAssetTestPlanResponse",
+    "APIAgentAction", "APIAgentContextResponse", "APIAgentTestPlanRequest", "APIAgentTestPlanResponse",
+    "APIAssetImpactResponse", "APIProjectAssetsResponse", "APIInterfaceListResponse",
+    "PolicyAuditListResponse", "APITestCaseDsl", "CreateRunResponse", "DemoBootstrapResponse",
+    "ExportScriptRequest", "GenerateDslRequest", "KnowledgeIngestResponse",
+    "KnowledgeCandidateApproveResponse", "KnowledgeCandidateCreateResponse", "KnowledgeItem",
+    "KnowledgeReviewResponse", "KnowledgeSearchResponse", "KnowledgeStatusUpdateRequest",
+    "OpenAPIParseResponse", "OperationsResponse", "ParseUrlRequest", "APIRunReport",
+    "APIRunHistoryResponse", "RunScriptRequest", "APIStepRunResult",
+    "ScheduledExecutionResponse", "SpecSyncResponse", "StorageMigrationReadinessResponse",
+    "ValidateDslRequest",
+    # Constants
+    "RUN_STATUSES", "FLOW_TEMPLATE_DEFINITION_TYPE",
+    "TASK_CENTER_STATUSES", "TASK_TYPE_LABELS", "TASK_ACTION_BUCKETS",
+]

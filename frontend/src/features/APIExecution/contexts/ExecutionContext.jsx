@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import { apiExecutionAPI } from '../../../api/execution';
 import {
@@ -16,6 +17,7 @@ import {
 } from '../utils';
 import { useUIContext } from './UIContext';
 import { API_EXECUTION_DASHBOARD_REFRESH_EVENT } from '../../../constants/events';
+import { EXEC_KEYS } from '../hooks/useAPIExecutionQueries';
 
 const ExecutionContext = createContext();
 
@@ -94,6 +96,7 @@ const buildSingleStepRunReport = (script, result, runOptions) => {
 
 export const ExecutionProvider = ({ children }) => {
   const showSnackbar = useSnackbar();
+  const queryClient = useQueryClient();
   const { setLoading, setLoadingMessage, setActiveStep } = useUIContext();
 
   const [runResult, setRunResult] = useState(null);
@@ -105,6 +108,12 @@ export const ExecutionProvider = ({ children }) => {
   // Callback for fetchHistory -- set by RunHistoryContext
   const fetchHistoryRef = useRef(null);
   const registerFetchHistory = (fn) => { fetchHistoryRef.current = fn; };
+
+  const invalidateProjectRunState = (projectId) => {
+    if (!projectId) return;
+    queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(projectId) });
+    queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(projectId) });
+  };
 
   useEffect(() => {
     if (!backgroundRunId || !ACTIVE_RUN_STATUSES.has(backgroundRunStatus)) return undefined;
@@ -124,6 +133,7 @@ export const ExecutionProvider = ({ children }) => {
         setBackgroundRunStatus(data.status || status);
         setRunReport(data);
         fetchHistoryRef.current?.();
+        invalidateProjectRunState(data.execution_options?.project_id);
         notifyDashboardRefresh();
       } catch (error) {
         if (!cancelled) {
@@ -141,6 +151,7 @@ export const ExecutionProvider = ({ children }) => {
         setRunReport(data);
         if (!ACTIVE_RUN_STATUSES.has(data.status)) {
           fetchHistoryRef.current?.();
+          invalidateProjectRunState(data.execution_options?.project_id);
           notifyDashboardRefresh();
         }
         // 排队超时提醒
@@ -239,6 +250,7 @@ export const ExecutionProvider = ({ children }) => {
       setRunReport(buildSingleStepRunReport(executableScript, data, runOptions));
       showSnackbar(data.status === 'passed' ? '接口执行通过' : '接口执行失败', data.status === 'passed' ? 'success' : 'error');
       fetchHistoryRef.current?.();
+      invalidateProjectRunState(runOptions.project_id);
       notifyDashboardRefresh();
     } catch (error) {
       showSnackbar(error.message || '接口执行失败', 'error');
@@ -272,6 +284,9 @@ export const ExecutionProvider = ({ children }) => {
       setRunResult(null);
       showSnackbar('执行已提交，正在后台运行', 'success');
       fetchHistoryRef.current?.();
+      if (!ACTIVE_RUN_STATUSES.has(queuedRun.status)) {
+        invalidateProjectRunState(queuedRun.execution_options?.project_id || runOptions.project_id);
+      }
       notifyDashboardRefresh();
     } catch (error) {
       showSnackbar(error.message || '执行提交失败', 'error');
@@ -287,6 +302,9 @@ export const ExecutionProvider = ({ children }) => {
       setBackgroundRunStatus(data.status);
       setRunReport(data);
       fetchHistoryRef.current?.();
+      if (!ACTIVE_RUN_STATUSES.has(data.status)) {
+        invalidateProjectRunState(data.execution_options?.project_id);
+      }
       notifyDashboardRefresh();
     } catch (error) {
       showSnackbar(error.message || '后台执行状态查询失败', 'error');
@@ -300,6 +318,7 @@ export const ExecutionProvider = ({ children }) => {
       setBackgroundRunStatus(data.status);
       setRunReport(data);
       fetchHistoryRef.current?.();
+      invalidateProjectRunState(data.execution_options?.project_id);
       notifyDashboardRefresh();
       showSnackbar(data.status === 'cancelled' ? '后台执行已取消' : '后台执行已结束', data.status === 'cancelled' ? 'info' : 'warning');
     } catch (error) {
@@ -333,6 +352,7 @@ export const ExecutionProvider = ({ children }) => {
       setRunReport(data);
       setRunResult(null);
       fetchHistoryRef.current?.();
+      invalidateProjectRunState(data.execution_options?.project_id || runOptions.project_id);
       notifyDashboardRefresh();
       showSnackbar(`失败步骤重跑完成：${data.passed} 通过 / ${data.failed} 失败`, data.status === 'passed' ? 'success' : 'error');
     } catch (error) {
@@ -342,7 +362,7 @@ export const ExecutionProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const value = useMemo(() => ({
     runResult, setRunResult,
     runReport, setRunReport,
     backgroundRunId, setBackgroundRunId,
@@ -354,7 +374,7 @@ export const ExecutionProvider = ({ children }) => {
     cancelBackgroundRun,
     rerunFailedSteps,
     registerFetchHistory,
-  };
+  }), [runResult, runReport, backgroundRunId, backgroundRunStatus, continueOnFailure, runSelectedStep, runAllSteps, refreshBackgroundRun, cancelBackgroundRun, rerunFailedSteps]);
 
   return (
     <ExecutionContext.Provider value={value}>

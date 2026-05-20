@@ -1,14 +1,15 @@
 import asyncio
 
-from app.api_execution import routers
+from app.api_execution.services import run_service
+from app.api_execution.services import spec_service
 from app.api_execution.storage import APIExecutionStore
 
 
 def test_load_demo_openapi_asset_returns_parsed_spec(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(spec_service, "api_execution_store", store)
 
-    response = asyncio.run(routers.load_demo_openapi())
+    response = spec_service.load_demo_openapi_service()
 
     assert response["spec_id"]
     assert response["operation_count"] > 0
@@ -18,9 +19,10 @@ def test_load_demo_openapi_asset_returns_parsed_spec(tmp_path, monkeypatch):
 
 def test_bootstrap_demo_project_seeds_project_environment_runs_and_knowledge(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(spec_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
 
-    response = asyncio.run(routers.bootstrap_demo_project())
+    response = asyncio.run(spec_service.bootstrap_demo_project_service())
 
     assert response["spec"]["operation_count"] == 3
     assert response["project"]["project_id"] == "demo-api-flow"

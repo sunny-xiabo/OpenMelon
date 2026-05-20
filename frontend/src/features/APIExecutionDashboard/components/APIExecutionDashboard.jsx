@@ -24,7 +24,7 @@ import {
 import MetricCard from '../../Coverage/components/MetricCard';
 import EmptyState from '../../../components/EmptyState';
 import { useSnackbar } from '../../../components/SnackbarProvider';
-import { apiExecutionAPI } from '../../../services/api';
+import { apiExecutionAPI } from '../../../api/execution';
 import { SWITCH_TAB_EVENT } from '../../../constants/events';
 import {
   formatDuration,

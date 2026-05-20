@@ -1,13 +1,8 @@
 import React from 'react';
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
   Box,
-  ButtonBase,
+  Button,
   Chip,
-  Divider,
-  LinearProgress,
   Paper,
   Stack,
   Tab,
@@ -17,25 +12,31 @@ import {
 import {
   AccountTreeOutlined,
   AssessmentOutlined,
-  CheckCircleOutline,
-  ExpandMoreOutlined,
   HistoryOutlined,
-  RadioButtonUnchecked,
   PlayCircleOutlineOutlined,
   ScienceOutlined,
   SettingsOutlined,
 } from '@mui/icons-material';
-import { alpha } from '@mui/material/styles';
 import { APIExecutionProvider, useAPIExecution } from '../features/APIExecution/context';
-import LoadingOverlay from '../components/LoadingOverlay';
 import { useProjectAssets } from '../features/APIExecution/hooks/useAPIExecutionQueries';
 import StepImport from '../features/APIExecution/components/StepImport';
-import StepScope from '../features/APIExecution/components/StepScope';
 import StepOrchestrate from '../features/APIExecution/components/StepOrchestrate';
 import StepResult from '../features/APIExecution/components/StepResult';
 import RunHistory from '../features/APIExecution/components/RunHistory';
-import AssetAgentWorkbench from '../features/APIExecution/components/AssetAgentWorkbench';
-import SavedTestTasksPanel from '../features/APIExecution/components/SavedTestTasksPanel';
+import AgentGuidancePanel from '../features/APIExecution/components/AgentGuidancePanel';
+import WorkflowProgressRail from '../features/APIExecution/components/WorkflowProgressRail';
+import {
+  WorkbenchActivityNotice,
+  SimpleNextActionNotice,
+  SimplePrepareSection,
+  SimpleAgentSection,
+  SimpleExecutionSection,
+  SimpleResultSection,
+  AgentSection,
+  AssetsSection,
+} from '../features/APIExecution/components/SimpleWorkspace';
+
+const WORKSPACE_MODE_STORAGE_KEY = 'api-execution:workspace-mode';
 
 const SECTION_BY_STEP = {
   0: 'config',
@@ -89,6 +90,13 @@ const WORKBENCH_SECTIONS = [
   },
 ];
 
+const SIMPLE_WORKBENCH_SECTIONS = [
+  { ...WORKBENCH_SECTIONS.find((item) => item.id === 'config'), label: '准备', description: '项目、环境和接口资产准备' },
+  { ...WORKBENCH_SECTIONS.find((item) => item.id === 'agent'), label: '选择范围', description: '按 Agent 推荐生成测试计划' },
+  { ...WORKBENCH_SECTIONS.find((item) => item.id === 'orchestrate'), label: '执行', description: '检查 DSL、变量和断言后运行' },
+  { ...WORKBENCH_SECTIONS.find((item) => item.id === 'reports'), label: '结果', description: '查看结果、诊断和修复建议' },
+];
+
 const ACTIVE_STATUSES = new Set(['active', 'changed']);
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
 
@@ -100,49 +108,21 @@ const RUN_STATUS_LABELS = {
   cancelled: '已取消',
 };
 
-const FLOW_STATUS_META = {
-  done: { label: '已完成', color: 'success.main', bg: 'success.light' },
-  active: { label: '进行中', color: 'primary.main', bg: 'primary.light' },
-  pending: { label: '待处理', color: 'text.disabled', bg: 'action.hover' },
-  warning: { label: '待诊断', color: 'error.main', bg: 'error.light' },
+const isExecutableInterface = (item) => ACTIVE_STATUSES.has(item.status) && !item.hidden;
+
+const resolveSimpleSection = ({
+  selectedProjectId,
+  hasProjectConfig,
+  activeInterfaceCount,
+  hasDsl,
+  hasExecutionResult,
+  isRunActive,
+}) => {
+  if (!selectedProjectId || !hasProjectConfig || !activeInterfaceCount) return 'config';
+  if (!hasDsl) return 'agent';
+  if (!hasExecutionResult || isRunActive) return 'orchestrate';
+  return 'reports';
 };
-
-function AgentSection() {
-  const [advancedOpen, setAdvancedOpen] = React.useState(false);
-
-  return (
-    <Stack spacing={2.5}>
-      <SavedTestTasksPanel />
-      <AssetAgentWorkbench focus="agent" />
-      <Accordion
-        disableGutters
-        elevation={0}
-        expanded={advancedOpen}
-        onChange={(_, expanded) => setAdvancedOpen(expanded)}
-        sx={{ border: '1px solid rgba(15, 23, 42, 0.08)', borderRadius: 1, '&:before': { display: 'none' } }}
-      >
-        <AccordionSummary expandIcon={<ExpandMoreOutlined />}>
-          <Box>
-            <Typography variant="subtitle2" fontWeight={800}>
-              高级：按 OpenAPI 规范挑选接口
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              保留旧的规范范围选择和业务目标草稿能力，需要时再展开。
-            </Typography>
-          </Box>
-        </AccordionSummary>
-        <Divider />
-        <AccordionDetails sx={{ p: { xs: 2, md: 3 }, bgcolor: '#f8fafc' }}>
-          {advancedOpen && <StepScope showAssetWorkbench={false} title="规范范围与 AI 流程草稿" />}
-        </AccordionDetails>
-      </Accordion>
-    </Stack>
-  );
-}
-
-function AssetsSection() {
-  return <AssetAgentWorkbench focus="assets" />;
-}
 
 const WORKBENCH_SECTION_COMPONENTS = {
   config: StepImport,
@@ -152,145 +132,6 @@ const WORKBENCH_SECTION_COMPONENTS = {
   reports: StepResult,
   history: RunHistory,
 };
-
-function WorkflowProgressRail({ steps, activeSection, onNavigate }) {
-  const completedCount = steps.filter((step) => step.complete).length;
-  const percent = Math.round((completedCount / steps.length) * 100);
-  const nextStep = steps.find((step) => !step.complete) || steps[steps.length - 1];
-
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        display: { xs: 'block', xl: 'block' },
-        position: { xl: 'sticky' },
-        top: { xl: 16 },
-        p: 2,
-        borderRadius: 1,
-        border: '1px solid rgba(15, 23, 42, 0.08)',
-        bgcolor: '#ffffff',
-        alignSelf: 'start',
-      }}
-    >
-      <Stack spacing={1.5}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-          <Box>
-            <Typography variant="subtitle2" fontWeight={850}>流程进度</Typography>
-            <Typography variant="caption" color="text.secondary">API 自动化主链路</Typography>
-          </Box>
-          <Chip size="small" color="primary" variant="outlined" label={`${completedCount}/${steps.length}`} />
-        </Stack>
-        <LinearProgress
-          variant="determinate"
-          value={percent}
-          sx={{ height: 6, borderRadius: 1, bgcolor: 'rgba(15, 23, 42, 0.08)' }}
-        />
-
-        <Box sx={{ pt: 0.5 }}>
-          {steps.map((step, index) => {
-            const meta = FLOW_STATUS_META[step.status] || FLOW_STATUS_META.pending;
-            const selected = activeSection === step.section;
-            const isDone = step.status === 'done';
-            const isWarning = step.status === 'warning';
-            const isActive = step.status === 'active';
-            const color = meta.color;
-
-            return (
-              <Box
-                key={step.id}
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: '32px minmax(0, 1fr)',
-                  gap: 1,
-                  position: 'relative',
-                  pb: index === steps.length - 1 ? 0 : 1.25,
-                }}
-              >
-                <Box sx={{ display: 'flex', justifyContent: 'center', position: 'relative' }}>
-                  {index < steps.length - 1 && (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: 30,
-                        bottom: -10,
-                        width: 2,
-                        borderRadius: 1,
-                        bgcolor: isDone ? 'success.main' : 'rgba(148, 163, 184, 0.35)',
-                      }}
-                    />
-                  )}
-                  <Box
-                    sx={(theme) => ({
-                      width: 28,
-                      height: 28,
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      zIndex: 1,
-                      color,
-                      bgcolor: isDone || isWarning || isActive
-                        ? alpha(theme.palette[isWarning ? 'error' : isDone ? 'success' : 'primary'].main, 0.1)
-                        : '#ffffff',
-                      border: '2px solid',
-                      borderColor: color,
-                    })}
-                  >
-                    {isDone ? <CheckCircleOutline sx={{ fontSize: 18 }} /> : <RadioButtonUnchecked sx={{ fontSize: 16 }} />}
-                  </Box>
-                </Box>
-
-                <ButtonBase
-                  onClick={() => onNavigate(step.section)}
-                  sx={(theme) => ({
-                    width: '100%',
-                    justifyContent: 'stretch',
-                    textAlign: 'left',
-                    borderRadius: 1,
-                    p: 1,
-                    mt: -0.25,
-                    bgcolor: selected ? alpha(theme.palette.primary.main, 0.08) : 'transparent',
-                    border: '1px solid',
-                    borderColor: selected ? alpha(theme.palette.primary.main, 0.28) : 'transparent',
-                    '&:hover': {
-                      bgcolor: selected ? alpha(theme.palette.primary.main, 0.1) : 'rgba(15, 23, 42, 0.04)',
-                    },
-                  })}
-                >
-                  <Box sx={{ minWidth: 0, width: '100%' }}>
-                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                      <Typography variant="caption" color="text.secondary" fontWeight={800}>
-                        Stage {index + 1}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color, fontWeight: 800 }}>
-                        {meta.label}
-                      </Typography>
-                    </Stack>
-                    <Typography variant="body2" fontWeight={850} sx={{ mt: 0.25 }}>
-                      {step.title}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.45 }}>
-                      {step.description}
-                    </Typography>
-                  </Box>
-                </ButtonBase>
-              </Box>
-            );
-          })}
-        </Box>
-
-        <Divider />
-        <Box sx={{ p: 1.25, borderRadius: 1, bgcolor: '#f8fafc', border: '1px solid rgba(15, 23, 42, 0.06)' }}>
-          <Typography variant="caption" color="text.secondary" fontWeight={800}>下一步</Typography>
-          <Typography variant="body2" fontWeight={850}>{nextStep.title}</Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            {nextStep.nextHint}
-          </Typography>
-        </Box>
-      </Stack>
-    </Paper>
-  );
-}
 
 function APIExecutionContent() {
   const {
@@ -309,12 +150,19 @@ function APIExecutionContent() {
     parsedScript,
     backgroundRunStatus,
   } = useAPIExecution();
-  const [activeSection, setActiveSection] = React.useState(SECTION_BY_STEP[activeStep] || 'config');
+  const [workspaceMode, setWorkspaceMode] = React.useState(() => {
+    if (typeof window === 'undefined') return 'simple';
+    return window.localStorage.getItem(WORKSPACE_MODE_STORAGE_KEY) || 'simple';
+  });
+  const [activeSection, setActiveSection] = React.useState('agent');
+  const ignoredStepSyncRef = React.useRef(null);
+  const previousActiveStepRef = React.useRef(activeStep);
+  const manualSectionRef = React.useRef(false);
   const { data: projectAssets } = useProjectAssets(selectedProjectId);
   const modules = projectAssets?.modules || [];
   const interfaces = projectAssets?.interfaces || [];
-  const activeInterfaceCount = interfaces.filter((item) => ACTIVE_STATUSES.has(item.status)).length;
-  const changedInterfaceCount = interfaces.filter((item) => item.status === 'changed').length;
+  const activeInterfaceCount = interfaces.filter(isExecutableInterface).length;
+  const changedInterfaceCount = interfaces.filter((item) => item.status === 'changed' && !item.hidden).length;
   const hasExecutionResult = Boolean(runReport || runResult);
   const runStatus = runReport?.status || backgroundRunStatus || '';
   const isRunActive = ACTIVE_RUN_STATUSES.has(runStatus);
@@ -324,63 +172,153 @@ function APIExecutionContent() {
   const hasRunFailure = runReport?.status === 'failed';
 
   React.useEffect(() => {
+    if (previousActiveStepRef.current === activeStep) {
+      return;
+    }
+    previousActiveStepRef.current = activeStep;
+    if (ignoredStepSyncRef.current === activeStep) {
+      ignoredStepSyncRef.current = null;
+      return;
+    }
     const nextSection = SECTION_BY_STEP[activeStep];
     if (nextSection) setActiveSection(nextSection);
   }, [activeStep]);
 
-  const handleSectionChange = (_event, sectionId) => {
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(WORKSPACE_MODE_STORAGE_KEY, workspaceMode);
+    }
+  }, [workspaceMode]);
+
+  const visibleSections = workspaceMode === 'simple' ? SIMPLE_WORKBENCH_SECTIONS : WORKBENCH_SECTIONS;
+
+  React.useEffect(() => {
+    if (!visibleSections.some((item) => item.id === activeSection)) {
+      setActiveSection('agent');
+    }
+  }, [activeSection, visibleSections]);
+
+  const handleSectionChange = (_event, sectionId, options = {}) => {
+    const userInitiated = options.userInitiated ?? Boolean(_event);
+    if (userInitiated) manualSectionRef.current = true;
     const section = WORKBENCH_SECTIONS.find((item) => item.id === sectionId);
     setActiveSection(sectionId);
     if (section?.step !== null && section?.step !== undefined) {
+      if (section.step !== activeStep) ignoredStepSyncRef.current = section.step;
       setActiveStep(section.step);
     }
   };
 
+  const handleAgentNavigate = (sectionId, options = {}) => {
+    const userInitiated = options.userInitiated ?? true;
+    if (userInitiated) manualSectionRef.current = true;
+    if (sectionId === 'assets' && workspaceMode === 'simple') {
+      setWorkspaceMode('advanced');
+    }
+    handleSectionChange(null, sectionId, { userInitiated });
+  };
+
   const activeSectionMeta = WORKBENCH_SECTIONS.find((item) => item.id === activeSection) || WORKBENCH_SECTIONS[0];
   const LoadedWorkbenchSection = WORKBENCH_SECTION_COMPONENTS[activeSection] || StepImport;
+  const isSimpleMode = workspaceMode === 'simple';
+  const showGuidancePanel = !isSimpleMode;
+  const suggestedSimpleSection = resolveSimpleSection({
+    selectedProjectId,
+    hasProjectConfig,
+    activeInterfaceCount,
+    hasDsl,
+    hasExecutionResult,
+    isRunActive,
+  });
+
+  React.useEffect(() => {
+    if (!isSimpleMode || manualSectionRef.current || activeSection === suggestedSimpleSection) return;
+    const section = WORKBENCH_SECTIONS.find((item) => item.id === suggestedSimpleSection);
+    setActiveSection(suggestedSimpleSection);
+    if (section?.step !== null && section?.step !== undefined && section.step !== activeStep) {
+      ignoredStepSyncRef.current = section.step;
+      setActiveStep(section.step);
+    }
+  }, [activeSection, activeStep, isSimpleMode, setActiveStep, suggestedSimpleSection]);
+
   const workflowSteps = React.useMemo(() => {
-    const baseSteps = [
-      {
-        id: 'config',
-        section: 'config',
-        title: '项目配置',
-        complete: hasProjectConfig,
-        description: hasProjectConfig ? '项目、环境和 Base URL 已就绪' : '选择项目环境并配置 Base URL',
-        nextHint: '先确认项目、环境、Base URL 和必要变量。',
-      },
-      {
-        id: 'assets',
-        section: 'assets',
-        title: '接口资产',
-        complete: activeInterfaceCount > 0,
-        description: activeInterfaceCount > 0 ? `${modules.length} 个模块，${activeInterfaceCount} 个有效接口` : '导入规范或新增模块接口',
-        nextHint: '维护项目-模块-接口台账，确认接口可被 Agent 选择。',
-      },
-      {
-        id: 'agent',
-        section: 'agent',
-        title: 'Agent 生成',
-        complete: hasDsl,
-        description: hasDsl ? `已生成 DSL${scriptStepCount ? `，${scriptStepCount} 个步骤` : ''}` : '按模块或接口生成测试计划',
-        nextHint: '在 Agent 测试中选择模块或接口，生成冒烟/负向 DSL。',
-      },
-      {
-        id: 'orchestrate',
-        section: 'orchestrate',
-        title: '编排执行',
-        complete: hasExecutionResult,
-        description: isRunActive ? `任务${RUN_STATUS_LABELS[runStatus] || runStatus}` : hasExecutionResult ? '执行已产生结果' : hasDsl ? '检查 DSL 后执行链路' : '等待 DSL 生成',
-        nextHint: '进入编排执行，确认步骤、变量和断言后运行。',
-      },
-      {
-        id: 'reports',
-        section: 'reports',
-        title: '报告诊断',
-        complete: hasExecutionResult,
-        description: hasExecutionResult ? `结果：${RUN_STATUS_LABELS[runStatus] || runStatus || '已生成'}` : '等待执行报告',
-        nextHint: hasRunFailure ? '查看失败原因并生成修复草稿。' : '查看报告、历史记录或沉淀修复经验。',
-      },
-    ];
+    const baseSteps = isSimpleMode
+      ? [
+        {
+          id: 'config',
+          section: 'config',
+          title: '准备',
+          complete: hasProjectConfig && activeInterfaceCount > 0,
+          description: hasProjectConfig && activeInterfaceCount > 0 ? '项目、环境和接口资产已就绪' : '补齐项目、环境或接口资产',
+          nextHint: '先确认 Agent 执行所需的最小条件。',
+        },
+        {
+          id: 'agent',
+          section: 'agent',
+          title: '选择范围',
+          complete: hasDsl,
+          description: hasDsl ? `已生成${scriptStepCount ? ` ${scriptStepCount} 个步骤` : '测试计划'}` : '按推荐生成测试计划',
+          nextHint: '使用 Agent 推荐范围，或切到高级模式手工选择。',
+        },
+        {
+          id: 'orchestrate',
+          section: 'orchestrate',
+          title: '执行',
+          complete: hasExecutionResult,
+          description: isRunActive ? `任务${RUN_STATUS_LABELS[runStatus] || runStatus}` : hasExecutionResult ? '执行已产生结果' : hasDsl ? '可以执行计划' : '等待计划生成',
+          nextHint: '提交 Agent 计划并观察执行状态。',
+        },
+        {
+          id: 'reports',
+          section: 'reports',
+          title: '结果',
+          complete: hasExecutionResult,
+          description: hasExecutionResult ? `结果：${RUN_STATUS_LABELS[runStatus] || runStatus || '已生成'}` : '等待执行结果',
+          nextHint: hasRunFailure ? '先看失败摘要，再进高级诊断。' : '查看通过率和失败摘要。',
+        },
+      ]
+      : [
+        {
+          id: 'config',
+          section: 'config',
+          title: '项目配置',
+          complete: hasProjectConfig,
+          description: hasProjectConfig ? '项目、环境和 Base URL 已就绪' : '选择项目环境并配置 Base URL',
+          nextHint: '先确认项目、环境、Base URL 和必要变量。',
+        },
+        {
+          id: 'assets',
+          section: 'assets',
+          title: '接口资产',
+          complete: activeInterfaceCount > 0,
+          description: activeInterfaceCount > 0 ? `${modules.length} 个模块，${activeInterfaceCount} 个有效接口` : '导入规范或新增模块接口',
+          nextHint: '维护项目-模块-接口台账，确认接口可被 Agent 选择。',
+        },
+        {
+          id: 'agent',
+          section: 'agent',
+          title: 'Agent 生成',
+          complete: hasDsl,
+          description: hasDsl ? `已生成 DSL${scriptStepCount ? `，${scriptStepCount} 个步骤` : ''}` : '按模块或接口生成测试计划',
+          nextHint: '在 Agent 测试中选择模块或接口，生成冒烟/负向 DSL。',
+        },
+        {
+          id: 'orchestrate',
+          section: 'orchestrate',
+          title: '编排执行',
+          complete: hasExecutionResult,
+          description: isRunActive ? `任务${RUN_STATUS_LABELS[runStatus] || runStatus}` : hasExecutionResult ? '执行已产生结果' : hasDsl ? '检查 DSL 后执行链路' : '等待 DSL 生成',
+          nextHint: '进入编排执行，确认步骤、变量和断言后运行。',
+        },
+        {
+          id: 'reports',
+          section: 'reports',
+          title: '报告诊断',
+          complete: hasExecutionResult,
+          description: hasExecutionResult ? `结果：${RUN_STATUS_LABELS[runStatus] || runStatus || '已生成'}` : '等待执行报告',
+          nextHint: hasRunFailure ? '查看失败原因并生成修复草稿。' : '查看报告、历史记录或沉淀修复经验。',
+        },
+      ];
     const firstIncomplete = baseSteps.find((step) => !step.complete)?.id;
     return baseSteps.map((step) => ({
       ...step,
@@ -392,7 +330,7 @@ function APIExecutionContent() {
             ? 'active'
             : 'pending',
     }));
-  }, [activeInterfaceCount, activeSection, hasDsl, hasExecutionResult, hasProjectConfig, hasRunFailure, isRunActive, modules.length, runStatus, scriptStepCount]);
+  }, [activeInterfaceCount, activeSection, hasDsl, hasExecutionResult, hasProjectConfig, hasRunFailure, isRunActive, isSimpleMode, modules.length, runStatus, scriptStepCount]);
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', bgcolor: '#f7f9fc', color: 'text.primary' }}>
@@ -411,27 +349,66 @@ function APIExecutionContent() {
             <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} justifyContent="space-between" alignItems={{ xs: 'stretch', lg: 'center' }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="h5" fontWeight={850} sx={{ lineHeight: 1.2 }}>
-                  API 自动化工作台
+                  {isSimpleMode ? 'API Agent 测试工作台' : 'API 自动化工作台'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {activeSectionMeta.description}
+                  {isSimpleMode ? '跟着 Agent 完成准备、选范围、执行和看结果；高级模式保留完整治理与编排能力。' : activeSectionMeta.description}
                 </Typography>
               </Box>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip size="small" label={`项目：${projectName || '未选择'}`} color={selectedProjectId ? 'primary' : 'default'} variant="outlined" />
-                <Chip size="small" label={`环境：${environmentName || '未选择'}`} variant="outlined" />
-                <Chip size="small" label={`Base URL：${baseUrl || '未配置'}`} variant="outlined" />
+                {isSimpleMode ? (
+                  <>
+                    <Chip size="small" label={selectedProjectId ? `项目：${projectName || '已选择'}` : '项目待选择'} color={selectedProjectId ? 'primary' : 'default'} variant="outlined" />
+                    <Chip size="small" label={baseUrl ? `环境：${environmentName || '已配置'}` : '环境待配置'} color={baseUrl ? 'success' : 'default'} variant="outlined" />
+                  </>
+                ) : (
+                  <>
+                    <Chip size="small" label={`项目：${projectName || '未选择'}`} color={selectedProjectId ? 'primary' : 'default'} variant="outlined" />
+                    <Chip size="small" label={`环境：${environmentName || '未选择'}`} variant="outlined" />
+                    <Chip size="small" label={`Base URL：${baseUrl || '未配置'}`} variant="outlined" />
+                  </>
+                )}
+                <Button
+                  size="small"
+                  variant={workspaceMode === 'simple' ? 'contained' : 'outlined'}
+                  onClick={() => {
+                    manualSectionRef.current = false;
+                    setWorkspaceMode('simple');
+                    handleSectionChange(null, suggestedSimpleSection, { userInitiated: false });
+                  }}
+                >
+                  简洁模式
+                </Button>
+                <Button
+                  size="small"
+                  variant={workspaceMode === 'advanced' ? 'contained' : 'outlined'}
+                  onClick={() => {
+                    manualSectionRef.current = true;
+                    setWorkspaceMode('advanced');
+                  }}
+                >
+                  高级模式
+                </Button>
               </Stack>
             </Stack>
 
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip size="small" label={`${modules.length} 个模块`} />
-              <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} color={activeInterfaceCount ? 'success' : 'default'} variant="outlined" />
-              <Chip size="small" label={`${changedInterfaceCount} 个变更接口`} color={changedInterfaceCount ? 'warning' : 'default'} variant="outlined" />
-              <Chip size="small" label={spec?.spec_id ? `OpenAPI：${spec.operation_count || spec.operations?.length || 0} 个接口` : 'OpenAPI：未加载'} variant="outlined" />
-              <Chip size="small" label={dslText ? 'DSL：已生成' : 'DSL：未生成'} color={dslText ? 'success' : 'default'} variant="outlined" />
-              <Chip size="small" label={hasExecutionResult ? '报告：已有结果' : '报告：暂无结果'} color={hasExecutionResult ? 'info' : 'default'} variant="outlined" />
-            </Stack>
+            {isSimpleMode ? (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} color={activeInterfaceCount ? 'success' : 'default'} variant="outlined" />
+                <Chip size="small" label={`${changedInterfaceCount} 个变更`} color={changedInterfaceCount ? 'warning' : 'default'} variant="outlined" />
+                <Chip size="small" label={dslText ? '计划已生成' : '计划未生成'} color={dslText ? 'success' : 'default'} variant="outlined" />
+                <Chip size="small" label={hasExecutionResult ? '已有结果' : '暂无结果'} color={hasExecutionResult ? 'info' : 'default'} variant="outlined" />
+              </Stack>
+            ) : (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip size="small" label={`${modules.length} 个模块`} />
+                <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} color={activeInterfaceCount ? 'success' : 'default'} variant="outlined" />
+                <Chip size="small" label={`${changedInterfaceCount} 个变更接口`} color={changedInterfaceCount ? 'warning' : 'default'} variant="outlined" />
+                <Chip size="small" label={spec?.spec_id ? `OpenAPI：${spec.operation_count || spec.operations?.length || 0} 个接口` : 'OpenAPI：未加载'} variant="outlined" />
+                <Chip size="small" label={dslText ? 'DSL：已生成' : 'DSL：未生成'} color={dslText ? 'success' : 'default'} variant="outlined" />
+                <Chip size="small" label={hasExecutionResult ? '报告：已有结果' : '报告：暂无结果'} color={hasExecutionResult ? 'info' : 'default'} variant="outlined" />
+              </Stack>
+            )}
           </Stack>
         </Box>
 
@@ -452,7 +429,7 @@ function APIExecutionContent() {
               },
             }}
           >
-            {WORKBENCH_SECTIONS.map((section) => (
+            {visibleSections.map((section) => (
               <Tab
                 key={section.id}
                 value={section.id}
@@ -477,19 +454,80 @@ function APIExecutionContent() {
             }}
           >
             <Box sx={{ minWidth: 0 }}>
-              <LoadedWorkbenchSection />
+              <WorkbenchActivityNotice active={loading} message={loadingMessage} />
+              {showGuidancePanel && (
+                <Box sx={{ mb: 2 }}>
+                  <AgentGuidancePanel
+                    onNavigate={handleAgentNavigate}
+                    onOpenAdvanced={() => setWorkspaceMode('advanced')}
+                  />
+                </Box>
+              )}
+              {isSimpleMode && (
+                <SimpleNextActionNotice
+                  steps={workflowSteps}
+                  activeSection={activeSection}
+                  onNavigate={(sectionId) => handleAgentNavigate(sectionId, { userInitiated: true })}
+                />
+              )}
+              {isSimpleMode && activeSection === 'config' ? (
+                <SimplePrepareSection
+                  onOpenAdvanced={() => {
+                    manualSectionRef.current = true;
+                    setWorkspaceMode('advanced');
+                    handleSectionChange(null, 'config', { userInitiated: true });
+                  }}
+                  onOpenAssets={() => {
+                    manualSectionRef.current = true;
+                    setWorkspaceMode('advanced');
+                    handleSectionChange(null, 'assets', { userInitiated: true });
+                  }}
+                />
+              ) : isSimpleMode && activeSection === 'agent' ? (
+                <SimpleAgentSection
+                  onNavigate={handleAgentNavigate}
+                  onOpenAdvanced={() => {
+                    manualSectionRef.current = true;
+                    setWorkspaceMode('advanced');
+                    handleSectionChange(null, 'agent', { userInitiated: true });
+                  }}
+                  onOpenAssets={() => {
+                    manualSectionRef.current = true;
+                    setWorkspaceMode('advanced');
+                    handleSectionChange(null, 'assets', { userInitiated: true });
+                  }}
+                />
+              ) : isSimpleMode && activeSection === 'orchestrate' ? (
+                <SimpleExecutionSection
+                  onOpenAdvanced={() => {
+                    manualSectionRef.current = true;
+                    setWorkspaceMode('advanced');
+                    handleSectionChange(null, 'orchestrate', { userInitiated: true });
+                  }}
+                  onBackToScope={() => handleSectionChange(null, 'agent', { userInitiated: true })}
+                />
+              ) : isSimpleMode && activeSection === 'reports' ? (
+                <SimpleResultSection
+                  onOpenAdvanced={() => {
+                    manualSectionRef.current = true;
+                    setWorkspaceMode('advanced');
+                    handleSectionChange(null, 'reports', { userInitiated: true });
+                  }}
+                  onBackToExecute={() => handleSectionChange(null, 'orchestrate', { userInitiated: true })}
+                />
+              ) : (
+                <LoadedWorkbenchSection />
+              )}
             </Box>
 
             <WorkflowProgressRail
               steps={workflowSteps}
               activeSection={activeSection}
-              onNavigate={(sectionId) => handleSectionChange(null, sectionId)}
+              onNavigate={handleAgentNavigate}
             />
           </Box>
         </Box>
       </Box>
-
-      {loading && loadingMessage && <LoadingOverlay message={loadingMessage} />}
     </Box>
   );
 }

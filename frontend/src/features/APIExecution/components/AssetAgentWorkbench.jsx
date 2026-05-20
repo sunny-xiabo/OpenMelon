@@ -10,7 +10,11 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
+  ListItemIcon,
+  ListItemText,
+  Menu,
   MenuItem,
   Paper,
   Select,
@@ -24,7 +28,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { Add, AltRouteOutlined, AutoAwesome, DeleteOutline, InfoOutlined, ScienceOutlined, TipsAndUpdatesOutlined, WarningAmberOutlined } from '@mui/icons-material';
+import { Add, AltRouteOutlined, AutoAwesome, BlockOutlined, DeleteForeverOutlined, DeleteOutline, EditOutlined, InfoOutlined, MergeType, MoreVert, RestoreOutlined, ScienceOutlined, TipsAndUpdatesOutlined, WarningAmberOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
 import { apiExecutionAPI } from '../../../api/execution';
 import { useSnackbar } from '../../../components/SnackbarProvider';
@@ -49,6 +53,14 @@ const STATUS_META = {
   removed: { label: '移除', color: 'error' },
   deprecated: { label: '废弃', color: 'default' },
   hidden: { label: '隐藏', color: 'default' },
+  excluded: { label: '已排除', color: 'default' },
+};
+
+const MODULE_STATUS_META = {
+  active: { label: '有效', color: 'success' },
+  hidden: { label: '隐藏', color: 'default' },
+  excluded: { label: '已排除', color: 'default' },
+  removed: { label: '移除', color: 'error' },
 };
 
 const sourceLabel = (source) => (source === 'manual' ? '手动' : 'OpenAPI');
@@ -200,6 +212,13 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
   const [editValues, setEditValues] = React.useState(null);
   const [savingInterface, setSavingInterface] = React.useState(false);
   const [moduleDialogOpen, setModuleDialogOpen] = React.useState(false);
+  const [moduleEditDialogOpen, setModuleEditDialogOpen] = React.useState(false);
+  const [moduleRemoveDialogOpen, setModuleRemoveDialogOpen] = React.useState(false);
+  const [moduleMenuAnchor, setModuleMenuAnchor] = React.useState(null);
+  const [moduleMenuTarget, setModuleMenuTarget] = React.useState(null);
+  const [moduleEditValues, setModuleEditValues] = React.useState({ name: '', description: '', status: 'active', sort_order: 100 });
+  const [moduleRemoveMode, setModuleRemoveMode] = React.useState('exclude');
+  const [moduleRemoveTargetId, setModuleRemoveTargetId] = React.useState('');
   const [interfaceDialogOpen, setInterfaceDialogOpen] = React.useState(false);
   const [newModule, setNewModule] = React.useState({ name: '', description: '' });
   const [newInterface, setNewInterface] = React.useState({
@@ -212,6 +231,7 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
     risk_level: 'low',
   });
   const [savingAsset, setSavingAsset] = React.useState(false);
+  const [savingModule, setSavingModule] = React.useState(false);
   const [impactLoading, setImpactLoading] = React.useState(false);
   const [lastPlanInsight, setLastPlanInsight] = React.useState(null);
 
@@ -228,6 +248,14 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
     const counts = {};
     for (const item of interfaces) {
       if (!ACTIVE_STATUSES.has(item.status)) continue;
+      counts[item.module_id] = (counts[item.module_id] || 0) + 1;
+    }
+    return counts;
+  }, [interfaces]);
+
+  const moduleTotalCounts = React.useMemo(() => {
+    const counts = {};
+    for (const item of interfaces) {
       counts[item.module_id] = (counts[item.module_id] || 0) + 1;
     }
     return counts;
@@ -251,6 +279,10 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
   const impactInterfaceCount = interfaces.filter((item) => item.source !== 'manual' && ['added', 'changed'].includes(item.change_state) && ACTIVE_STATUSES.has(item.status)).length;
   const selectedInFiltered = filteredInterfaces.filter((item) => selectedInterfaceIds.has(item.interface_id));
   const activeModule = modules.find((item) => item.module_id === activeModuleId);
+  const moduleMergeTargets = React.useMemo(
+    () => modules.filter((item) => item.module_id !== moduleMenuTarget?.module_id && !['excluded', 'removed'].includes(item.status)),
+    [moduleMenuTarget?.module_id, modules],
+  );
   const selectedScopeInterfaces = React.useMemo(() => {
     if (selectedInterfaceIds.size) {
       return interfaces.filter((item) => selectedInterfaceIds.has(item.interface_id));
@@ -320,7 +352,13 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
     setEditValues((current) => ({ ...(current || {}), [field]: value }));
   };
 
-  const invalidateAssets = () => queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(selectedProjectId) });
+  const invalidateAssets = () => {
+    if (!selectedProjectId) return Promise.resolve();
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(selectedProjectId) }),
+      queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(selectedProjectId) }),
+    ]);
+  };
 
   const openInterfaceDialog = () => {
     setNewInterface({
@@ -355,6 +393,120 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
       showSnackbar(error.message || '模块新增失败', { severity: 'error' });
     } finally {
       setSavingAsset(false);
+    }
+  };
+
+  const closeModuleMenu = () => {
+    setModuleMenuAnchor(null);
+  };
+
+  const openModuleMenu = (event, module) => {
+    event.stopPropagation();
+    setModuleMenuAnchor(event.currentTarget);
+    setModuleMenuTarget(module);
+  };
+
+  const openModuleEdit = (module) => {
+    setModuleMenuTarget(module);
+    setModuleEditValues({
+      name: module.name || '',
+      description: module.description || '',
+      status: module.status || 'active',
+      sort_order: module.sort_order || 100,
+    });
+    setModuleEditDialogOpen(true);
+    closeModuleMenu();
+  };
+
+  const openModuleRemove = (module, mode = 'exclude') => {
+    setModuleMenuTarget(module);
+    setModuleRemoveMode(mode);
+    const target = modules.find((item) => item.module_id !== module.module_id && !['excluded', 'removed'].includes(item.status));
+    setModuleRemoveTargetId(target?.module_id || '');
+    setModuleRemoveDialogOpen(true);
+    closeModuleMenu();
+  };
+
+  const saveModuleEdits = async () => {
+    if (!moduleMenuTarget?.module_id) return;
+    if (!moduleEditValues.name.trim()) {
+      showSnackbar('请填写模块名称', { severity: 'warning' });
+      return;
+    }
+    setSavingModule(true);
+    try {
+      const updated = await apiExecutionAPI.updateProjectModule(moduleMenuTarget.module_id, {
+        name: moduleEditValues.name.trim(),
+        description: moduleEditValues.description.trim(),
+        status: moduleEditValues.status,
+        sort_order: Number(moduleEditValues.sort_order || 100),
+      });
+      await invalidateAssets();
+      setActiveModuleId(updated.status === 'excluded' ? '' : updated.module_id);
+      setModuleEditDialogOpen(false);
+      showSnackbar('模块已更新', { severity: 'success' });
+    } catch (error) {
+      showSnackbar(error.message || '模块更新失败', { severity: 'error' });
+    } finally {
+      setSavingModule(false);
+    }
+  };
+
+  const removeModule = async () => {
+    if (!moduleMenuTarget?.module_id) return;
+    if (moduleRemoveMode === 'migrate' && !moduleRemoveTargetId) {
+      showSnackbar('请选择迁移目标模块', { severity: 'warning' });
+      return;
+    }
+    setSavingModule(true);
+    try {
+      await apiExecutionAPI.removeProjectModule(moduleMenuTarget.module_id, {
+        mode: moduleRemoveMode,
+        target_module_id: moduleRemoveMode === 'migrate' ? moduleRemoveTargetId : '',
+      });
+      await invalidateAssets();
+      if (activeModuleId === moduleMenuTarget.module_id) setActiveModuleId(moduleRemoveMode === 'migrate' ? moduleRemoveTargetId : '');
+      setSelectedInterfaceIds(new Set());
+      setModuleRemoveDialogOpen(false);
+      showSnackbar(moduleRemoveMode === 'migrate' ? '模块接口已迁移，源模块已排除' : '模块及接口已排除', { severity: 'success' });
+    } catch (error) {
+      showSnackbar(error.message || '模块移除失败', { severity: 'error' });
+    } finally {
+      setSavingModule(false);
+    }
+  };
+
+  const restoreModule = async (module = moduleMenuTarget) => {
+    if (!module?.module_id) return;
+    setSavingModule(true);
+    closeModuleMenu();
+    try {
+      const updated = await apiExecutionAPI.updateProjectModule(module.module_id, { status: 'active' });
+      await invalidateAssets();
+      setActiveModuleId(updated.module_id);
+      showSnackbar('模块已恢复', { severity: 'success' });
+    } catch (error) {
+      showSnackbar(error.message || '模块恢复失败', { severity: 'error' });
+    } finally {
+      setSavingModule(false);
+    }
+  };
+
+  const deleteManualModule = async (module = moduleMenuTarget) => {
+    if (!module?.module_id) return;
+    const confirmed = await requestConfirm(`确认永久删除空模块 ${module.name}？只有没有接口的手工模块才能删除。`);
+    if (!confirmed) return;
+    setSavingModule(true);
+    closeModuleMenu();
+    try {
+      await apiExecutionAPI.deleteProjectModule(module.module_id);
+      await invalidateAssets();
+      if (activeModuleId === module.module_id) setActiveModuleId('');
+      showSnackbar('空手工模块已删除', { severity: 'success' });
+    } catch (error) {
+      showSnackbar(error.message || '模块删除失败', { severity: 'error' });
+    } finally {
+      setSavingModule(false);
     }
   };
 
@@ -406,6 +558,18 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
     }
   };
 
+  const removeOpenAPIInterface = async () => {
+    if (!detailInterface?.interface_id) return;
+    const confirmed = await requestConfirm(`确认移除接口 ${getInterfaceLabel(detailInterface)}？它不会参与 Agent、编排、统计和影响重测；后续 OpenAPI 同步会保持排除，可随时恢复。`);
+    if (!confirmed) return;
+    await setInterfaceStatus('excluded', { successMessage: '接口已排除' });
+  };
+
+  const restoreInterface = async () => {
+    if (!detailInterface?.interface_id) return;
+    await setInterfaceStatus(detailInterface.change_state === 'changed' ? 'changed' : 'active', { successMessage: '接口已恢复' });
+  };
+
   const saveInterfaceEdits = async () => {
     if (!detailInterface?.interface_id || !editValues) return;
     setSavingInterface(true);
@@ -431,15 +595,16 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
     }
   };
 
-  const setInterfaceStatus = async (status) => {
+  const setInterfaceStatus = async (status, { successMessage = '' } = {}) => {
     if (!detailInterface?.interface_id) return;
     setSavingInterface(true);
     try {
-      const updated = await apiExecutionAPI.updateProjectInterface(detailInterface.interface_id, { status, hidden: status === 'hidden' });
+      const payload = status === 'hidden' ? { status, hidden: true } : { status };
+      const updated = await apiExecutionAPI.updateProjectInterface(detailInterface.interface_id, payload);
       setDetailInterface(updated);
       setEditValues((current) => ({ ...(current || {}), status: updated.status || status }));
       await invalidateAssets();
-      showSnackbar(status === 'active' ? '接口已恢复为有效' : '接口状态已更新', { severity: 'success' });
+      showSnackbar(successMessage || (ACTIVE_STATUSES.has(status) ? '接口已恢复为有效' : '接口状态已更新'), { severity: 'success' });
     } catch (error) {
       showSnackbar(error.message || '接口状态更新失败', { severity: 'error' });
     } finally {
@@ -572,18 +737,29 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
                   全部模块
                   <Chip size="small" label={activeInterfaces.length} />
                 </Button>
-                {modules.map((module) => (
-                  <Button
-                    key={module.module_id}
-                    fullWidth
-                    variant={activeModuleId === module.module_id ? 'contained' : 'outlined'}
-                    onClick={() => setActiveModuleId(module.module_id)}
-                    sx={{ justifyContent: 'space-between', textAlign: 'left' }}
-                  >
-                    <Typography noWrap variant="body2" fontWeight={700}>{module.name}</Typography>
-                    <Chip size="small" label={moduleCounts[module.module_id] || 0} />
-                  </Button>
-                ))}
+                {modules.map((module) => {
+                  const moduleStatus = MODULE_STATUS_META[module.status] || { label: module.status || '未知', color: 'default' };
+                  const isModuleExcluded = ['excluded', 'removed'].includes(module.status);
+                  return (
+                    <Stack key={module.module_id} direction="row" spacing={0.75} alignItems="center" sx={{ opacity: isModuleExcluded ? 0.65 : 1 }}>
+                      <Button
+                        fullWidth
+                        variant={activeModuleId === module.module_id ? 'contained' : 'outlined'}
+                        onClick={() => setActiveModuleId(module.module_id)}
+                        sx={{ justifyContent: 'space-between', textAlign: 'left', minWidth: 0 }}
+                      >
+                        <Typography noWrap variant="body2" fontWeight={700}>{module.name}</Typography>
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          {module.status !== 'active' && <Chip size="small" label={moduleStatus.label} color={moduleStatus.color} variant="outlined" />}
+                          <Chip size="small" label={moduleCounts[module.module_id] || 0} />
+                        </Stack>
+                      </Button>
+                      <IconButton size="small" aria-label={`${module.name} 模块操作`} onClick={(event) => openModuleMenu(event, module)}>
+                        <MoreVert fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  );
+                })}
               </Stack>
             </Paper>
 
@@ -736,7 +912,7 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
                     {!filteredInterfaces.length && (
                       <TableRow>
                         <TableCell colSpan={showAgentActions ? 8 : 7}>
-                          <EmptyState compact title={isLoading ? '正在加载接口资产' : '没有匹配接口'} description="请调整筛选条件，或先完成 OpenAPI 导入和项目资产同步。" />
+                          <EmptyState compact title={isLoading ? '接口资产准备中' : '没有匹配接口'} description="请调整筛选条件，或先完成 OpenAPI 导入和项目资产同步。" />
                         </TableCell>
                       </TableRow>
                     )}
@@ -747,6 +923,36 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
           </Box>
         </Stack>
       </Paper>
+
+      <Menu anchorEl={moduleMenuAnchor} open={Boolean(moduleMenuAnchor)} onClose={closeModuleMenu}>
+        <MenuItem onClick={() => openModuleEdit(moduleMenuTarget)}>
+          <ListItemIcon><EditOutlined fontSize="small" /></ListItemIcon>
+          <ListItemText primary="编辑模块" />
+        </MenuItem>
+        {moduleMenuTarget?.status === 'excluded' ? (
+          <MenuItem onClick={() => restoreModule(moduleMenuTarget)}>
+            <ListItemIcon><RestoreOutlined fontSize="small" /></ListItemIcon>
+            <ListItemText primary="恢复模块" />
+          </MenuItem>
+        ) : (
+          <MenuItem onClick={() => openModuleRemove(moduleMenuTarget, 'exclude')}>
+            <ListItemIcon><BlockOutlined fontSize="small" /></ListItemIcon>
+            <ListItemText primary="移除模块" secondary="排除模块及其接口" />
+          </MenuItem>
+        )}
+        {moduleMenuTarget?.status !== 'excluded' && (
+          <MenuItem disabled={moduleMergeTargets.length === 0} onClick={() => openModuleRemove(moduleMenuTarget, 'migrate')}>
+            <ListItemIcon><MergeType fontSize="small" /></ListItemIcon>
+            <ListItemText primary="合并到..." secondary={moduleMergeTargets.length ? '迁移接口后排除源模块' : '暂无可合并目标'} />
+          </MenuItem>
+        )}
+        {moduleMenuTarget?.source === 'manual' && (moduleTotalCounts[moduleMenuTarget?.module_id] || 0) === 0 && (
+          <MenuItem onClick={() => deleteManualModule(moduleMenuTarget)} sx={{ color: 'error.main' }}>
+            <ListItemIcon><DeleteForeverOutlined fontSize="small" color="error" /></ListItemIcon>
+            <ListItemText primary="永久删除" secondary="仅限空手工模块" />
+          </MenuItem>
+        )}
+      </Menu>
 
       <Dialog open={Boolean(detailInterface)} onClose={() => setDetailInterface(null)} maxWidth="md" fullWidth>
         <DialogTitle>{detailInterface?.summary || getInterfaceLabel(detailInterface || {})}</DialogTitle>
@@ -811,7 +1017,9 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
                 <InputLabel>所属模块</InputLabel>
                 <Select label="所属模块" value={editValues?.module_id || ''} onChange={(event) => updateEditValue('module_id', event.target.value)}>
                   {modules.map((module) => (
-                    <MenuItem key={module.module_id} value={module.module_id}>{module.name}</MenuItem>
+                    <MenuItem key={module.module_id} value={module.module_id} disabled={['excluded', 'removed'].includes(module.status)}>
+                      {module.name}{['excluded', 'removed'].includes(module.status) ? '（不可迁入）' : ''}
+                    </MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -836,22 +1044,108 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
         <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             {detailInterface?.source === 'manual' && (
-              <Button color="error" startIcon={<DeleteOutline />} disabled={savingInterface} onClick={deleteManualInterface}>删除接口</Button>
+              <Button color="error" startIcon={<DeleteForeverOutlined />} disabled={savingInterface} onClick={deleteManualInterface}>永久删除</Button>
             )}
-            {detailInterface?.status !== 'hidden' && (
+            {detailInterface?.source !== 'manual' && detailInterface?.status !== 'excluded' && (
+              <Button color="error" startIcon={<DeleteOutline />} disabled={savingInterface} onClick={removeOpenAPIInterface}>移除接口</Button>
+            )}
+            {detailInterface?.status === 'excluded' && (
+              <Button color="success" startIcon={<RestoreOutlined />} disabled={savingInterface} onClick={restoreInterface}>恢复接口</Button>
+            )}
+            {detailInterface?.status !== 'excluded' && detailInterface?.status !== 'hidden' && (
               <Button color="warning" disabled={savingInterface} onClick={() => setInterfaceStatus('hidden')}>隐藏</Button>
             )}
-            {detailInterface?.status !== 'deprecated' && (
+            {detailInterface?.status !== 'excluded' && detailInterface?.status !== 'deprecated' && (
               <Button color="warning" disabled={savingInterface} onClick={() => setInterfaceStatus('deprecated')}>标记废弃</Button>
             )}
-            {detailInterface?.status !== 'active' && (
-              <Button color="success" disabled={savingInterface} onClick={() => setInterfaceStatus('active')}>恢复有效</Button>
+            {detailInterface?.status !== 'excluded' && !ACTIVE_STATUSES.has(detailInterface?.status) && (
+              <Button color="success" disabled={savingInterface} onClick={restoreInterface}>恢复有效</Button>
             )}
           </Stack>
           <Stack direction="row" spacing={1}>
             <Button onClick={() => setDetailInterface(null)}>关闭</Button>
             <Button variant="contained" disabled={savingInterface} onClick={saveInterfaceEdits}>保存</Button>
           </Stack>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={moduleEditDialogOpen} onClose={() => setModuleEditDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>编辑模块</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              size="small"
+              label="模块名称"
+              value={moduleEditValues.name}
+              onChange={(event) => setModuleEditValues((current) => ({ ...current, name: event.target.value }))}
+              fullWidth
+              autoFocus
+            />
+            <TextField
+              size="small"
+              label="模块描述"
+              value={moduleEditValues.description}
+              onChange={(event) => setModuleEditValues((current) => ({ ...current, description: event.target.value }))}
+              fullWidth
+              multiline
+              minRows={3}
+            />
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 140px' }, gap: 1.5 }}>
+              <FormControl size="small">
+                <InputLabel>模块状态</InputLabel>
+                <Select label="模块状态" value={moduleEditValues.status} onChange={(event) => setModuleEditValues((current) => ({ ...current, status: event.target.value }))}>
+                  {Object.entries(MODULE_STATUS_META).map(([value, meta]) => <MenuItem key={value} value={value}>{meta.label}</MenuItem>)}
+                </Select>
+              </FormControl>
+              <TextField
+                size="small"
+                type="number"
+                label="排序"
+                value={moduleEditValues.sort_order}
+                onChange={(event) => setModuleEditValues((current) => ({ ...current, sort_order: event.target.value }))}
+              />
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setModuleEditDialogOpen(false)}>取消</Button>
+          <Button variant="contained" disabled={savingModule} onClick={saveModuleEdits}>保存</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={moduleRemoveDialogOpen} onClose={() => setModuleRemoveDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>移除模块</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Alert severity="warning">
+              {moduleRemoveMode === 'migrate'
+                ? '迁移会把源模块下的接口移动到目标模块，然后将源模块标记为已排除；历史接口引用仍保留。'
+                : '排除模块会同时排除模块下接口，它们不会参与 Agent、编排、统计和影响重测；后续同步仍会保持排除。'}
+            </Alert>
+            <FormControl size="small" fullWidth>
+              <InputLabel>处理方式</InputLabel>
+              <Select label="处理方式" value={moduleRemoveMode} onChange={(event) => setModuleRemoveMode(event.target.value)}>
+                <MenuItem value="exclude">排除模块及其接口</MenuItem>
+                <MenuItem value="migrate" disabled={!moduleMergeTargets.length}>迁移到目标模块后排除当前模块</MenuItem>
+              </Select>
+            </FormControl>
+            {moduleRemoveMode === 'migrate' && (
+              <FormControl size="small" fullWidth>
+                <InputLabel>目标模块</InputLabel>
+                <Select label="目标模块" value={moduleRemoveTargetId} onChange={(event) => setModuleRemoveTargetId(event.target.value)}>
+                  {moduleMergeTargets.map((module) => (
+                    <MenuItem key={module.module_id} value={module.module_id}>{module.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setModuleRemoveDialogOpen(false)}>取消</Button>
+          <Button color="error" variant="contained" disabled={savingModule} onClick={removeModule}>
+            {moduleRemoveMode === 'migrate' ? '迁移并排除' : '确认排除'}
+          </Button>
         </DialogActions>
       </Dialog>
 

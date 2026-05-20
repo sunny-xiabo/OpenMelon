@@ -136,7 +136,7 @@ export default function FlowAdvancedJsonEditor({
             />
           ) : (
             <Box sx={{ height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
-              正在加载编辑器...
+              编辑器准备中...
             </Box>
           )}
         </Box>

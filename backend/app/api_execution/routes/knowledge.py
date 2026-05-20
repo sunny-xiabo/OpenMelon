@@ -1,9 +1,16 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from typing import Annotated
 
 from app.api.deps import require_production_auth
-from app.api_execution.router_support import *
-from app.governance_center import services as governance_services
+from app.api_execution.router_support import (
+    KnowledgeIngestResponse, KnowledgeSearchResponse,
+    KnowledgeCandidateApproveResponse, KnowledgeCandidateCreateResponse,
+    KnowledgeItem, KnowledgeReviewResponse, KnowledgeStatusUpdateRequest,
+    ingest_runs_to_knowledge_service, search_repair_knowledge_service,
+    approve_knowledge_candidate_service, create_run_knowledge_candidate_service,
+    list_knowledge_review_items_service, update_knowledge_item_status_service,
+    delete_knowledge_item_service,
+)
 
 router = APIRouter()
 
@@ -44,7 +51,7 @@ async def list_knowledge_review_items(
     status: str | None = None,
     item_type: str | None = None,
 ):
-    return governance_services.list_knowledge_items(
+    return list_knowledge_review_items_service(
         limit=limit,
         offset=offset,
         project_id=project_id,
@@ -59,7 +66,7 @@ async def list_knowledge_review_items(
     dependencies=[Depends(require_production_auth)],
 )
 async def update_knowledge_item_status(knowledge_id: str, request: KnowledgeStatusUpdateRequest):
-    return governance_services.update_knowledge_status(knowledge_id, request)
+    return update_knowledge_item_status_service(knowledge_id, request)
 
 
 @router.delete(
@@ -67,7 +74,7 @@ async def update_knowledge_item_status(knowledge_id: str, request: KnowledgeStat
     dependencies=[Depends(require_production_auth)],
 )
 async def delete_knowledge_item(knowledge_id: str):
-    return governance_services.delete_knowledge_item(knowledge_id)
+    return delete_knowledge_item_service(knowledge_id)
 
 
 @router.post(

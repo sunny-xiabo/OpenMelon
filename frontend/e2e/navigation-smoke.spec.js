@@ -14,7 +14,167 @@ const NO_LOADING_TOP_LEVEL_TARGETS = [
   { tab: '设置', expectedText: '设置中心' },
 ];
 
+test.setTimeout(90_000);
+
 const emptyList = { items: [], total: 0, limit: 50, offset: 0 };
+const smokeProject = {
+  project_id: 'project-smoke',
+  name: 'Smoke API',
+  default_environment_id: 'env-smoke',
+  enabled: true,
+  spec_id: 'spec-smoke',
+};
+const smokeModules = [
+  {
+    module_id: 'module-user',
+    project_id: 'project-smoke',
+    module_key: 'user',
+    name: 'User',
+    description: '用户接口',
+    status: 'active',
+    sort_order: 100,
+    source: 'auto',
+    interface_count: 1,
+  },
+  {
+    module_id: 'module-manual',
+    project_id: 'project-smoke',
+    module_key: 'manual',
+    name: '手工模块',
+    description: '补录接口',
+    status: 'active',
+    sort_order: 110,
+    source: 'manual',
+    interface_count: 1,
+  },
+];
+const smokeInterfaces = [
+  {
+    interface_id: 'interface-openapi',
+    project_id: 'project-smoke',
+    module_id: 'module-user',
+    module_key: 'user',
+    module_name: 'User',
+    interface_key: 'GET /users',
+    method: 'GET',
+    path: '/users',
+    operation_id: 'listUsers',
+    summary: 'List users',
+    description: '',
+    tags: ['User'],
+    risk_level: 'low',
+    status: 'active',
+    source: 'openapi',
+    change_state: 'unchanged',
+  },
+  {
+    interface_id: 'interface-manual',
+    project_id: 'project-smoke',
+    module_id: 'module-manual',
+    module_key: 'manual',
+    module_name: '手工模块',
+    interface_key: 'POST /manual/orders',
+    method: 'POST',
+    path: '/manual/orders',
+    operation_id: 'createManualOrder',
+    summary: '手工创建订单',
+    description: '',
+    tags: [],
+    risk_level: 'medium',
+    status: 'active',
+    source: 'manual',
+    change_state: 'added',
+  },
+];
+const smokeAgentContext = {
+  project_id: 'project-smoke',
+  project_name: 'Smoke API',
+  readiness: {
+    project_ready: true,
+    environment_ready: true,
+    base_url_ready: true,
+    assets_ready: true,
+    has_changed_interfaces: false,
+    has_failed_recent_run: false,
+  },
+  asset_summary: {
+    module_count: 2,
+    interface_count: 2,
+    active_interface_count: 2,
+    changed_interface_count: 0,
+    excluded_interface_count: 0,
+    status_counts: { active: 2 },
+  },
+  risk_summary: { low: 1, medium: 1, high: 0, blocked: 0 },
+  skipped_reason_groups: [],
+  recent_run: null,
+  pending_task_count: 0,
+  recommendation: {
+    action: 'generate_test_plan',
+    label: '测试模块：User',
+    description: '该模块有 1 个有效接口，适合作为默认冒烟范围。',
+    section: 'agent',
+    scope_strategy: 'module',
+    module_id: 'module-user',
+    interface_ids: [],
+    intent: 'smoke',
+  },
+  quick_actions: [
+    { action: 'open_config', label: '准备配置', section: 'config' },
+    { action: 'generate_test_plan', label: '测试模块：User', section: 'agent', scope_strategy: 'module', module_id: 'module-user', interface_ids: [], intent: 'smoke' },
+    { action: 'open_assets', label: '查看接口资产', section: 'assets' },
+  ],
+  summary: '该模块有 1 个有效接口，适合作为默认冒烟范围。',
+};
+const smokeAgentPlan = {
+  project_id: 'project-smoke',
+  module_id: 'module-user',
+  test_intent: 'smoke',
+  script: {
+    case_id: 'ASSET_smoke_001',
+    name: 'Smoke API 模块接口冒烟测试',
+    target_project: 'Smoke API',
+    environment: '本地测试',
+    base_url: 'http://127.0.0.1:8000',
+    agent_source: 'api_asset_catalog',
+    agent_test_intent: 'smoke',
+    agent_high_risk_approved: false,
+    agent_setup_applied: false,
+    agent_cleanup_applied: false,
+    auth_applied: false,
+    variables: {},
+    steps: [{
+      id: 's1',
+      name: 'List users',
+      method: 'GET',
+      path: '/users',
+      operation_id: 'listUsers',
+      module_id: 'module-user',
+      interface_id: 'interface-openapi',
+      interface_key: 'GET /users',
+      headers: {},
+      query: {},
+      path_params: {},
+      assertions: [{ type: 'status_code', expected: 200 }],
+      extractions: [],
+      depends_on: [],
+      parallel_group: '',
+    }],
+    cleanup_steps: [],
+    setup_variables: [],
+  },
+  included_interfaces: [smokeInterfaces[0]],
+  skipped_interfaces: [],
+  risk_summary: { low: 1, medium: 0, high: 0, blocked: 0, included: 1, skipped: 0 },
+  recommendations: [],
+  dependency_graph: [],
+  orchestration_summary: '未发现明确前后置依赖，已按接口风险和方法顺序生成可独立执行的测试步骤。',
+  requires_high_risk_confirmation: false,
+  summary: '计划纳入 1 个接口，跳过 0 个接口。',
+  agent_summary: 'Agent 已选择 1 个接口，跳过 0 个接口。',
+  next_action: { action: 'go_orchestrate', label: '去编排执行', description: '测试计划已生成，下一步检查 DSL 并执行。', section: 'orchestrate' },
+  skipped_reason_groups: [],
+};
 
 const mockApiPayload = (url) => {
   const path = url.pathname;
@@ -34,17 +194,32 @@ const mockApiPayload = (url) => {
   if (path === '/api/index-governance/diagnostics') return { items: [] };
   if (path === '/api/index-governance/tasks') return { items: [] };
 
-  if (path === '/api/api-execution/projects') return { projects: [] };
+  if (path === '/api/api-execution/projects') return { projects: [smokeProject] };
+  if (path === '/api/api-execution/projects/project-smoke') return smokeProject;
+  if (path === '/api/api-execution/projects/project-smoke/agent/context') return smokeAgentContext;
+  if (path === '/api/api-execution/projects/project-smoke/agent/test-plan') return smokeAgentPlan;
   if (path === '/api/api-execution/runs') return { ...emptyList, runs: [] };
   if (path === '/api/api-execution/flow-templates') return { ...emptyList, templates: [] };
   if (path === '/api/api-execution/automation/tasks') return { ...emptyList, tasks: [] };
   if (path === '/api/api-execution/automation/task-center/summary') return { total: 0, pending: 0, running: 0, failed: 0 };
   if (path === '/api/api-execution/dashboard/summary') return { projects: [], recent_runs: [], totals: {} };
-  if (path.endsWith('/environments')) return { environments: [] };
-  if (path.endsWith('/assets')) return { modules: [], interfaces: [], specs: [] };
+  if (path.endsWith('/environments')) {
+    return {
+      environments: [{
+        environment_id: 'env-smoke',
+        project_id: 'project-smoke',
+        name: '本地测试',
+        environment_type: 'test',
+        base_url: 'http://127.0.0.1:8000',
+        headers: {},
+        variables: {},
+      }],
+    };
+  }
+  if (path.endsWith('/assets')) return { project: smokeProject, modules: smokeModules, interfaces: smokeInterfaces, specs: [] };
   if (path.endsWith('/assets/preview')) return { modules: [], interfaces: [], changes: [] };
-  if (path.endsWith('/modules')) return { modules: [] };
-  if (path.endsWith('/interfaces')) return { interfaces: [], items: [] };
+  if (path.endsWith('/modules')) return { modules: smokeModules };
+  if (path.endsWith('/interfaces')) return { interfaces: smokeInterfaces, items: smokeInterfaces, total: smokeInterfaces.length };
 
   if (path === '/api/config-center/schema') return { groups: [], status: { env_exists: false } };
   if (path === '/api/config-center/values') return { values: {}, effective: {} };
@@ -169,10 +344,32 @@ test('top-level navigation smoke stays ready without loading flashes', async ({ 
 
   await page.getByRole('tab', { name: 'API 自动化' }).click();
   await expectReady(page, 'API 自动化工作台');
+  await expectReady(page, 'Agent 下一步推荐');
+  await expect(page.getByRole('button', { name: '简洁模式' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: '选择范围' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: '按推荐生成计划' }).click();
+  await expect(page.getByRole('tab', { name: '执行' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: '编排与执行' })).toBeVisible({ timeout: 30_000 });
+  await expectReady(page, '编排与执行');
+
   for (const target of [
-    { tab: '接口资产', expectedText: '请先在项目配置中选择或创建项目' },
+    { tab: '准备', expectedText: '项目配置' },
+    { tab: '选择范围', expectedText: 'Agent 测试范围' },
+    { tab: '执行', expectedText: '编排与执行' },
+    { tab: '结果', expectedText: '执行结果与诊断' },
+  ]) {
+    const tab = page.getByRole('tab', { name: target.tab });
+    await tab.click();
+    await expect(tab).toHaveAttribute('aria-selected', 'true');
+    await expectReady(page, target.expectedText);
+  }
+
+  await page.getByRole('button', { name: '高级模式' }).click();
+  await expect(page.getByRole('tab', { name: '接口资产' })).toBeVisible();
+  for (const target of [
+    { tab: '接口资产', expectedText: '接口资产台账' },
     { tab: 'Agent 测试', expectedText: '高级：按 OpenAPI 规范挑选接口' },
-    { tab: '编排执行', expectedText: '流程编排工作台' },
+    { tab: '编排执行', expectedText: '编排与执行' },
     { tab: '结果报告', expectedText: '执行结果与诊断' },
     { tab: '执行历史', expectedText: '执行历史' },
   ]) {
@@ -181,6 +378,25 @@ test('top-level navigation smoke stays ready without loading flashes', async ({ 
     await expect(tab).toHaveAttribute('aria-selected', 'true');
     await expectReady(page, target.expectedText);
   }
+
+  await page.getByRole('tab', { name: '接口资产' }).click();
+  await expectReady(page, '接口资产台账');
+  await page.getByLabel('User 模块操作').click();
+  await expect(page.getByRole('menuitem', { name: /编辑模块/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /移除模块/ })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: /合并到/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '查看', exact: true }).first().click();
+  await expect(page.getByRole('button', { name: '移除接口' })).toBeVisible();
+  await page.getByRole('button', { name: '关闭' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: '查看', exact: true }).nth(1).click();
+  await expect(page.getByRole('button', { name: '永久删除' })).toBeVisible();
+  await page.getByRole('button', { name: '关闭' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('[role="combobox"]:visible').nth(2).click();
+  await expect(page.getByRole('option', { name: '已排除' })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   expect(runtimeErrors).toEqual([]);
 });

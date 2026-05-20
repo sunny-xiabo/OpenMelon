@@ -61,6 +61,8 @@ const CLEANUP_STEPS_EXAMPLE = JSON.stringify([
   },
 ], null, 2);
 
+const ACTIVE_INTERFACE_STATUSES = new Set(['active', 'changed']);
+
 const AI_BOUNDARY_OPTIONS = [
   {
     checkedKey: 'allowAiGenerateDsl',
@@ -285,7 +287,7 @@ export default function StepImport() {
   });
   const { data: projectAssets } = useProjectAssets(selectedProjectId);
   const latestDiff = projectAssets?.latest_diff_summary || {};
-  const activeInterfaceCount = (projectAssets?.interfaces || []).filter((item) => item.status !== 'removed').length;
+  const activeInterfaceCount = (projectAssets?.interfaces || []).filter((item) => ACTIVE_INTERFACE_STATUSES.has(item.status) && !item.hidden).length;
   const selectedProject = React.useMemo(
     () => projects.find((item) => item.project_id === selectedProjectId) || null,
     [projects, selectedProjectId],
@@ -335,13 +337,14 @@ export default function StepImport() {
     if (spec?.spec_id === specId) return;
 
     requestedSpecRef.current = specId;
-    setLoadingMessage('正在加载项目接口资产...');
+    setLoadingMessage('项目接口资产同步中...');
     setLoading(true);
     try {
       const data = await apiExecutionAPI.getSpec(specId);
-      resetAfterSpecChange(data);
+      resetAfterSpecChange(data, { advanceStep: !silent });
       setAssetPreview(null);
       queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(project.project_id) });
+      queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(project.project_id) });
       if (!silent) {
         showSnackbar(`已加载项目接口资产，共 ${data.operation_count || 0} 个接口`, { severity: 'success' });
       }
@@ -369,6 +372,7 @@ export default function StepImport() {
       await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.projects });
       await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.environments(data.project.project_id) });
       await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(data.project.project_id) });
+      await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(data.project.project_id) });
       applyProjectValues(data.project);
       applyEnvironmentValues(data.environment);
       showSnackbar(
@@ -417,6 +421,7 @@ export default function StepImport() {
       const data = await apiExecutionAPI.syncProjectAssets(selectedProjectId, spec.spec_id);
       setAssetPreview(data);
       await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(selectedProjectId) });
+      await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(selectedProjectId) });
       await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.projects });
       const updatedProject = await apiExecutionAPI.getProject(selectedProjectId);
       applyProjectValues(updatedProject);
@@ -437,6 +442,7 @@ export default function StepImport() {
     await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.projects });
     if (selectedProjectId) {
       await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.environments(selectedProjectId) });
+      await queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(selectedProjectId) });
     }
   };
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Stack, Box, Typography, Button, Chip, Paper, Alert, LinearProgress, Divider } from '@mui/material';
 import { BuildCircleOutlined, RefreshOutlined, TroubleshootOutlined } from '@mui/icons-material';
 import { useAPIExecution } from '../context';
@@ -20,6 +21,7 @@ import {
 } from '../utils/repairPatch';
 import StageHeader from './StageHeader';
 import AIFlowDraftDialog from './AIFlowDraftDialog';
+import { EXEC_KEYS } from '../hooks/useAPIExecutionQueries';
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
 
@@ -203,6 +205,7 @@ function AgentDiagnosisPanel({ runReport, loading, parsedScript, onGenerateRepai
 
 export default function StepResult() {
   const showSnackbar = useSnackbar();
+  const queryClient = useQueryClient();
   const {
     aiPatch,
     applyAiPatch,
@@ -317,6 +320,11 @@ export default function StepResult() {
       setRunResult(null);
       setRepairDraftOpen(false);
       setActiveStep(3);
+      if (data.execution_options?.project_id || options.project_id) {
+        const projectId = data.execution_options?.project_id || options.project_id;
+        queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(projectId) });
+        queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(projectId) });
+      }
       window.dispatchEvent(new CustomEvent(API_EXECUTION_DASHBOARD_REFRESH_EVENT));
       showSnackbar(
         data.status === 'passed' ? '低风险修复重跑已通过，并更新原记录' : '低风险修复已重跑，仍需查看剩余失败项',

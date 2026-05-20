@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Box, Typography, Paper, IconButton, Tooltip } from '@mui/material';
 import { ZoomIn, ZoomOut, FitScreen, Download, Fullscreen, FullscreenExit } from '@mui/icons-material';
 
+const loadMarkmapEngine = () => Promise.all([
+  import('markmap-lib'),
+  import('markmap-view'),
+]);
+
+export function prefetchMindMapEngine() {
+  return loadMarkmapEngine().then(() => undefined);
+}
+
 function buildMindMapData(testCases) {
   if (!testCases?.length) return { name: '暂无测试用例', children: [] };
 
@@ -68,10 +77,7 @@ export default function TestCaseMindMap({ testCases }) {
 
     async function renderMindMap() {
       if (!markmapRef.current) {
-        const [{ Transformer }, { Markmap }] = await Promise.all([
-          import('markmap-lib'),
-          import('markmap-view'),
-        ]);
+        const [{ Transformer }, { Markmap }] = await loadMarkmapEngine();
         markmapRef.current = {
           transformer: new Transformer(),
           Markmap,

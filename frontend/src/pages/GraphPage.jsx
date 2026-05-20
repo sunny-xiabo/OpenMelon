@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Box } from '@mui/material';
-import LoadingOverlay from '../components/LoadingOverlay';
+import { Box, LinearProgress, Typography } from '@mui/material';
 import EmptyState from '../components/EmptyState';
 import GraphLegend from '../features/Graph/components/GraphLegend';
 import GraphToolbar from '../features/Graph/components/GraphToolbar';
@@ -187,7 +186,14 @@ export default function GraphPage({ isActive = true }) {
 
       <Box sx={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-          {(isGraphLoading || graphEngineLoading) && <LoadingOverlay message="图谱计算中..." />}
+          {(isGraphLoading || graphEngineLoading) && (
+            <Box sx={{ position: 'absolute', top: 12, left: 16, right: 16, zIndex: 12, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.86)', border: '1px solid rgba(15, 23, 42, 0.08)', overflow: 'hidden', pointerEvents: 'none' }}>
+              <LinearProgress sx={{ height: 3 }} />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1.25, py: 0.75, fontWeight: 800 }}>
+                图谱正在更新，画布可继续查看
+              </Typography>
+            </Box>
+          )}
           
           {graphReady && (
             <Box

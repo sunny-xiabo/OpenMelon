@@ -1,86 +1,18 @@
-from app.api_execution.router_deps import *
+from typing import Any
 
-STORAGE_MIGRATION_TABLES: tuple[dict[str, Any], ...] = (
-    {
-        "table": "runs",
-        "label": "执行历史",
-        "indexed_columns": ["run_id", "status", "project_id", "case_id", "case_name", "environment_name", "run_at"],
-        "pg_strategy": "核心筛选列独立建表字段，script/results/execution_options 保留 JSONB。",
-    },
-    {
-        "table": "projects",
-        "label": "项目配置",
-        "indexed_columns": ["project_id", "name", "updated_at"],
-        "pg_strategy": "项目级策略、认证、setup/cleanup 可先落 JSONB，后续按查询频率拆列。",
-    },
-    {
-        "table": "environments",
-        "label": "环境变量",
-        "indexed_columns": ["environment_id", "project_id", "updated_at"],
-        "pg_strategy": "headers/variables 使用 JSONB，敏感值迁移前需确认脱敏或加密策略。",
-    },
-    {
-        "table": "specs",
-        "label": "接口规格",
-        "indexed_columns": ["spec_id", "source_url", "content_hash", "parsed_at"],
-        "pg_strategy": "OpenAPI 原始解析结果落 JSONB，source_url/content_hash 继续建唯一性/检索索引。",
-    },
-    {
-        "table": "api_spec_versions",
-        "label": "规格版本",
-        "indexed_columns": ["spec_version_id", "project_id", "spec_id", "content_hash", "imported_at"],
-        "pg_strategy": "版本元数据拆列，operations 快照保留 JSONB。",
-    },
-    {
-        "table": "api_modules",
-        "label": "接口模块",
-        "indexed_columns": ["module_id", "project_id", "module_key", "status", "sort_order"],
-        "pg_strategy": "模块基础字段拆列，扩展信息保留 JSONB。",
-    },
-    {
-        "table": "api_interfaces",
-        "label": "接口资产",
-        "indexed_columns": ["interface_id", "project_id", "module_id", "interface_key", "method", "path", "status"],
-        "pg_strategy": "接口资产核心字段拆列，parameters/request_body/responses 保留 JSONB。",
-    },
-    {
-        "table": "automation_tasks",
-        "label": "治理任务",
-        "indexed_columns": ["task_id", "status", "project_id", "updated_at", "created_at"],
-        "pg_strategy": "任务状态和项目拆列，summary/context 保留 JSONB。",
-    },
-    {
-        "table": "policy_audits",
-        "label": "策略审计",
-        "indexed_columns": ["audit_id", "project_id", "action", "created_at"],
-        "pg_strategy": "审计动作拆列，decision 保留 JSONB。",
-    },
-    {
-        "table": "event_logs",
-        "label": "事件日志",
-        "indexed_columns": ["event_id", "created_at", "level", "module", "event_type", "project_id", "trace_id"],
-        "pg_strategy": "日志检索字段拆列，data 保留 JSONB；大表建议按时间归档。",
-    },
-    {
-        "table": "ai_call_logs",
-        "label": "AI 调用日志",
-        "indexed_columns": ["call_id", "created_at", "feature", "operation", "model", "status", "trace_id"],
-        "pg_strategy": "观测指标拆列，prompt/response 摘要保留 JSONB；敏感内容按配置脱敏。",
-    },
-    {
-        "table": "knowledge_items",
-        "label": "修复知识",
-        "indexed_columns": ["knowledge_id", "item_type", "project_id", "status", "created_at"],
-        "pg_strategy": "知识状态拆列，embedding/metadata 预留向量库或 JSONB 映射。",
-    },
-)
-
+from app.api.errors import NotFoundError
+from app.api_execution.dsl_generator import generate_api_dsl
+from app.api_execution.run_queue import enqueue_run
+from app.api_execution.schemas import APITestCaseDsl, RunScriptRequest
+from app.api_execution.storage import api_execution_store
+from app.api_execution.utils import execution_options as _execution_options
+from app.api_execution.utils import now_iso as _now_iso
 
 async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str) -> dict[str, Any]:
     from app.api_execution.services.run_service import (
-        _assert_policy_allowed,
-        _save_automation_task,
-        _save_policy_audit,
+        assert_policy_allowed,
+        save_automation_task,
+        save_policy_audit,
     )
 
     project_id = project.get("project_id", "")
@@ -115,10 +47,10 @@ async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str)
         continue_on_failure=environment.get("continue_on_failure", True),
     )
     try:
-        policy_decision = _assert_policy_allowed(request)
+        policy_decision = assert_policy_allowed(request)
         run = await enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
         api_execution_store.save_project({**project, "last_scheduled_run_at": triggered_at, "updated_at": triggered_at})
-        _save_policy_audit("scheduled_run", policy_decision, run_id=run.get("run_id"))
+        save_policy_audit("scheduled_run", policy_decision, run_id=run.get("run_id"))
         return _automation_item(project_id, project_name, "queued", run_id=run.get("run_id"))
     except ValueError as exc:
         decision = {
@@ -129,7 +61,7 @@ async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str)
             "environment_id": environment.get("environment_id", ""),
             "trigger_source": "scheduled",
         }
-        _save_automation_task("scheduled_run_review", {"run_id": None, "execution_options": {"project_id": project_id}}, decision, reason=str(exc))
+        save_automation_task("scheduled_run_review", {"run_id": None, "execution_options": {"project_id": project_id}}, decision, reason=str(exc))
         return _automation_item(project_id, project_name, "blocked", reason=str(exc))
 
 
@@ -239,9 +171,6 @@ def _project_policy_snapshot(project: dict[str, Any]) -> dict[str, Any]:
         "risk_overrides",
         "operation_allowlist",
         "operation_blocklist",
-        "auth_config",
-        "setup_steps",
-        "cleanup_steps",
     }
     return {key: project.get(key) for key in keys if key in project}
 
@@ -303,13 +232,13 @@ def list_automation_tasks_service(
 
 
 def get_task_center_summary_service(limit: int = 50, project_id: str | None = None) -> dict[str, Any]:
-    from app.api_execution.services.dashboard_service import _task_center_summary
+    from app.api_execution.services.dashboard_service import task_center_summary
 
-    return _task_center_summary(project_id=project_id, limit=limit)
+    return task_center_summary(project_id=project_id, limit=limit)
 
 
 def resolve_automation_task_service(task_id: str) -> dict[str, Any]:
-    from app.api_execution.services.run_service import _log_task_event
+    from app.api_execution.services.run_service import log_task_event
 
     now = _now_iso()
     task = api_execution_store.update_automation_task(
@@ -323,7 +252,7 @@ def resolve_automation_task_service(task_id: str) -> dict[str, Any]:
     )
     if not task:
         raise NotFoundError(message=str("待处理任务不存在"))
-    _log_task_event(task, "task_resolved")
+    log_task_event(task, "task_resolved")
     return task
 
 

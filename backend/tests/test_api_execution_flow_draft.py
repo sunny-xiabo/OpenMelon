@@ -1,13 +1,12 @@
-from app.api_execution import routers
+from app.api_execution.ai.flow_draft import build_flow_draft
 from app.api_execution.storage import APIExecutionStore
 
 
 def test_flow_draft_generates_script_from_business_goal(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
     store.save_spec(_spec())
 
-    response = routers.build_flow_draft(
+    response = build_flow_draft(
         store.get_spec("spec-1"),
         "登录后创建订单并查询订单详情",
         project_name="订单系统",
@@ -37,7 +36,7 @@ def test_flow_draft_generates_script_from_business_goal(monkeypatch, tmp_path):
 
 
 def test_flow_draft_respects_selected_operation_scope():
-    response = routers.build_flow_draft(_spec(), "查询订单", operation_ids=["op-get-order"])
+    response = build_flow_draft(_spec(), "查询订单", operation_ids=["op-get-order"])
 
     script = response["draft_script"].model_dump()
 
@@ -47,7 +46,7 @@ def test_flow_draft_respects_selected_operation_scope():
 
 
 def test_flow_draft_links_multiple_resource_ids_and_body_fields():
-    response = routers.build_flow_draft(
+    response = build_flow_draft(
         _spec_with_cart_and_order(),
         "登录后创建购物车，创建订单并查询订单",
     )
@@ -63,7 +62,7 @@ def test_flow_draft_links_multiple_resource_ids_and_body_fields():
 
 
 def test_flow_draft_recommends_matching_templates():
-    response = routers.build_flow_draft(
+    response = build_flow_draft(
         _spec(),
         "登录后创建订单并查询订单详情",
         flow_templates=[
@@ -88,7 +87,7 @@ def test_flow_draft_recommends_matching_templates():
 
 
 def test_flow_draft_template_recommendation_includes_performance():
-    response = routers.build_flow_draft(
+    response = build_flow_draft(
         _spec(),
         "登录后创建订单并查询订单详情",
         flow_templates=[

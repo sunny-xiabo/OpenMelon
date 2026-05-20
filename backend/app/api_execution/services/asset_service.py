@@ -11,12 +11,24 @@ from base64 import b64encode
 from fnmatch import fnmatch
 from typing import Any
 
-from app.api_execution.router_deps import *
+from app.api.errors import InvalidRequestError, NotFoundError
+from app.api_execution.dsl_generator import generate_api_dsl
+from app.api_execution.schemas import (
+    APIAssetInterfaceCreateRequest,
+    APIAssetInterfaceUpdateRequest,
+    APIAssetModuleCreateRequest,
+    APIAssetModuleMergeRequest,
+    APIAssetModuleRemoveRequest,
+    APIAssetModuleUpdateRequest,
+    APIAssetTestPlanRequest,
+)
+from app.api_execution.storage import api_execution_store
+from app.api_execution.utils import now_iso as _now_iso
 
 DEFAULT_MODULE_NAME = "未分组"
 EXECUTABLE_INTERFACE_STATUSES = {"active", "changed"}
 VALID_INTERFACE_RISKS = {"low", "medium", "high", "blocked"}
-VALID_INTERFACE_STATUSES = {"active", "changed", "deprecated", "removed", "hidden"}
+VALID_INTERFACE_STATUSES = {"active", "changed", "deprecated", "removed", "hidden", "excluded"}
 NEGATIVE_STATUS_CODES = [400, 401, 403, 404, 409, 422]
 AUTH_TOKENS = {"auth", "login", "signin", "token", "session", "oauth"}
 CREATE_TOKENS = {"create", "add", "new", "submit", "register", "生成", "创建", "新增"}
@@ -668,11 +680,11 @@ def _build_project_asset_plan(project: dict[str, Any], spec: dict[str, Any], *, 
         elif existing.get("current_hash") != op_hash:
             diff["changed"] += 1
             change_state = "changed"
-            status = "changed"
+            status = existing.get("status") if existing.get("status") == "excluded" else "changed"
         else:
             diff["unchanged"] += 1
             change_state = "unchanged"
-            status = "active"
+            status = existing.get("status") if existing.get("status") == "excluded" else "active"
 
         interface = {
             **existing,
@@ -1025,6 +1037,100 @@ def create_project_module_service(project_id: str, request: APIAssetModuleCreate
     return {**api_execution_store.save_api_module(module), "interface_count": 0}
 
 
+def update_project_module_service(module_id: str, request: APIAssetModuleUpdateRequest) -> dict[str, Any]:
+    module = api_execution_store.get_api_module(module_id)
+    if not module:
+        raise NotFoundError(message=str("模块不存在"))
+    if request.name is not None:
+        name = str(request.name).strip()
+        if not name:
+            raise InvalidRequestError(message=str("模块名称不能为空"))
+        module["name"] = name
+        module["module_key"] = _normalize_module_key(name)
+    if request.description is not None:
+        module["description"] = str(request.description).strip()
+    if request.status is not None:
+        module["status"] = str(request.status).strip()
+    if request.sort_order is not None:
+        module["sort_order"] = int(request.sort_order)
+    module["updated_at"] = _now_iso()
+    return api_execution_store.save_api_module(module)
+
+
+def remove_project_module_service(module_id: str, request: APIAssetModuleRemoveRequest) -> dict[str, Any]:
+    module = api_execution_store.get_api_module(module_id)
+    if not module:
+        raise NotFoundError(message=str("模块不存在"))
+    mode = str(request.mode or "").strip()
+    if mode == "delete":
+        interfaces = api_execution_store.list_api_interfaces(module.get("project_id"), module_id=module_id)
+        if interfaces:
+            raise InvalidRequestError(message=str("模块下有接口，不能直接删除，请先迁移或排除"))
+        api_execution_store.delete_api_module(module_id)
+        return {**module, "deleted": True}
+    if mode == "exclude":
+        interfaces = api_execution_store.list_api_interfaces(module.get("project_id"), module_id=module_id)
+        for iface in interfaces:
+            iface["status"] = "excluded"
+            iface["hidden"] = True
+            iface["excluded_by_user"] = True
+            iface["excluded_at"] = _now_iso()
+            iface["updated_at"] = _now_iso()
+            api_execution_store.save_api_interface(iface)
+        module["status"] = "excluded"
+        module["updated_at"] = _now_iso()
+        return api_execution_store.save_api_module(module)
+    target_id = str(request.target_module_id or "").strip()
+    if not target_id:
+        raise InvalidRequestError(message=str("迁移模式需要指定目标模块"))
+    target = api_execution_store.get_api_module(target_id)
+    if not target or target.get("project_id") != module.get("project_id"):
+        raise InvalidRequestError(message=str("目标模块不存在或不属于同一项目"))
+    interfaces = api_execution_store.list_api_interfaces(module.get("project_id"), module_id=module_id)
+    for iface in interfaces:
+        iface["module_id"] = target_id
+        iface["module_name"] = target.get("name", "")
+        iface["updated_at"] = _now_iso()
+        api_execution_store.save_api_interface(iface)
+    api_execution_store.delete_api_module(module_id)
+    return {**module, "deleted": True}
+
+
+def merge_project_module_service(module_id: str, request: APIAssetModuleMergeRequest) -> dict[str, Any]:
+    module = api_execution_store.get_api_module(module_id)
+    if not module:
+        raise NotFoundError(message=str("模块不存在"))
+    target_id = str(request.target_module_id or "").strip()
+    if not target_id:
+        raise InvalidRequestError(message=str("合并目标模块不能为空"))
+    target = api_execution_store.get_api_module(target_id)
+    if not target or target.get("project_id") != module.get("project_id"):
+        raise InvalidRequestError(message=str("目标模块不存在或不属于同一项目"))
+    if module_id == target_id:
+        raise InvalidRequestError(message=str("不能合并到自身"))
+    interfaces = api_execution_store.list_api_interfaces(module.get("project_id"), module_id=module_id)
+    for iface in interfaces:
+        iface["module_id"] = target_id
+        iface["module_name"] = target.get("name", "")
+        iface["updated_at"] = _now_iso()
+        api_execution_store.save_api_interface(iface)
+    module["status"] = "excluded"
+    module["merged_into_module_id"] = target_id
+    module["updated_at"] = _now_iso()
+    return api_execution_store.save_api_module(module)
+
+
+def delete_project_module_service(module_id: str) -> dict[str, Any]:
+    module = api_execution_store.get_api_module(module_id)
+    if not module:
+        raise NotFoundError(message=str("模块不存在"))
+    interfaces = api_execution_store.list_api_interfaces(module.get("project_id"), module_id=module_id)
+    if interfaces:
+        raise InvalidRequestError(message=str("模块下有接口，不能直接删除，请先迁移或排除"))
+    api_execution_store.delete_api_module(module_id)
+    return {**module, "deleted": True}
+
+
 def create_project_interface_service(project_id: str, request: APIAssetInterfaceCreateRequest) -> dict[str, Any]:
     project = api_execution_store.get_project(project_id)
     if not project:
@@ -1128,6 +1234,14 @@ def update_project_interface_service(interface_id: str, request: APIAssetInterfa
         if status not in VALID_INTERFACE_STATUSES:
             raise InvalidRequestError(message=str("接口状态不合法"))
         next_interface["status"] = status
+        if status == "excluded":
+            next_interface["hidden"] = True
+            next_interface["excluded_by_user"] = True
+            next_interface["excluded_at"] = _now_iso()
+        elif interface.get("status") == "excluded":
+            next_interface["hidden"] = False
+            next_interface["excluded_by_user"] = False
+            next_interface.pop("excluded_at", None)
 
     if "hidden" in patch and patch["hidden"] is not None:
         hidden = bool(patch["hidden"])

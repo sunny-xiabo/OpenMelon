@@ -1,4 +1,12 @@
-from app.api_execution.router_deps import *
+from typing import Any
+
+from fastapi import Request
+
+from app.api.errors import InvalidRequestError, NotFoundError
+from app.api_execution.ai_assistant import build_flow_draft, build_repair_patch_with_configured_ai, enhance_dsl_with_configured_ai
+from app.api_execution.router_deps import FLOW_TEMPLATE_DEFINITION_TYPE
+from app.api_execution.schemas import AIDslEnhanceRequest, AIFlowDraftRequest, AIRepairPatchRequest
+from app.api_execution.storage import api_execution_store
 
 
 async def enhance_dsl_service(request: AIDslEnhanceRequest) -> dict[str, Any]:
@@ -6,17 +14,17 @@ async def enhance_dsl_service(request: AIDslEnhanceRequest) -> dict[str, Any]:
 
 
 def _flow_templates_for_draft(project_id: str | None) -> list[dict[str, Any]]:
-    from app.api_execution.services.dashboard_service import _flow_template_from_definition, _flow_template_performance
+    from app.api_execution.services.dashboard_service import flow_template_from_definition, flow_template_performance
 
     flow_templates = [
-        _flow_template_from_definition(item)
+        flow_template_from_definition(item)
         for item in api_execution_store.list_automation_definitions(
             limit=50,
             project_id=project_id or None,
             definition_type=FLOW_TEMPLATE_DEFINITION_TYPE,
         )
     ]
-    template_performance = _flow_template_performance(project_id or None)
+    template_performance = flow_template_performance(project_id or None)
     return [
         {
             **template,
@@ -46,11 +54,11 @@ def build_flow_draft_service(request: AIFlowDraftRequest) -> dict[str, Any]:
 
 
 async def build_repair_patch_service(api_request: Request, request: AIRepairPatchRequest) -> dict[str, Any]:
-    from app.api_execution.services.knowledge_service import _repair_context_query, _search_historical_repair_context
+    from app.api_execution.services.knowledge_service import repair_context_query, search_historical_repair_context
 
-    historical_context = await _search_historical_repair_context(
+    historical_context = await search_historical_repair_context(
         api_request,
-        _repair_context_query(request.script, request.report),
+        repair_context_query(request.script, request.report),
         project_id=request.project_policy_snapshot.get("project_id", ""),
         top_k=3,
     )

@@ -4,6 +4,7 @@ import { useSnackbar } from '../../../components/SnackbarProvider';
 
 export const EXEC_KEYS = {
   projects: ['exec', 'projects'],
+  agentContext: (projectId) => ['exec', 'agent-context', projectId],
   assets: (projectId) => ['exec', 'assets', projectId],
   environments: (projectId) => ['exec', 'environments', projectId],
   flowTemplates: (projectId) => ['exec', 'flow-templates', projectId],
@@ -48,6 +49,20 @@ export function useProjectAssets(projectId) {
     queryFn: async () => {
       if (!projectId) return null;
       return apiExecutionAPI.getProjectAssets(projectId);
+    },
+    enabled: !!projectId,
+  });
+}
+
+/**
+ * 获取 API Agent 工作台上下文
+ */
+export function useAgentContext(projectId) {
+  return useQuery({
+    queryKey: EXEC_KEYS.agentContext(projectId),
+    queryFn: async () => {
+      if (!projectId) return null;
+      return apiExecutionAPI.getAgentContext(projectId);
     },
     enabled: !!projectId,
   });
@@ -148,7 +163,7 @@ export function useSaveEnvironmentMutation(projectId) {
       ? apiExecutionAPI.updateEnvironment(envId, payload)
       : apiExecutionAPI.saveEnvironment(projectId, payload),
     '环境已保存',
-    [EXEC_KEYS.environments(projectId)]
+    [EXEC_KEYS.environments(projectId), EXEC_KEYS.agentContext(projectId)]
   );
 }
 
@@ -156,7 +171,7 @@ export function useDeleteEnvironmentMutation(projectId) {
   return useExecMutation(
     (envId) => apiExecutionAPI.deleteEnvironment(envId),
     '环境已删除',
-    [EXEC_KEYS.environments(projectId)]
+    [EXEC_KEYS.environments(projectId), EXEC_KEYS.agentContext(projectId)]
   );
 }
 

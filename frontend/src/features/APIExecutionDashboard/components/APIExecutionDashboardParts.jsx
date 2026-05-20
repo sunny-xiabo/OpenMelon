@@ -249,7 +249,7 @@ export function RunDetailDrawer({ open, run, loading, onClose, onOpenAPIExecutio
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={2}>
           <Box>
             <Typography variant="subtitle1" fontWeight={800}>{run?.status === 'failed' ? '失败诊断' : '执行详情'}</Typography>
-            <Typography variant="caption" color="text.secondary">{run?.case_name || run?.case_id || '正在加载执行记录'}</Typography>
+            <Typography variant="caption" color="text.secondary">{run?.case_name || run?.case_id || '执行记录准备中'}</Typography>
           </Box>
           <IconButton size="small" onClick={onClose}><CloseOutlined fontSize="small" /></IconButton>
         </Stack>

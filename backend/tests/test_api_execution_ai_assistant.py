@@ -1,4 +1,14 @@
-from app.api_execution.ai_assistant import build_repair_patch, enhance_dsl
+import pytest
+
+from app.api_execution.ai import dsl_enhance as dsl_enhance_module
+from app.api_execution.ai import llm_patch as llm_patch_module
+from app.api_execution.ai import repair_patch as repair_patch_module
+from app.api_execution.ai_assistant import (
+    build_repair_patch,
+    build_repair_patch_with_configured_ai,
+    enhance_dsl,
+    enhance_dsl_with_configured_ai,
+)
 from app.api_execution.schemas import APITestCaseDsl
 
 
@@ -24,6 +34,237 @@ def test_enhance_dsl_adds_response_time_assertion_and_token_extraction():
     assert patch["automatic_applicable"] is True
     assert any(assertion.type == "response_time_lt" for assertion in step.assertions)
     assert step.extractions[0].name == "access_token"
+
+
+def test_enhance_dsl_completes_basic_orchestration_chain():
+    script = APITestCaseDsl(
+        case_id="case_ai_chain",
+        name="AI DSL chain",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "s1",
+                "name": "Login",
+                "method": "POST",
+                "path": "/auth/login",
+                "operation_id": "login",
+            },
+            {
+                "id": "s2",
+                "name": "Create order",
+                "method": "POST",
+                "path": "/orders",
+                "operation_id": "createOrder",
+            },
+            {
+                "id": "s3",
+                "name": "Get order",
+                "method": "GET",
+                "path": "/orders/{id}",
+                "operation_id": "getOrder",
+                "path_params": {"id": "example_id"},
+            },
+        ],
+    )
+
+    patch = enhance_dsl(script)
+    steps = patch["patched_script"].steps
+
+    assert steps[0].extractions[0].name == "access_token"
+    assert steps[1].depends_on == ["s1"]
+    assert steps[1].headers["Authorization"] == "Bearer {{access_token}}"
+    assert steps[1].extractions[0].name == "order_id"
+    assert steps[2].depends_on == ["s2"]
+    assert steps[2].headers["Authorization"] == "Bearer {{access_token}}"
+    assert steps[2].path_params["id"] == "{{order_id}}"
+    assert any(operation["field"] == "depends_on" for operation in patch["patch_operations"])
+    assert any(operation["field"] == "path_params" for operation in patch["patch_operations"])
+
+
+@pytest.mark.asyncio
+async def test_enhance_dsl_llm_uses_short_timeout_without_retries(monkeypatch):
+    captured = {}
+    script = APITestCaseDsl(
+        case_id="case_ai_timeout",
+        name="AI DSL timeout",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "s1",
+                "name": "List",
+                "method": "GET",
+                "path": "/items",
+                "operation_id": "listItems",
+                "assertions": [{"type": "status_code_in", "expected": [200]}],
+            }
+        ],
+    )
+    fallback = enhance_dsl(script)
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured["create"] = kwargs
+            return type(
+                "Response",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {
+                                "message": type(
+                                    "Message",
+                                    (),
+                                    {
+                                        "content": '{"patched_script": '
+                                        + script.model_dump_json()
+                                        + ', "patch_operations": [], "summary": "ok"}'
+                                    },
+                                )()
+                            },
+                        )()
+                    ]
+                },
+            )()
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(llm_patch_module.settings, "API_KEY", "test-key")
+    monkeypatch.setattr(llm_patch_module.settings, "API_BASE_URL", "http://llm.example/v1")
+    monkeypatch.setattr(llm_patch_module.settings, "CHAT_MODEL", "test-model")
+    monkeypatch.setattr(llm_patch_module, "AsyncOpenAI", FakeAsyncOpenAI)
+
+    await llm_patch_module._build_patch_with_llm(
+        task="enhance_dsl",
+        script=script,
+        report=None,
+        project_policy_snapshot={},
+        fallback=fallback,
+    )
+
+    assert captured["client"]["timeout"] == 6
+    assert captured["client"]["max_retries"] == 0
+    assert captured["create"]["timeout"] == 6
+
+
+@pytest.mark.asyncio
+async def test_configured_enhance_dsl_accepts_agent_asset_plan(monkeypatch):
+    async def fail_if_llm_called(**_kwargs):
+        raise AssertionError("Agent asset plans should use the local fast enhancement path")
+
+    monkeypatch.setattr(dsl_enhance_module.llm_patch, "_is_llm_configured", lambda: True)
+    monkeypatch.setattr(dsl_enhance_module.llm_patch, "_build_patch_with_llm", fail_if_llm_called)
+    script = APITestCaseDsl(
+        case_id="ASSET_demo-api_006375",
+        name="OpenMelon Demo API Flow 模块接口冒烟测试",
+        target_project="OpenMelon Demo API Flow",
+        environment="Demo 本地环境",
+        base_url="http://localhost:18080",
+        agent_source="api_asset_catalog",
+        agent_test_intent="smoke",
+        steps=[
+            {
+                "id": "s1",
+                "name": "登录获取 token",
+                "method": "POST",
+                "path": "/auth/login",
+                "operation_id": "login",
+                "headers": {},
+                "query": {},
+                "path_params": {},
+                "body": {"username": "demo", "password": "demo-password"},
+                "assertions": [{"type": "status_code_in", "expected": [200], "path": None, "value": None}],
+                "extractions": [{"name": "access_token", "source": "body", "path": "data.token", "default": None}],
+            },
+            {
+                "id": "s2",
+                "name": "创建订单",
+                "method": "POST",
+                "path": "/orders",
+                "operation_id": "createOrder",
+                "headers": {"Authorization": "Bearer {{access_token}}"},
+                "query": {},
+                "path_params": {},
+                "body": {"sku": "SKU-001", "quantity": 1},
+                "assertions": [{"type": "status_code_in", "expected": [201], "path": None, "value": None}],
+                "extractions": [{"name": "order_id", "source": "body", "path": "data.id", "default": None}],
+                "depends_on": ["s1"],
+            },
+            {
+                "id": "s3",
+                "name": "查询订单详情",
+                "method": "GET",
+                "path": "/orders/{order_id}",
+                "operation_id": "getOrder",
+                "headers": {"Authorization": "Bearer {{access_token}}"},
+                "query": {},
+                "path_params": {"order_id": "{{order_id}}"},
+                "body": None,
+                "assertions": [{"type": "status_code_in", "expected": [200], "path": None, "value": None}],
+                "depends_on": ["s1", "s2"],
+            },
+        ],
+    )
+
+    patch = await enhance_dsl_with_configured_ai(
+        script,
+        {
+            "project_id": "demo-api-flow",
+            "name": "OpenMelon Demo API Flow",
+            "allow_ai_execution": True,
+            "allow_ai_repair": True,
+            "operation_allowlist": ["POST /auth/login", "POST /orders", "GET /orders/{order_id}"],
+            "operation_blocklist": [],
+            "risk_overrides": {"POST /orders": "medium"},
+            "max_requests_per_run": 10,
+        },
+    )
+
+    assert len(patch["patch_operations"]) == 3
+    assert patch["risk_level"] == "medium"
+    assert patch["patched_script"].steps[1].depends_on == ["s1"]
+    assert any(assertion.type == "response_time_lt" for assertion in patch["patched_script"].steps[2].assertions)
+
+
+@pytest.mark.asyncio
+async def test_configured_repair_patch_uses_heuristic_when_llm_disabled(monkeypatch):
+    monkeypatch.setattr(repair_patch_module.llm_patch, "_is_llm_configured", lambda: False)
+    script = APITestCaseDsl(
+        case_id="case_configured_repair",
+        name="AI repair configured",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "s1",
+                "name": "Create",
+                "method": "POST",
+                "path": "/items",
+                "operation_id": "create_item",
+                "assertions": [{"type": "status_code_in", "expected": [200]}],
+            }
+        ],
+    )
+    report = {
+        "status": "failed",
+        "results": [
+            {
+                "step_id": "s1",
+                "status": "failed",
+                "status_code": 201,
+                "assertions": [{"type": "status_code_in", "passed": False, "expected": [200], "actual": 201}],
+            }
+        ],
+    }
+
+    patch = await build_repair_patch_with_configured_ai(script, report, {"allow_ai_repair": True})
+
+    assert patch["ai_mode"] == "heuristic"
+    assert patch["patch_operations"][0]["safe_to_apply"] is True
+    assert patch["patched_script"].steps[0].assertions[0].expected == [200, 201]
 
 
 def test_repair_patch_expands_success_status_codes():
