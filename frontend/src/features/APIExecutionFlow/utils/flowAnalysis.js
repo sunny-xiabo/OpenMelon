@@ -1,4 +1,5 @@
 const VARIABLE_PATTERN = /\{\{\s*([a-zA-Z_][\w.-]*)\s*\}\}/g;
+const RESOURCE_ID_PATTERN = /(?:^|_)([a-zA-Z][\w]*)_id$/;
 
 export const scanVariables = (value, found = new Set()) => {
   if (value === null || value === undefined) return found;
@@ -140,10 +141,21 @@ const detectDependencyCycles = (steps, stepIndex) => {
   return cycles;
 };
 
-export const buildFlowGraph = (steps, flowSummary) => {
+export const buildFlowGraph = (steps, flowSummary, options = {}) => {
+  const includeInferredSequence = options.includeInferredSequence !== false;
   const stepIndex = new Map(steps.map((step, index) => [step.id, index]));
   const dependencyEdges = [];
   const variableEdges = [];
+  const resourceEdges = [];
+  const resourceEdgeKeys = new Set();
+
+  const addResourceEdge = (from, to, name, inferred = false) => {
+    if (!from || !to || from === to) return;
+    const key = `${from}->${to}:${name}`;
+    if (resourceEdgeKeys.has(key)) return;
+    resourceEdgeKeys.add(key);
+    resourceEdges.push({ from, to, name, type: 'resource', inferred });
+  };
 
   steps.forEach((step, index) => {
     (step.depends_on || []).forEach((dep) => {
@@ -153,12 +165,229 @@ export const buildFlowGraph = (steps, flowSummary) => {
       const producer = flowSummary.produced.get(name);
       if (producer?.step?.id && producer.step.id !== step.id) {
         variableEdges.push({ from: producer.step.id, to: step.id, name, type: 'variable' });
+        if (isResourceIdVariable(name) && isResourceConsumerStep(step, name)) {
+          addResourceEdge(producer.step.id, step.id, name);
+        }
       }
     });
-    if (!step.depends_on?.length && index > 0) {
+    if (includeInferredSequence && !step.depends_on?.length && index > 0) {
       dependencyEdges.push({ from: steps[index - 1].id, to: step.id, type: 'sequence', inferred: true });
     }
   });
 
-  return { dependencyEdges, variableEdges };
+  inferResourceEdges(steps, flowSummary).forEach((edge) => addResourceEdge(edge.from, edge.to, edge.name, true));
+  resourceEdges.sort((left, right) => {
+    const leftSource = stepIndex.get(left.from) ?? 0;
+    const rightSource = stepIndex.get(right.from) ?? 0;
+    if (leftSource !== rightSource) return leftSource - rightSource;
+    return (stepIndex.get(left.to) ?? 0) - (stepIndex.get(right.to) ?? 0);
+  });
+
+  return { dependencyEdges, variableEdges, resourceEdges };
+};
+
+const isResourceIdVariable = (name = '') => name === 'id' || name.endsWith('_id');
+
+const resourceNameFromVariable = (name = '') => {
+  if (name === 'id') return '';
+  const match = name.match(RESOURCE_ID_PATTERN);
+  return match?.[1] || name.replace(/_id$/, '');
+};
+
+const singularize = (value = '') => value.replace(/ies$/, 'y').replace(/s$/, '');
+
+const normalizeResourceToken = (value = '') => singularize(String(value).toLowerCase().replace(/[^a-z0-9]/g, ''));
+
+const pathTokens = (path = '') => String(path)
+  .split('/')
+  .map((part) => part.replace(/[{}]/g, '').trim())
+  .filter(Boolean);
+
+const stepSearchText = (step) => [
+  step?.id,
+  step?.name,
+  step?.operation_id,
+  step?.path,
+].filter(Boolean).join(' ').toLowerCase();
+
+const isResourceConsumerStep = (step, variableName) => {
+  const method = String(step?.method || '').toUpperCase();
+  if (!['GET', 'PUT', 'PATCH', 'DELETE'].includes(method)) return false;
+  const resource = normalizeResourceToken(resourceNameFromVariable(variableName));
+  const text = normalizeResourceToken(stepSearchText(step));
+  const hasResourceName = !resource || text.includes(resource);
+  const hasIdSlot = pathTokens(step?.path).some((part) => ['id', `${resource}id`, `${resource}_id`, variableName].includes(part.toLowerCase()));
+  return hasResourceName && hasIdSlot;
+};
+
+const inferResourceEdges = (steps, flowSummary) => {
+  const candidates = Array.from(flowSummary.produced.entries())
+    .filter(([name]) => isResourceIdVariable(name))
+    .map(([name, producer]) => ({
+      name,
+      producer,
+      resource: normalizeResourceToken(resourceNameFromVariable(name)),
+    }))
+    .filter(({ producer }) => producer?.step?.id);
+
+  if (!candidates.length) return [];
+
+  const edges = [];
+  steps.forEach((step) => {
+    candidates.forEach(({ name, producer, resource }) => {
+      if (producer.step.id === step.id) return;
+      const method = String(step.method || '').toUpperCase();
+      if (!['GET', 'PUT', 'PATCH', 'DELETE'].includes(method)) return;
+
+      const text = normalizeResourceToken(stepSearchText(step));
+      const hasResourceName = !resource || text.includes(resource);
+      const hasIdSlot = pathTokens(step.path).some((part) => {
+        const normalized = normalizeResourceToken(part);
+        return normalized === 'id' || normalized === `${resource}id` || normalized === normalizeResourceToken(name);
+      });
+      if (hasResourceName && hasIdSlot) {
+        edges.push({ from: producer.step.id, to: step.id, name });
+      }
+    });
+  });
+  return edges;
+};
+
+export const normalizeDependsOn = (dependsOn = []) => Array.from(new Set((dependsOn || []).filter(Boolean))).sort();
+
+export const buildFlowLayout = (steps) => {
+  const stepIndex = new Map(steps.map((step, index) => [step.id, index]));
+  const levels = new Map();
+  const visiting = new Set();
+
+  const levelOf = (step) => {
+    if (!step?.id) return 0;
+    if (levels.has(step.id)) return levels.get(step.id);
+    if (visiting.has(step.id)) {
+      levels.set(step.id, stepIndex.get(step.id) || 0);
+      return levels.get(step.id);
+    }
+    visiting.add(step.id);
+    const depLevels = (step.depends_on || [])
+      .map((depId) => steps[stepIndex.get(depId)])
+      .filter(Boolean)
+      .map((depStep) => levelOf(depStep));
+    visiting.delete(step.id);
+    const level = depLevels.length ? Math.max(...depLevels) + 1 : 0;
+    levels.set(step.id, level);
+    return level;
+  };
+
+  steps.forEach(levelOf);
+
+  const lanesByLevel = new Map();
+  const positions = new Map();
+  steps.forEach((step) => {
+    const level = levels.get(step.id) || 0;
+    const lane = lanesByLevel.get(level) || 0;
+    lanesByLevel.set(level, lane + 1);
+    positions.set(step.id, {
+      x: 32 + level * 330,
+      y: 36 + lane * 166,
+      level,
+      lane,
+    });
+  });
+  return { positions, levels };
+};
+
+export const wouldCreateDependencyCycle = (steps, sourceId, targetId) => {
+  if (!sourceId || !targetId || sourceId === targetId) return true;
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  if (!byId.has(sourceId) || !byId.has(targetId)) return true;
+
+  const visit = (stepId, seen = new Set()) => {
+    if (stepId === targetId) return true;
+    if (seen.has(stepId)) return false;
+    seen.add(stepId);
+    const step = byId.get(stepId);
+    return (step?.depends_on || []).some((depId) => visit(depId, seen));
+  };
+  return visit(sourceId);
+};
+
+export const applyDependencyConnection = (steps, sourceId, targetId) => {
+  if (!sourceId || !targetId || sourceId === targetId) {
+    return { steps, changed: false, error: '不能连接到自身。' };
+  }
+  const sourceExists = steps.some((step) => step.id === sourceId);
+  const targetExists = steps.some((step) => step.id === targetId);
+  if (!sourceExists || !targetExists) {
+    return { steps, changed: false, error: '连接的步骤不存在。' };
+  }
+  if (wouldCreateDependencyCycle(steps, sourceId, targetId)) {
+    return { steps, changed: false, error: '该连接会形成循环依赖。' };
+  }
+  let changed = false;
+  const nextSteps = steps.map((step) => {
+    if (step.id !== targetId) return step;
+    const current = step.depends_on || [];
+    if (current.includes(sourceId)) return step;
+    changed = true;
+    return { ...step, depends_on: [...current, sourceId] };
+  });
+  return { steps: nextSteps, changed, error: changed ? '' : '依赖已存在。' };
+};
+
+export const removeDependencyConnection = (steps, sourceId, targetId) => {
+  let changed = false;
+  const nextSteps = steps.map((step) => {
+    if (step.id !== targetId) return step;
+    const nextDepends = (step.depends_on || []).filter((depId) => depId !== sourceId);
+    if (nextDepends.length === (step.depends_on || []).length) return step;
+    changed = true;
+    return { ...step, depends_on: nextDepends };
+  });
+  return { steps: nextSteps, changed };
+};
+
+const nextParallelGroupName = (steps) => {
+  const used = new Set(steps.map((step) => step.parallel_group).filter(Boolean));
+  let index = 1;
+  while (used.has(`parallel_read_${index}`)) index += 1;
+  return `parallel_read_${index}`;
+};
+
+export const validateParallelGroupSelection = (steps, selectedIds, flowSummary, disabledSet = new Set()) => {
+  const selectedSet = new Set(selectedIds || []);
+  const selected = steps.filter((step) => selectedSet.has(step.id));
+  if (selected.length < 2) return { valid: false, error: '至少选择 2 个步骤才能设置并行组。' };
+  if (selected.some((step) => disabledSet.has(step.id))) return { valid: false, error: '禁用步骤不能加入并行组。' };
+  if (selected.some((step) => !['GET', 'HEAD'].includes(String(step.method || '').toUpperCase()))) {
+    return { valid: false, error: '第一版只允许 GET/HEAD 安全读请求设置并行组。' };
+  }
+  const dependencyKey = normalizeDependsOn(selected[0].depends_on).join('|');
+  if (selected.some((step) => normalizeDependsOn(step.depends_on).join('|') !== dependencyKey)) {
+    return { valid: false, error: '所选步骤必须拥有完全相同的 depends_on 集合。' };
+  }
+  const unsafeConsumer = selected.find((step) => (flowSummary?.consumed?.get(step.id) || []).some((name) => name !== 'access_token'));
+  if (unsafeConsumer) {
+    return { valid: false, error: `${unsafeConsumer.name || unsafeConsumer.id} 消费了业务变量，不能自动并行。` };
+  }
+  return { valid: true, error: '' };
+};
+
+export const applyParallelGroup = (steps, selectedIds, flowSummary, disabledSet = new Set()) => {
+  const validation = validateParallelGroupSelection(steps, selectedIds, flowSummary, disabledSet);
+  if (!validation.valid) return { steps, changed: false, error: validation.error };
+  const selectedSet = new Set(selectedIds);
+  const groupName = nextParallelGroupName(steps);
+  const nextSteps = steps.map((step) => (selectedSet.has(step.id) ? { ...step, parallel_group: groupName } : step));
+  return { steps: nextSteps, changed: true, error: '', groupName };
+};
+
+export const clearParallelGroups = (steps, selectedIds) => {
+  const selectedSet = new Set(selectedIds || []);
+  let changed = false;
+  const nextSteps = steps.map((step) => {
+    if (!selectedSet.has(step.id) || !step.parallel_group) return step;
+    changed = true;
+    return { ...step, parallel_group: '' };
+  });
+  return { steps: nextSteps, changed };
 };

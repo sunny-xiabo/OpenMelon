@@ -7,6 +7,8 @@ import {
   Stack,
   ToggleButton,
   ToggleButtonGroup,
+  Tab,
+  Tabs,
   Typography,
 } from '@mui/material';
 import { AccountTreeOutlined } from '@mui/icons-material';
@@ -59,6 +61,8 @@ export default function FlowWorkbench({
   const [dirty, setDirty] = React.useState(false);
   const [variableInsertTarget, setVariableInsertTarget] = React.useState('bodyText');
   const [viewMode, setViewMode] = React.useState('list');
+  const [workspaceMode, setWorkspaceMode] = React.useState('canvas');
+  const [sidebarTab, setSidebarTab] = React.useState('editor');
   const [templateDialog, setTemplateDialog] = React.useState({ open: false, mode: 'load' });
   const [templates, setTemplates] = React.useState([]);
   const [templatesLoading, setTemplatesLoading] = React.useState(false);
@@ -75,6 +79,11 @@ export default function FlowWorkbench({
   const updateScript = React.useCallback((nextScript) => {
     setDslText(JSON.stringify(nextScript, null, 2));
   }, [setDslText]);
+
+  const applyGraphOrchestration = React.useCallback((nextSteps) => {
+    if (!parsedScript) return;
+    updateScript({ ...parsedScript, steps: nextSteps });
+  }, [parsedScript, updateScript]);
 
   const loadTemplates = React.useCallback(async () => {
     setTemplatesLoading(true);
@@ -436,54 +445,45 @@ export default function FlowWorkbench({
         </Alert>
       )}
 
-      <Box 
-        sx={{ 
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          minHeight: 700
-        }}
-      >
-        {/* Top Header / Config Bar */}
-        <Box sx={{ borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: '#f8fafc' }}>
-          <FlowRunConfigBar
-            steps={steps}
-            runStepId={runStepId}
-            setRunStepId={setRunStepId}
-            baseUrl={baseUrl}
-            setBaseUrl={setBaseUrl}
-            bearerToken={bearerToken}
-            setBearerToken={setBearerToken}
-            globalHeadersText={globalHeadersText}
-            setGlobalHeadersText={setGlobalHeadersText}
-            onOpenTemplateDialog={openTemplateDialog}
-          />
-        </Box>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }}>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
+            <AccountTreeOutlined fontSize="small" />
+          </Box>
+          <Typography variant="subtitle2" fontWeight={800}>编排工作台</Typography>
+        </Stack>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={workspaceMode}
+          onChange={(_, nextValue) => nextValue && setWorkspaceMode(nextValue)}
+          sx={{ '& .MuiToggleButton-root': { px: 2, borderRadius: 2, fontWeight: 700 } }}
+        >
+          <ToggleButton value="canvas">画布优先</ToggleButton>
+          <ToggleButton value="detail">详细编辑</ToggleButton>
+        </ToggleButtonGroup>
+      </Stack>
 
-        {/* Collapsible Graph View Pane */}
-        <Box sx={{ borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: '#ffffff', px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
-              <AccountTreeOutlined fontSize="small" />
-            </Box>
-            <Box>
-              <Typography variant="subtitle2" fontWeight={800} color="text.primary">链路蓝图分析</Typography>
-            </Box>
-          </Stack>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={viewMode}
-            onChange={(_, nextValue) => nextValue && setViewMode(nextValue)}
-            sx={{ '& .MuiToggleButton-root': { px: 2, borderRadius: 2, fontWeight: 700 } }}
+      {workspaceMode === 'canvas' ? (
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1fr) 380px' },
+            gap: 2,
+            alignItems: 'start',
+            minHeight: 'clamp(760px, 78vh, 980px)',
+          }}
+        >
+          <Paper
+            sx={{
+              borderRadius: 4,
+              border: '1px solid',
+              borderColor: 'rgba(0,0,0,0.08)',
+              overflow: 'hidden',
+              bgcolor: '#ffffff',
+              minWidth: 0,
+            }}
           >
-            <ToggleButton value="list">隐藏</ToggleButton>
-            <ToggleButton value="graph">展开蓝图</ToggleButton>
-          </ToggleButtonGroup>
-        </Box>
-
-        <Collapse in={viewMode === 'graph'} unmountOnExit>
-          <Box sx={{ borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: '#f8fafc', p: 2 }}>
             <FlowGraphView
               steps={steps}
               activeStepId={activeStep?.id}
@@ -492,62 +492,177 @@ export default function FlowWorkbench({
               flowGraph={flowGraph}
               getResultForStep={getResultForStep}
               onSelectStep={selectStep}
+              onApplyOrchestration={applyGraphOrchestration}
+              dense
+              height="clamp(620px, 72vh, 860px)"
             />
-          </Box>
-        </Collapse>
+          </Paper>
 
-        {/* Main 3-Column IDE Area */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: { xs: 'column', lg: 'row' }, overflow: 'hidden', minHeight: 500 }}>
-          
-          {/* Left Pane: Step List */}
-          <Box sx={{ width: { xs: '100%', lg: 320 }, borderRight: { lg: '1px solid rgba(0,0,0,0.08)' }, borderBottom: { xs: '1px solid rgba(0,0,0,0.08)', lg: 'none' }, bgcolor: '#fafafa', display: 'flex', flexDirection: 'column' }}>
-            <FlowStepList
-              steps={steps}
-              activeStepId={activeStep?.id}
-              disabledSet={disabledSet}
-              flowSummary={flowSummary}
-              activeDragStepId={activeDragStepId}
-              setActiveDragStepId={setActiveDragStepId}
-              getResultForStep={getResultForStep}
-              onDragEnd={handleDragEnd}
-              onSelectStep={selectStep}
-              onMoveStep={moveStep}
-            />
+          <Paper
+            sx={{
+              borderRadius: 4,
+              border: '1px solid',
+              borderColor: 'rgba(0,0,0,0.08)',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 'clamp(620px, 72vh, 860px)',
+              bgcolor: '#fafafa',
+            }}
+          >
+            <Tabs
+              value={sidebarTab}
+              onChange={(_, nextValue) => setSidebarTab(nextValue)}
+              variant="fullWidth"
+              sx={{
+                borderBottom: '1px solid rgba(0,0,0,0.08)',
+                minHeight: 44,
+                '& .MuiTab-root': { minHeight: 44, fontWeight: 800 },
+              }}
+            >
+              <Tab value="editor" label="步骤编辑" />
+              <Tab value="steps" label="步骤列表" />
+              <Tab value="variables" label="变量池" />
+            </Tabs>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {sidebarTab === 'steps' && (
+                <FlowStepList
+                  steps={steps}
+                  activeStepId={activeStep?.id}
+                  disabledSet={disabledSet}
+                  flowSummary={flowSummary}
+                  activeDragStepId={activeDragStepId}
+                  setActiveDragStepId={setActiveDragStepId}
+                  getResultForStep={getResultForStep}
+                  onDragEnd={handleDragEnd}
+                  onSelectStep={selectStep}
+                  onMoveStep={moveStep}
+                />
+              )}
+              {sidebarTab === 'editor' && (
+                <FlowStepEditor
+                  activeStep={activeStep}
+                  disabledSet={disabledSet}
+                  dirty={dirty}
+                  stepDraft={stepDraft}
+                  saveError={saveError}
+                  onSave={saveStepDraft}
+                  onUpdateDraft={updateDraft}
+                  onToggleDisabled={toggleStepDisabled}
+                  onAddAssertion={addAssertion}
+                  onAddExtraction={addExtraction}
+                  onUpdateAssertion={updateAssertionAt}
+                  onRemoveAssertion={removeAssertionAt}
+                  onUpdateExtraction={updateExtractionAt}
+                  onRemoveExtraction={removeExtractionAt}
+                  onUpdateRetry={updateRetry}
+                />
+              )}
+              {sidebarTab === 'variables' && (
+                <FlowVariablePanel
+                  flowSummary={flowSummary}
+                  activeStepId={activeStep?.id}
+                  variableInsertTarget={variableInsertTarget}
+                  setVariableInsertTarget={setVariableInsertTarget}
+                  onInsertVariable={insertVariable}
+                />
+              )}
+            </Box>
+          </Paper>
+        </Box>
+      ) : (
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 700,
+          }}
+        >
+          <Box sx={{ borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: '#ffffff', px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: 'primary.50', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'primary.main' }}>
+                <AccountTreeOutlined fontSize="small" />
+              </Box>
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800} color="text.primary">链路蓝图分析</Typography>
+              </Box>
+            </Stack>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={viewMode}
+              onChange={(_, nextValue) => nextValue && setViewMode(nextValue)}
+              sx={{ '& .MuiToggleButton-root': { px: 2, borderRadius: 2, fontWeight: 700 } }}
+            >
+              <ToggleButton value="list">隐藏</ToggleButton>
+              <ToggleButton value="graph">展开蓝图</ToggleButton>
+            </ToggleButtonGroup>
           </Box>
 
-          {/* Center Pane: Editor */}
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-            <FlowStepEditor
-              activeStep={activeStep}
-              disabledSet={disabledSet}
-              dirty={dirty}
-              stepDraft={stepDraft}
-              saveError={saveError}
-              onSave={saveStepDraft}
-              onUpdateDraft={updateDraft}
-              onToggleDisabled={toggleStepDisabled}
-              onAddAssertion={addAssertion}
-              onAddExtraction={addExtraction}
-              onUpdateAssertion={updateAssertionAt}
-              onRemoveAssertion={removeAssertionAt}
-              onUpdateExtraction={updateExtractionAt}
-              onRemoveExtraction={removeExtractionAt}
-              onUpdateRetry={updateRetry}
-            />
-          </Box>
+          <Collapse in={viewMode === 'graph'} unmountOnExit>
+            <Box sx={{ borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: '#f8fafc', p: 2 }}>
+              <FlowGraphView
+                steps={steps}
+                activeStepId={activeStep?.id}
+                disabledSet={disabledSet}
+                flowSummary={flowSummary}
+                flowGraph={flowGraph}
+                getResultForStep={getResultForStep}
+                onSelectStep={selectStep}
+                onApplyOrchestration={applyGraphOrchestration}
+              />
+            </Box>
+          </Collapse>
 
-          {/* Right Pane: Variables */}
-          <Box sx={{ width: { xs: '100%', lg: 300 }, borderLeft: { lg: '1px solid rgba(0,0,0,0.08)' }, bgcolor: '#fafafa', display: 'flex', flexDirection: 'column' }}>
-            <FlowVariablePanel
-              flowSummary={flowSummary}
-              activeStepId={activeStep?.id}
-              variableInsertTarget={variableInsertTarget}
-              setVariableInsertTarget={setVariableInsertTarget}
-              onInsertVariable={insertVariable}
-            />
+          <Box sx={{ flex: 1, display: 'flex', flexDirection: { xs: 'column', lg: 'row' }, overflow: 'hidden', minHeight: 500 }}>
+            <Box sx={{ width: { xs: '100%', lg: 320 }, borderRight: { lg: '1px solid rgba(0,0,0,0.08)' }, borderBottom: { xs: '1px solid rgba(0,0,0,0.08)', lg: 'none' }, bgcolor: '#fafafa', display: 'flex', flexDirection: 'column' }}>
+              <FlowStepList
+                steps={steps}
+                activeStepId={activeStep?.id}
+                disabledSet={disabledSet}
+                flowSummary={flowSummary}
+                activeDragStepId={activeDragStepId}
+                setActiveDragStepId={setActiveDragStepId}
+                getResultForStep={getResultForStep}
+                onDragEnd={handleDragEnd}
+                onSelectStep={selectStep}
+                onMoveStep={moveStep}
+              />
+            </Box>
+
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+              <FlowStepEditor
+                activeStep={activeStep}
+                disabledSet={disabledSet}
+                dirty={dirty}
+                stepDraft={stepDraft}
+                saveError={saveError}
+                onSave={saveStepDraft}
+                onUpdateDraft={updateDraft}
+                onToggleDisabled={toggleStepDisabled}
+                onAddAssertion={addAssertion}
+                onAddExtraction={addExtraction}
+                onUpdateAssertion={updateAssertionAt}
+                onRemoveAssertion={removeAssertionAt}
+                onUpdateExtraction={updateExtractionAt}
+                onRemoveExtraction={removeExtractionAt}
+                onUpdateRetry={updateRetry}
+              />
+            </Box>
+
+            <Box sx={{ width: { xs: '100%', lg: 300 }, borderLeft: { lg: '1px solid rgba(0,0,0,0.08)' }, bgcolor: '#fafafa', display: 'flex', flexDirection: 'column' }}>
+              <FlowVariablePanel
+                flowSummary={flowSummary}
+                activeStepId={activeStep?.id}
+                variableInsertTarget={variableInsertTarget}
+                setVariableInsertTarget={setVariableInsertTarget}
+                onInsertVariable={insertVariable}
+              />
+            </Box>
           </Box>
         </Box>
-      </Box>
+      )}
 
       <FlowAdvancedJsonEditor
         open={advancedOpen}
