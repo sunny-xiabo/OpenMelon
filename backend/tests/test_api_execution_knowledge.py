@@ -40,6 +40,7 @@ def test_write_run_to_graph_creates_coverage_relationships():
 
     assert written > 0
     cypher_text = "\n".join(query for query, _params in graph_ops.queries)
+    assert "UNWIND $steps AS step" in cypher_text
     assert "MERGE (tc)-[:COVERS]->(f)" in cypher_text
     assert "FAILED_AT" in cypher_text
 

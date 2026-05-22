@@ -8,6 +8,7 @@ from app.api.logging_service import log_event
 from app.api_execution.knowledge import build_run_knowledge_items, write_run_to_graph_with_retry, build_graph_write_failure_task
 from app.api_execution.schemas import APITestCaseDsl, KnowledgeStatusUpdateRequest
 from app.api_execution.storage import api_execution_store
+from app.engine.rag.cache import bump_rag_cache_version
 from app.api_execution.utils import now_iso as _now_iso
 
 def save_knowledge_ingest_candidate(run: dict[str, Any], trigger_source: str = "run_completed") -> dict[str, Any] | None:
@@ -103,6 +104,7 @@ async def _ingest_single_run_to_knowledge(request: Request, run: dict[str, Any])
                 response["vector_written"] += await _index_knowledge_item(vector_ops, llm_client, item)
         if response["knowledge_count"]:
             _invalidate_knowledge_index()
+            bump_rag_cache_version("api_knowledge_ingested")
         if graph_ops is not None:
             graph_result = await write_run_to_graph_with_retry(graph_ops, run)
             if graph_result["success"]:
@@ -479,6 +481,7 @@ def update_knowledge_item_status_service(knowledge_id: str, request: KnowledgeSt
         patch["revoked_at"] = None
     saved = api_execution_store.save_knowledge_item(patch)
     _invalidate_knowledge_index()
+    bump_rag_cache_version("knowledge_status_updated")
     log_event(
         "warning" if safe_status != "active" else "info",
         "knowledge",
@@ -504,6 +507,7 @@ def delete_knowledge_item_service(knowledge_id: str) -> dict[str, bool]:
     if not api_execution_store.delete_knowledge_item(knowledge_id):
         raise NotFoundError(message=str("知识项不存在"))
     _invalidate_knowledge_index()
+    bump_rag_cache_version("knowledge_deleted")
     log_event(
         "warning",
         "knowledge",

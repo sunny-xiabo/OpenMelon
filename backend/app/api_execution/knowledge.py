@@ -65,6 +65,7 @@ async def write_run_to_graph(graph_ops: Any, run: dict[str, Any]) -> int:
     case_name = run.get("case_name") or script.get("name") or run.get("case_id") or "API TestCase"
     run_name = run.get("run_id") or str(uuid.uuid4())
     written = 0
+    updated_at = _now_iso()
     await graph_ops.run_cypher(
         """
         MERGE (m:Module {name: $project_name})
@@ -86,7 +87,7 @@ async def write_run_to_graph(graph_ops: Any, run: dict[str, Any]) -> int:
             "passed": run.get("passed", 0),
             "failed": run.get("failed", 0),
             "duration_ms": run.get("duration_ms", 0),
-            "updated_at": _now_iso(),
+            "updated_at": updated_at,
         },
     )
     written += 3
@@ -95,22 +96,38 @@ async def write_run_to_graph(graph_ops: Any, run: dict[str, Any]) -> int:
         for result in run.get("results") or []
         if result.get("step_id")
     }
+    step_payloads = []
     for step in steps:
         step_id = str(step.get("id", ""))
         operation_name = _operation_name(step)
         feature_name = f"{project_name} {operation_name}"
         result = results_by_step.get(step_id, {})
+        step_payloads.append(
+            {
+                "step_id": step_id,
+                "operation_name": operation_name,
+                "feature_name": feature_name,
+                "method": str(step.get("method", "")).upper(),
+                "path": step.get("path", ""),
+                "operation_id": step.get("operation_id", ""),
+                "step_name": f"{case_name}::{step_id or operation_name}",
+                "step_status": result.get("status", "unknown"),
+                "status_code": result.get("status_code"),
+            }
+        )
+    if step_payloads:
         await graph_ops.run_cypher(
             """
+            UNWIND $steps AS step
             MATCH (m:Module {name: $project_name})
             MATCH (tc:TestCase {name: $case_name})
             MATCH (r:APIRun {name: $run_name})
-            MERGE (api:APIOperation {name: $operation_name})
-            SET api.method = $method, api.path = $path, api.operation_id = $operation_id, api.source = 'api_execution'
-            MERGE (f:Feature {name: $feature_name})
-            SET f.module = $project_name, f.source = 'api_execution', f.operation_id = $operation_id
-            MERGE (s:APIStep {name: $step_name})
-            SET s.step_id = $step_id, s.status = $step_status, s.status_code = $status_code
+            MERGE (api:APIOperation {name: step.operation_name})
+            SET api.method = step.method, api.path = step.path, api.operation_id = step.operation_id, api.source = 'api_execution'
+            MERGE (f:Feature {name: step.feature_name})
+            SET f.module = $project_name, f.source = 'api_execution', f.operation_id = step.operation_id
+            MERGE (s:APIStep {name: step.step_name})
+            SET s.step_id = step.step_id, s.status = step.step_status, s.status_code = step.status_code
             MERGE (m)-[:CONTAINS]->(f)
             MERGE (m)-[:CONTAINS]->(api)
             MERGE (api)-[:HAS_FEATURE]->(f)
@@ -118,8 +135,8 @@ async def write_run_to_graph(graph_ops: Any, run: dict[str, Any]) -> int:
             MERGE (tc)-[:CALLS]->(api)
             MERGE (r)-[:HAS_STEP]->(s)
             MERGE (s)-[:TARGETS]->(api)
-            WITH r, s, api
-            FOREACH (_ IN CASE WHEN $step_status = 'passed' THEN [] ELSE [1] END |
+            WITH r, s, api, step
+            FOREACH (_ IN CASE WHEN step.step_status = 'passed' THEN [] ELSE [1] END |
                 MERGE (r)-[:FAILED_AT]->(s)
                 MERGE (r)-[:FAILED_AT]->(api)
             )
@@ -128,18 +145,10 @@ async def write_run_to_graph(graph_ops: Any, run: dict[str, Any]) -> int:
                 "project_name": project_name,
                 "case_name": case_name,
                 "run_name": run_name,
-                "operation_name": operation_name,
-                "feature_name": feature_name,
-                "method": str(step.get("method", "")).upper(),
-                "path": step.get("path", ""),
-                "operation_id": step.get("operation_id", ""),
-                "step_name": f"{case_name}::{step_id or operation_name}",
-                "step_id": step_id,
-                "step_status": result.get("status", "unknown"),
-                "status_code": result.get("status_code"),
+                "steps": step_payloads,
             },
         )
-        written += 4
+        written += len(step_payloads) * 4
     return written
 
 

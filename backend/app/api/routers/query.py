@@ -4,6 +4,15 @@ import logging
 import uuid
 from fastapi import APIRouter, HTTPException, Depends, Request
 from app.api.logging_service import safe_log_event
+from app.config import settings
+from app.engine.rag.cache import (
+    answer_cache,
+    build_answer_cache_key,
+    build_retrieval_cache_key,
+    clear_rag_cache,
+    get_rag_cache_status,
+    retrieval_cache,
+)
 from app.api.schemas import (
     QueryRequest,
     QueryResponse,
@@ -21,6 +30,7 @@ from app.api.deps import (
     get_agentic_rag,
     get_session_manager,
     get_metrics_collector,
+    require_production_auth,
 )
 
 logger = logging.getLogger("app")
@@ -29,6 +39,51 @@ router = APIRouter(tags=["query"])
 
 def _log_query_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
     return safe_log_event(level, "rag_query", event_type, title, message, **kwargs)
+
+
+def _record_cache_feature(metrics_collector, feature: str) -> None:
+    if metrics_collector is not None and hasattr(metrics_collector, "record_feature_usage"):
+        metrics_collector.record_feature_usage(feature)
+
+
+async def _retrieve_with_cache(
+    retriever,
+    metrics_collector,
+    *,
+    intent: str,
+    entities: dict,
+    question: str,
+):
+    if not settings.RAG_CACHE_ENABLED or intent == "visualization":
+        return await retriever.retrieve(intent, entities, question)
+
+    cache_key = build_retrieval_cache_key(intent, entities, question)
+    cached = retrieval_cache.get(cache_key)
+    if cached is not None:
+        _record_cache_feature(metrics_collector, "rag_retrieval_cache_hit")
+        return cached
+
+    _record_cache_feature(metrics_collector, "rag_retrieval_cache_miss")
+    result = await retriever.retrieve(intent, entities, question)
+    retrieval_cache.set(
+        cache_key,
+        result,
+        ttl_s=settings.RAG_RETRIEVAL_CACHE_TTL_S,
+        max_entries=settings.RAG_RETRIEVAL_CACHE_MAX_ENTRIES,
+    )
+    return result
+
+
+@router.get("/query/cache/status")
+async def query_cache_status():
+    return get_rag_cache_status()
+
+
+@router.delete("/query/cache", dependencies=[Depends(require_production_auth)])
+async def clear_query_cache():
+    version = clear_rag_cache("manual_api_clear")
+    return {"success": True, "version": version, "status": get_rag_cache_status()}
+
 
 @router.post("/query", response_model=QueryResponse)
 async def query(
@@ -106,7 +161,13 @@ async def query(
         intent = intent_result["intent"]
         entities = intent_result["entities"]
 
-        retrieval_result = await retriever.retrieve(intent, entities, request.question)
+        retrieval_result = await _retrieve_with_cache(
+            retriever,
+            metrics_collector,
+            intent=intent,
+            entities=entities,
+            question=request.question,
+        )
 
         if intent == "visualization":
             graph_data_raw = retrieval_result.get("graph_data", {})
@@ -150,15 +211,47 @@ async def query(
             logger.info(
                 f"Graph retrieval returned minimal context ({len(context)} chars), falling back to vector search"
             )
-            retrieval_result = await retriever.retrieve(
-                "vector_query", entities, request.question
+            retrieval_result = await _retrieve_with_cache(
+                retriever,
+                metrics_collector,
+                intent="vector_query",
+                entities=entities,
+                question=request.question,
             )
             context = retrieval_result.get("context_text", "")
             intent = "vector_query"
 
-        answer_result = await generator.generate_answer(
-            request.question, context, intent, history_messages
+        answer_cache_safe = (
+            settings.RAG_CACHE_ENABLED
+            and intent != "visualization"
+            and (not request.include_history or not history_messages)
         )
+        answer_result = None
+        if answer_cache_safe:
+            answer_cache_key = build_answer_cache_key(
+                question=request.question,
+                intent=intent,
+                entities=entities,
+                context=context,
+            )
+            cached_answer = answer_cache.get(answer_cache_key)
+            if cached_answer is not None:
+                _record_cache_feature(metrics_collector, "rag_answer_cache_hit")
+                answer_result = cached_answer
+            else:
+                _record_cache_feature(metrics_collector, "rag_answer_cache_miss")
+
+        if answer_result is None:
+            answer_result = await generator.generate_answer(
+                request.question, context, intent, history_messages
+            )
+            if answer_cache_safe:
+                answer_cache.set(
+                    answer_cache_key,
+                    answer_result,
+                    ttl_s=settings.RAG_ANSWER_CACHE_TTL_S,
+                    max_entries=settings.RAG_ANSWER_CACHE_MAX_ENTRIES,
+                )
 
         citations = []
         context_chunks = []

@@ -1,6 +1,11 @@
+import asyncio
+import logging
 from typing import List, Optional
+
 from app.config import settings
 from app.engine.reranker import reranker
+
+logger = logging.getLogger(__name__)
 
 
 class MultiChannelRetriever:
@@ -72,11 +77,23 @@ class MultiChannelRetriever:
         reranker_top_k = settings.RERANKER_TOP_K
         reranker_score_threshold = settings.RERANKER_SCORE_THRESHOLD
         embedding = await self._get_embedding(question)
-        results = await self.vector_ops.similarity_search(embedding, top_k=top_k)
-
+        search_tasks = [
+            asyncio.create_task(self._call_with_timeout(self.vector_ops.similarity_search(embedding, top_k=top_k))),
+        ]
+        has_test_case_search = hasattr(self.vector_ops, "search_similar_test_cases")
+        if has_test_case_search:
+            search_tasks.append(
+                asyncio.create_task(
+                    self._call_with_timeout(
+                        self.vector_ops.search_similar_test_cases(embedding, top_k=max(2, top_k // 2))
+                    )
+                )
+            )
+        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+        results = search_results[0] if not isinstance(search_results[0], Exception) and search_results[0] else []
         test_case_results = []
-        if hasattr(self.vector_ops, 'search_similar_test_cases'):
-            test_case_results = await self.vector_ops.search_similar_test_cases(embedding, top_k=max(2, top_k // 2))
+        if has_test_case_search and len(search_results) > 1 and not isinstance(search_results[1], Exception):
+            test_case_results = search_results[1] or []
 
         # Apply reranking first if available
         if use_reranker and results and reranker_enabled:
@@ -128,9 +145,25 @@ class MultiChannelRetriever:
             top_k = settings.RETRIEVAL_TOP_K
         graph_weight = settings.HYBRID_GRAPH_WEIGHT
         vector_weight = settings.HYBRID_VECTOR_WEIGHT
-
-        graph_result = await self.graph_retrieve(entities, depth=depth)
-        vector_result = await self.vector_retrieve(question, top_k=top_k)
+        graph_task = asyncio.create_task(
+            self._call_with_timeout(self.graph_retrieve(entities, depth=depth))
+        )
+        vector_task = asyncio.create_task(
+            self._call_with_timeout(self.vector_retrieve(question, top_k=top_k))
+        )
+        graph_result, vector_result = await asyncio.gather(
+            graph_task, vector_task, return_exceptions=True
+        )
+        if isinstance(graph_result, Exception):
+            logger.warning("Graph retrieval failed in hybrid mode: %s", graph_result)
+            graph_result = {"nodes": [], "relationships": [], "context_text": "No graph data found."}
+        elif not isinstance(graph_result, dict):
+            graph_result = {"nodes": [], "relationships": [], "context_text": "No graph data found."}
+        if isinstance(vector_result, Exception):
+            logger.warning("Vector retrieval failed in hybrid mode: %s", vector_result)
+            vector_result = {"chunks": [], "test_cases": [], "context_text": "No relevant documents found."}
+        elif not isinstance(vector_result, dict):
+            vector_result = {"chunks": [], "test_cases": [], "context_text": "No relevant documents found."}
 
         # Apply hybrid weights to context ordering
         # Weighted context: put higher-weight source first
@@ -205,3 +238,14 @@ class MultiChannelRetriever:
             return response.data[0].embedding
         except Exception:
             return [0.0] * max(embedding_dim, 1024)
+
+    async def _call_with_timeout(self, coro):
+        timeout = max(float(getattr(settings, "RAG_RETRIEVAL_CHANNEL_TIMEOUT_S", 5.0) or 5.0), 0.1)
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning("RAG channel timed out after %.2fs", timeout)
+            return {}
+        except Exception as exc:
+            logger.warning("RAG channel failed: %s", exc)
+            return {}

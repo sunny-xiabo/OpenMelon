@@ -78,6 +78,12 @@ class MetricsCollector:
             if use_reranker:
                 self.queries.feature_usage["reranker"] += 1
 
+    def record_feature_usage(self, feature: str, count: int = 1) -> None:
+        if not feature:
+            return
+        with self._lock:
+            self.queries.feature_usage[feature] += count
+
     def record_document_operation(
         self, operation: str, success: bool, chunks_added: int = 0
     ) -> None:

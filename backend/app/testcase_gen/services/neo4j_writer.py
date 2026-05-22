@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import logging
 from typing import List, Dict, Any, Optional
@@ -38,132 +39,103 @@ class Neo4jWriter:
         if not test_cases or not self._driver:
             return {"graph_written": 0, "vector_written": 0, "vector_skipped": 0}
 
-        graph_written = 0
-        vector_written = 0
-        vector_skipped = 0
-        vector_errors = []
-
+        normalized_cases = []
         for tc in test_cases:
             name = tc.get("name") or tc.get("title") or tc.get("id", "unknown")
             description = tc.get("description", "")
             steps = tc.get("steps", "")
             if isinstance(steps, list):
                 steps = self._format_steps(steps)
-            expected = tc.get("expected", "")
-            priority = tc.get("priority", "medium")
+            normalized_cases.append(
+                {
+                    "name": name,
+                    "description": description,
+                    "steps": steps,
+                    "expected": tc.get("expected", ""),
+                    "priority": tc.get("priority", "medium"),
+                    "module": module or tc.get("module"),
+                    "source": tc,
+                }
+            )
 
-            try:
-                async with self._driver.session() as session:
-                    if module:
-                        await session.run(
-                            """
-                            MERGE (m:Module {name: $module})
-                            MERGE (t:TestCase {name: $name})
-                            SET t.description = $desc,
-                                t.steps = $steps,
-                                t.expected = $expected,
-                                t.priority = $priority,
-                                t.updated_at = datetime()
-                            MERGE (m)-[:CONTAINS]->(t)
-                            """,
-                            {
-                                "module": module,
-                                "name": name,
-                                "desc": description,
-                                "steps": steps,
-                                "expected": expected,
-                                "priority": priority,
-                            },
-                        )
-                    else:
-                        await session.run(
-                            """
-                            MERGE (t:TestCase {name: $name})
-                            SET t.description = $desc,
-                                t.steps = $steps,
-                                t.expected = $expected,
-                                t.priority = $priority,
-                                t.updated_at = datetime()
-                            """,
-                            {
-                                "name": name,
-                                "desc": description,
-                                "steps": steps,
-                                "expected": expected,
-                                "priority": priority,
-                            },
-                        )
-                    graph_written += 1
-            except Exception as e:
-                logger.warning(f"Failed to write TestCase '{name}': {e}")
+        graph_written = 0
+        vector_written = 0
+        vector_skipped = 0
+        vector_errors = []
 
-            if store_vector and self._embedding_func:
+        graph_groups: dict[str | None, list[dict[str, Any]]] = {}
+        for item in normalized_cases:
+            graph_groups.setdefault(item["module"], []).append(item)
+
+        async with self._driver.session() as session:
+            for group_module, items in graph_groups.items():
+                payload = [
+                    {
+                        "name": item["name"],
+                        "desc": item["description"],
+                        "steps": item["steps"],
+                        "expected": item["expected"],
+                        "priority": item["priority"],
+                    }
+                    for item in items
+                ]
+                if group_module:
+                    query = """
+                        UNWIND $items AS item
+                        MERGE (m:Module {name: $module})
+                        MERGE (t:TestCase {name: item.name})
+                        SET t.description = item.desc,
+                            t.steps = item.steps,
+                            t.expected = item.expected,
+                            t.priority = item.priority,
+                            t.updated_at = datetime()
+                        MERGE (m)-[:CONTAINS]->(t)
+                        RETURN count(t) AS written
+                    """
+                    params = {"module": group_module, "items": payload}
+                else:
+                    query = """
+                        UNWIND $items AS item
+                        MERGE (t:TestCase {name: item.name})
+                        SET t.description = item.desc,
+                            t.steps = item.steps,
+                            t.expected = item.expected,
+                            t.priority = item.priority,
+                            t.updated_at = datetime()
+                        RETURN count(t) AS written
+                    """
+                    params = {"items": payload}
                 try:
-                    content_for_embedding = f"{name}\n{description}\n{steps}"
-                    embedding = await self._embedding_func(content_for_embedding)
-
-                    async with self._driver.session() as session:
-                        content_hash = hashlib.md5(
-                            f"{name}:{description[:100]}".encode()
-                        ).hexdigest()[:12]
-                        vector_id = f"tc:{content_hash}"
-
-                        check_result = await session.run(
-                            "MATCH (tc:TestCaseVector {vector_id: $vid}) RETURN tc",
-                            {"vid": vector_id},
-                        )
-                        existing = await check_result.single()
-
-                        if existing:
-                            vector_skipped += 1
-                        else:
-                            await session.run(
-                                """
-                                MERGE (tc:TestCaseVector {vector_id: $vector_id})
-                                SET tc.test_case_name = $name,
-                                    tc.description = $desc,
-                                    tc.steps = $steps,
-                                    tc.module = $module,
-                                    tc.priority = $priority,
-                                    tc.embedding = $embedding,
-                                    tc.created_at = datetime()
-                                """,
-                                {
-                                    "vector_id": vector_id,
-                                    "name": name,
-                                    "desc": description[:2000],
-                                    "steps": steps[:5000],
-                                    "module": module,
-                                    "priority": priority,
-                                    "embedding": embedding,
-                                },
-                            )
-                            vector_written += 1
-                            
-                            from app.config import settings
-                            if settings.USE_EXTERNAL_VECTOR and getattr(self, "vector_ops", None) and getattr(self.vector_ops, "_qdrant_client", None):
-                                try:
-                                    from qdrant_client.models import PointStruct
-                                    await self.vector_ops._qdrant_client.upsert(
-                                        collection_name="test_cases",
-                                        points=[PointStruct(
-                                            id=self.vector_ops._generate_uuid(vector_id),
-                                            vector=embedding,
-                                            payload={
-                                                "test_case_id": vector_id,
-                                                "test_case_name": name,
-                                                "description": description[:2000],
-                                                "steps": steps[:5000],
-                                                "module": module,
-                                                "priority": priority
-                                            }
-                                        )]
-                                    )
-                                except Exception as e:
-                                    logger.warning(f"Failed to sync test case to Qdrant: {e}")
+                    result = await session.run(query, **params)
+                    record = await result.single()
+                    graph_written += int(record["written"] or 0) if record else len(payload)
                 except Exception as e:
-                    vector_errors.append(f"{name}: {str(e)}")
-                    logger.warning(f"Failed to write TestCaseVector '{name}': {e}")
+                    logger.warning("Failed to write TestCase batch for module %s: %s", group_module, e)
+
+        if store_vector and self._embedding_func:
+            try:
+                contents = [
+                    f"{item['name']}\n{item['description']}\n{item['steps']}"
+                    for item in normalized_cases
+                ]
+                embeddings = await asyncio.gather(
+                    *[self._embedding_func(content) for content in contents]
+                )
+                vector_result = await self.vector_ops.batch_create_test_case_vectors(
+                    [item["source"] for item in normalized_cases],
+                    list(embeddings),
+                    module=module,
+                ) if getattr(self, "vector_ops", None) else {
+                    "created": 0,
+                    "skipped": len(normalized_cases),
+                    "errors": [],
+                }
+                vector_written = int(vector_result.get("created", 0) or 0)
+                vector_skipped = int(vector_result.get("skipped", 0) or 0)
+                vector_errors = list(vector_result.get("errors", []) or [])
+            except Exception as e:
+                vector_errors.append(str(e))
+                logger.warning("Failed to batch write TestCaseVector set: %s", e)
 
         logger.info(
             f"Wrote {graph_written}/{len(test_cases)} test cases to Neo4j (vector: +{vector_written}, skipped: {vector_skipped})"
