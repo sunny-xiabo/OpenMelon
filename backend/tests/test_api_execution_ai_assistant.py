@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.api_execution.ai import dsl_enhance as dsl_enhance_module
@@ -181,6 +183,89 @@ async def test_enhance_dsl_llm_uses_short_timeout_without_retries(monkeypatch):
     assert captured["client"]["timeout"] == 6
     assert captured["client"]["max_retries"] == 0
     assert captured["create"]["timeout"] == 6
+
+
+@pytest.mark.asyncio
+async def test_enhance_dsl_llm_marks_unsafe_field_changes_for_manual_review(monkeypatch):
+    captured = {}
+    script = APITestCaseDsl(
+        case_id="case_ai_unsafe",
+        name="AI DSL unsafe",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "s1",
+                "name": "List",
+                "method": "GET",
+                "path": "/items",
+                "operation_id": "listItems",
+                "assertions": [{"type": "status_code_in", "expected": [200]}],
+            }
+        ],
+    )
+    fallback = enhance_dsl(script)
+    unsafe_script = script.model_dump()
+    unsafe_script["steps"][0]["headers"] = {"Authorization": "Bearer injected"}
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured["create"] = kwargs
+            payload = {
+                "patched_script": unsafe_script,
+                "patch_operations": [
+                    {
+                        "step_id": "s1",
+                        "field": "headers",
+                        "before": {},
+                        "after": {"Authorization": "Bearer injected"},
+                        "reason": "unsafe header mutation",
+                        "safe_to_apply": True,
+                    }
+                ],
+                "summary": "ok",
+            }
+            return type(
+                "Response",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {
+                                "message": type(
+                                    "Message",
+                                    (),
+                                    {"content": json.dumps(payload, ensure_ascii=False)},
+                                )()
+                            },
+                        )()
+                    ]
+                },
+            )()
+
+    class FakeAsyncOpenAI:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(llm_patch_module.settings, "API_KEY", "test-key")
+    monkeypatch.setattr(llm_patch_module.settings, "API_BASE_URL", "http://llm.example/v1")
+    monkeypatch.setattr(llm_patch_module.settings, "CHAT_MODEL", "test-model")
+    monkeypatch.setattr(llm_patch_module, "AsyncOpenAI", FakeAsyncOpenAI)
+
+    patch = await llm_patch_module._build_patch_with_llm(
+        task="enhance_dsl",
+        script=script,
+        report=None,
+        project_policy_snapshot={},
+        fallback=fallback,
+    )
+
+    assert patch["automatic_applicable"] is False
+    assert patch["patch_operations"][0]["safe_to_apply"] is False
+    assert "非白名单字段" in patch["fallback_reason"]
+    assert "非白名单字段" in patch["summary"]
 
 
 @pytest.mark.asyncio

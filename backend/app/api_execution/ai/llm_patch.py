@@ -1,4 +1,5 @@
 from app.api_execution.ai.common import *
+from app.api_execution.ai.patch_safety import normalize_patch_operations, review_patch_safety
 
 async def _build_patch_with_llm(
     *,
@@ -27,12 +28,18 @@ async def _build_patch_with_llm(
     patch_operations = payload.get("patch_operations") or []
     if not isinstance(patch_operations, list):
         patch_operations = []
+    patch_operations = normalize_patch_operations(patch_operations)
+    safety_review = review_patch_safety(script, patched_script, patch_operations)
 
     decision = evaluate_execution_policy(
         patched_script,
         project_policy_snapshot=project_policy_snapshot,
     )
-    safe_operations = bool(patch_operations) and all(item.get("safe_to_apply") for item in patch_operations)
+    safe_operations = (
+        bool(patch_operations)
+        and all(item.get("safe_to_apply") for item in patch_operations)
+        and safety_review["is_safe_for_auto_apply"]
+    )
     if task == "repair_patch":
         from app.api_execution.ai.repair_patch import _build_repair_draft
 
@@ -44,17 +51,24 @@ async def _build_patch_with_llm(
         )
     else:
         repair_draft = {}
+    summary = str(payload.get("summary") or fallback.get("summary") or "")
+    if safety_review["unsafe_changes"]:
+        summary = (
+            f"{summary} 已检测到非白名单字段改动，仅保留人工确认草稿。"
+            if summary
+            else "已检测到非白名单字段改动，仅保留人工确认草稿。"
+        )
     return {
         "patched_script": patched_script,
         "patch_operations": patch_operations,
         "repair_draft": repair_draft,
-        "summary": str(payload.get("summary") or fallback.get("summary") or ""),
+        "summary": summary,
         "automatic_applicable": bool(safe_operations and decision["allowed"]),
         "risk_level": decision["risk_level"],
         "requires_approval": True,
         "ai_mode": "llm",
         "model_name": model_name,
-        "fallback_reason": "",
+        "fallback_reason": safety_review["blocked_reason"] if safety_review["unsafe_changes"] else "",
     }
 
 
@@ -72,7 +86,8 @@ def _build_llm_messages(
     task_text = "补全 API 测试 DSL 的断言和变量提取" if task == "enhance_dsl" else "根据失败报告生成 API 测试 DSL 修复补丁"
     system = (
         "你是 OpenMelon API 自动化的受控 AI 助手。"
-        "只能修改测试 DSL 中的 assertions、extractions、headers、query、path_params、body 这些测试输入或校验字段，"
+        "只能安全建议测试 DSL 的编排与校验变更，优先修改 assertions、extractions、depends_on 和 parallel_group。"
+        "headers、query、path_params、body 这类请求构造字段默认视为高风险修改，必须明确标注为需要人工确认。"
         "不能新增真实凭证，不能绕过项目策略，不能删除步骤。"
         "必须只输出一个 JSON 对象，不要输出 Markdown。"
     )
@@ -96,7 +111,8 @@ def _build_llm_messages(
             "必须保留原 case_id、name、steps 顺序和 step id。",
             "如果不确定，返回原脚本并给出人工确认建议。",
             "不要把 token、cookie、password、secret 写入脚本。",
-            "修复 2xx 状态码断言可标记 safe_to_apply=true；放宽 SLA、修改请求体、添加认证头默认 safe_to_apply=false。",
+            "修复 2xx 状态码断言、补充 extraction、补充 depends_on、补充 parallel_group 可标记 safe_to_apply=true。",
+            "放宽 SLA、修改请求体、添加认证头、改写查询参数或路径参数默认 safe_to_apply=false。",
         ],
         "script": script.model_dump(),
         "report": report or {},
