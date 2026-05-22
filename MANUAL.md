@@ -390,7 +390,7 @@ flowchart TD
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
-# 编辑 .env，设置 LLM_PROVIDER 和 API_KEY
+# 编辑 .env，设置 LLM_PROVIDER、API_KEY；本机后端运行时确认 DATABASE_URL 指向 localhost PostgreSQL
 
 # 2. 构建并启动完整服务
 # 包含前端、主后端、Reranker Sidecar、PostgreSQL、Neo4j 和 Qdrant
@@ -402,13 +402,14 @@ docker compose logs -f app
 
 > 首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding`、`sentence-transformers` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
 > 如果只需要启动基础依赖给本机后端使用，可以执行 `docker compose up -d postgres neo4j qdrant`。
+> 新环境无需手工建表；后端启动时会在 PostgreSQL 中确保 API execution、文件记录、Prompt Hub、节点类型、日志中心和 AI 观测所需表结构。
 
 #### 2.1.2 Docker 后端开发模式
 
 ```bash
 # 1. 配置环境变量
 cp .env.example .env
-# 编辑 .env，设置 LLM_PROVIDER 和 API_KEY
+# 编辑 .env，设置 LLM_PROVIDER、API_KEY，并保留 DATABASE_URL=postgresql://openmelon:openmelon@postgres:5432/openmelon
 
 # 2. 使用开发覆盖配置启动后端相关服务
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
@@ -446,12 +447,13 @@ docker compose up -d --build --force-recreate web
 ### 2.2 本地开发（uv）
 
 ```bash
-# 先启动 PostgreSQL 和 Neo4j
+# 先启动 PostgreSQL、Neo4j；如果启用 Qdrant，也一并启动
 docker compose up -d postgres neo4j
 
 # 终端 1: 启动后端
 conda activate openmlon
 cd backend
+export DATABASE_URL=postgresql://openmelon:openmelon@localhost:5432/openmelon
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 2: 启动前端
@@ -473,6 +475,7 @@ docker compose up -d qdrant
 # 终端 2：后端
 cd backend
 uv sync
+export DATABASE_URL=postgresql://openmelon:openmelon@localhost:5432/openmelon
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # 终端 3：前端
@@ -486,6 +489,7 @@ npm run dev
 ```bash
 # 终端 1：后端
 cd backend
+export DATABASE_URL=postgresql://openmelon:openmelon@localhost:5432/openmelon
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # 终端 2：前端
@@ -640,7 +644,30 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 | `deepseek` | `https://api.deepseek.com/v1` | deepseek-chat | — | — |
 | `mimo` | `https://open.mimo.work/v1` | mimo-v2-flash | — | — |
 
-### 3.2 Neo4j 配置
+### 3.2 PostgreSQL 运行期配置
+
+PostgreSQL 是唯一的结构化运行期元数据库。新环境部署时只需要准备可用的 `DATABASE_URL`；应用启动会自动确保当前版本需要的表和索引。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DATABASE_URL` | 无 | 必填，后端启动时用于连接运行期 PostgreSQL |
+| `POSTGRES_DB` | `openmelon` | Docker Compose 创建 PostgreSQL 数据库时使用 |
+| `POSTGRES_USER` | `openmelon` | Docker Compose 创建 PostgreSQL 用户时使用 |
+| `POSTGRES_PASSWORD` | `openmelon` | Docker Compose 创建 PostgreSQL 密码时使用 |
+| `POSTGRES_PORT` | `5432` | 本机暴露的 PostgreSQL 端口 |
+| `POSTGRES_HEALTHCHECK_ENABLED` | `false` | 是否在系统健康中启用额外主机连通性探测 |
+
+常用连接串：
+
+```bash
+# 本机后端连接 docker compose postgres
+DATABASE_URL=postgresql://openmelon:openmelon@localhost:5432/openmelon
+
+# app 容器内连接 postgres 服务
+DATABASE_URL=postgresql://openmelon:openmelon@postgres:5432/openmelon
+```
+
+### 3.3 Neo4j 配置
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -649,7 +676,7 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 | `NEO4J_PASSWORD` | `password` | 密码 |
 | `NEO4J_DATABASE` | `neo4j` | 数据库名 |
 
-### 3.3 外部向量库配置（可选）
+### 3.4 外部向量库配置（可选）
 
 默认情况下，系统**不会强制使用 Qdrant**。只有在你明确开启下面配置后，后端才会把文档向量写入 Qdrant 并优先从外部向量库检索。
 
@@ -660,6 +687,9 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 | `QDRANT_HOST` | `localhost` | Qdrant 地址 |
 | `QDRANT_PORT` | `6333` | Qdrant HTTP 端口 |
 | `QDRANT_API_KEY` | 空 | 如你的 Qdrant 开启认证则填写 |
+| `QDRANT_ENABLE_QUANTIZATION` | `true` | 新建/重建 collection 时启用 scalar int8 量化 |
+| `QDRANT_QUANTIZATION_TYPE` | `scalar_int8` | 当前量化类型 |
+| `QDRANT_FORCE_RECREATE_ON_QUANTIZATION` | `true` | 重建时是否显式删除并重建 collection |
 | `VECTOR_FALLBACK_TO_NEO4J` | `true` | 外部检索失败时是否自动降级 |
 
 **什么时候需要开启**：
@@ -668,7 +698,7 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 - 已经准备好独立的 Qdrant 服务
 - 希望后续方便管理和清理向量集合
 
-### 3.4 检索参数
+### 3.5 检索参数
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -678,8 +708,14 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 | `RERANKER_SCORE_THRESHOLD` | `0.3` | Reranker 最低评分阈值 |
 | `HYBRID_GRAPH_WEIGHT` | `0.4` | 混合检索中图谱权重（建议与向量之和为 1.0） |
 | `HYBRID_VECTOR_WEIGHT` | `0.6` | 混合检索中向量权重 |
+| `RAG_RETRIEVAL_CHANNEL_TIMEOUT_S` | `5.0` | graph/vector 单路检索超时，超时后单路降级 |
+| `RAG_CACHE_ENABLED` | `true` | 启用 RAG 热点查询内存缓存 |
+| `RAG_RETRIEVAL_CACHE_TTL_S` | `300` | 检索结果缓存存活时间（秒） |
+| `RAG_ANSWER_CACHE_TTL_S` | `120` | 最终回答缓存存活时间（秒） |
+| `RAG_RETRIEVAL_CACHE_MAX_ENTRIES` | `256` | 检索缓存最大条目数 |
+| `RAG_ANSWER_CACHE_MAX_ENTRIES` | `128` | 回答缓存最大条目数 |
 
-### 3.5 生成参数
+### 3.6 生成参数
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -689,7 +725,7 @@ CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
 | `AGENTIC_CONFIDENCE_THRESHOLD` | `0.7` | 答案充分性评估阈值（0-1） |
 | `INTENT_CONFIDENCE_THRESHOLD` | `0.5` | 意图分类置信度阈值 |
 
-### 3.6 BGE Reranker
+### 3.7 BGE Reranker
 
 Reranker 用于在向量检索后对候选文档块二次排序。当前支持三种模式：
 
@@ -725,7 +761,7 @@ docker compose up -d --build
 
 主后端仍对外暴露 `8000`，`reranker` 只在 Docker 内网提供 `8010`。如只重启 sidecar，可执行 `docker compose up -d --force-recreate reranker`。
 
-### 3.7 testcase_gen 独立 LLM 配置
+### 3.8 testcase_gen 独立 LLM 配置
 
 测试用例生成模块默认使用统一的 `API_KEY`。如需独立配置（例如视觉和文本使用不同模型）：
 
@@ -765,7 +801,7 @@ CUSTOM_BASE_URL=https://api.siliconflow.cn/v1
 CUSTOM_MODEL_NAME=deepseek-ai/DeepSeek-V3
 ```
 
-### 3.8 如何快速判断当前命中哪个模型（推荐）
+### 3.9 如何快速判断当前命中哪个模型（推荐）
 
 只要做下面 2 步，就能快速确认当前生效配置。
 
@@ -812,7 +848,7 @@ Embedding 自检: model=..., dim=..., dimensions_enforced=...
 
 > 建议：先看运行配置页面的生效摘要，再根据字段是否属于 `热更新` 或 `需重启` 决定是否重启后端。
 
-### 3.9 企业通知 Webhook
+### 3.10 企业通知 Webhook
 
 | 变量 | 说明 |
 |------|------|
@@ -828,7 +864,7 @@ curl -X POST "http://localhost:8000/api/webhook/dingtalk" \
   -d '{"question": "问题内容", "answer": "回答内容"}'
 ```
 
-### 3.10 请求限流
+### 3.11 请求限流
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
@@ -1283,7 +1319,7 @@ API 自动化模块用于把接口规范沉淀为项目级接口资产，再由 
 | 执行与报告 | 支持单步执行、批量执行、后台执行、失败步骤重跑、历史记录查看和报告导出 |
 | AI 辅助 | 支持 AI DSL 补全、Agent 失败诊断摘要、修复补丁生成和低风险受控自动修复重跑 |
 | 调度/CI 入口 | 支持手动触发项目级定时执行、规格同步 DSL 生成，并提供 CI 可调用命令 |
-| 存储 | PostgreSQL-only，运行时不再提供迁移准备检查 |
+| 存储 | PostgreSQL-only，应用启动时自动确保运行期表结构 |
 | 策略与审计 | 支持项目级自动化边界、接口白名单/黑名单、风险识别、策略审计和人工待处理队列 |
 | 知识沉淀 | 执行完成后生成待沉淀候选，人工确认后再写入知识库、向量库和 Neo4j 图谱 |
 
@@ -1647,7 +1683,7 @@ flowchart TD
 
 > 执行历史删除不可撤销，且不影响已确认沉淀至知识库的内容。
 
-**调度 / CI / 存储准备**
+**调度 / CI**
 
 执行历史区顶部提供轻量运维入口：
 
@@ -1655,7 +1691,6 @@ flowchart TD
 |------|------|
 | 触发定时执行 | 调用 `POST /api/api-execution/automation/scheduled-runs/trigger`，扫描已开启定时执行且允许 AI 执行的项目，并把符合策略的项目执行入队 |
 | 同步规格 DSL | 调用 `POST /api/api-execution/automation/spec-sync/trigger`，对接口资产有变化的项目重新生成项目级 DSL |
-| 迁移检查 | 已下线，不再提供迁移准备接口 |
 | CI 命令 | 页面展示对应 `curl` 命令，可放到流水线或外部调度系统中调用 |
 
 当前没有内置常驻调度器；推荐由外部 CI、cron 或平台调度调用上述触发接口，仍由项目策略决定是否允许执行。
@@ -2003,6 +2038,11 @@ curl http://localhost:8000/api/metrics
 ```bash
 # 重置指标
 curl -X POST http://localhost:8000/api/metrics/reset
+```
+
+```bash
+# 性能基线脚本
+uv run python backend/scripts/performance_baseline.py --soft-threshold
 ```
 
 ### 13.4 testcase_gen 性能监控

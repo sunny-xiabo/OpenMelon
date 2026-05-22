@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostgreSQL runtime smoke checks for the migration observation period."""
+"""PostgreSQL runtime smoke checks for the PG-only runtime."""
 
 from __future__ import annotations
 
@@ -52,8 +52,6 @@ def _table_counts() -> dict[str, int]:
 
 async def _check_health() -> dict[str, Any]:
     postgres = await _check_postgres_health()
-    if settings.STORAGE_BACKEND != "postgres":
-        raise AssertionError(f"STORAGE_BACKEND must be postgres, got {settings.STORAGE_BACKEND!r}")
     if getattr(api_execution_store, "storage_engine", None) != "postgres":
         raise AssertionError("API execution store is not using PostgreSQL")
     if getattr(file_tracker, "storage_engine", None) != "postgres":
@@ -66,7 +64,6 @@ async def _check_health() -> dict[str, Any]:
         raise AssertionError(f"PostgreSQL health is not ok: {postgres}")
     return _pass(
         "system_health",
-        storage_backend=settings.STORAGE_BACKEND,
         postgres_health=postgres["status"],
     )
 
@@ -285,7 +282,6 @@ async def run_smoke() -> dict[str, Any]:
     return {
         "ok": all(item["ok"] for item in checks),
         "checked_at": _now(),
-        "storage_backend": settings.STORAGE_BACKEND,
         "checks": checks,
         "table_counts": after_counts,
         "table_count_delta": {

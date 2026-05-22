@@ -5,6 +5,7 @@ import os
 
 from app.api.deps import require_production_auth
 from app.api.logging_service import safe_log_event
+from app.engine.rag.cache import bump_rag_cache_version
 from app.api.schemas import (
     FileListResponse,
     FileRecord,
@@ -75,6 +76,7 @@ async def delete_file(record_id: str, req: Request):
                     await req.app.state.vector_ops.delete_chunks_by_file(filename)
                 except Exception as e:
                     print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
+            bump_rag_cache_version("file_deleted")
 
             _log_manage_event(
                 "info",
@@ -136,6 +138,7 @@ async def delete_file_by_name(
                 await req.app.state.vector_ops.delete_chunks_by_file(filename)
             except Exception as e:
                 print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
+            bump_rag_cache_version("file_deleted_by_name")
 
         _log_manage_event(
             "info" if count > 0 else "warning",
@@ -242,6 +245,8 @@ async def reindex_file(record_id: str, req: Request):
 
         # 重新索引跑完后，精确地把当前这条记录的状态改成"已索引"，并更新最新切出来的区块数
         tracker.update_record(record_id, status="indexed", chunk_count=chunks)
+        if chunks > 0:
+            bump_rag_cache_version("file_reindexed")
         _log_manage_event(
             "info",
             "managed_file_reindexed",

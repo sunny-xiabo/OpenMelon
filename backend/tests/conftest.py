@@ -9,7 +9,6 @@ except Exception:  # pragma: no cover - optional during local linting
 
 
 os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault("STORAGE_BACKEND", "postgres")
 os.environ.setdefault("DATABASE_URL", "postgresql://openmelon:openmelon@localhost:5432/openmelon")
 
 

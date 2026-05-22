@@ -21,6 +21,7 @@ from app.services.file_parser import (
     SUPPORTED_FORMATS,
 )
 from app.api.deps import get_indexer, require_production_auth
+from app.engine.rag.cache import bump_rag_cache_version
 from app.services.upload_task_manager import upload_task_manager
 
 router = APIRouter(tags=["ingestion"])
@@ -64,6 +65,8 @@ async def index_file(request: IndexFileRequest, indexer = Depends(get_indexer)):
             module=request.module,
             filename=request.filename,
         )
+        if chunks_indexed > 0:
+            bump_rag_cache_version("document_indexed")
 
         _log_ingestion_event(
             "info",
@@ -141,6 +144,8 @@ async def index_directory(request: IndexDirectoryRequest, indexer = Depends(get_
                 "chunks_indexed": chunks_indexed,
             },
         )
+        if chunks_indexed > 0:
+            bump_rag_cache_version("directory_indexed")
         return IndexResponse(
             success=True,
             chunks_indexed=chunks_indexed,
@@ -247,6 +252,8 @@ async def upload_files(
                 )
 
         files_indexed = sum(1 for d in details if d["success"])
+        if files_indexed > 0:
+            bump_rag_cache_version("document_upload_indexed")
         _log_ingestion_event(
             "info" if files_indexed > 0 else "warning",
             "document_upload_index_completed",
@@ -544,6 +551,8 @@ async def _process_upload_task(
                     pass
 
         files_indexed = sum(1 for d in details if d["success"])
+        if files_indexed > 0:
+            bump_rag_cache_version("async_upload_indexed")
         task.status = "completed"
         task.message = f"Indexed {files_indexed}/{len(saved_files)} files, {total_chunks} chunks total"
         task.details = details

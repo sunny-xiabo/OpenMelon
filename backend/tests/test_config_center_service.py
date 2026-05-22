@@ -187,6 +187,40 @@ def test_save_values_refreshes_hot_runtime_settings(env_files, monkeypatch):
         settings.API_BASE_URL = old_base_url
 
 
+def test_save_values_persists_performance_configuration(env_files, monkeypatch):
+    env_path, example_path = env_files
+    monkeypatch.setattr(service, "_log_config_event", lambda *args, **kwargs: None)
+
+    result = service.save_values(
+        {
+            "QDRANT_ENABLE_QUANTIZATION": "true",
+            "NEO4J_WRITE_BATCH_SIZE": "500",
+            "RAG_RETRIEVAL_CHANNEL_TIMEOUT_S": "5.0",
+            "RAG_CACHE_ENABLED": "true",
+            "RAG_RETRIEVAL_CACHE_TTL_S": "300",
+            "RAG_ANSWER_CACHE_TTL_S": "120",
+        },
+        env_path=env_path,
+        example_path=example_path,
+    )
+
+    text = env_path.read_text()
+    assert "QDRANT_ENABLE_QUANTIZATION=true" in text
+    assert "NEO4J_WRITE_BATCH_SIZE=500" in text
+    assert "RAG_RETRIEVAL_CHANNEL_TIMEOUT_S=5.0" in text
+    assert "RAG_CACHE_ENABLED=true" in text
+    assert "RAG_RETRIEVAL_CACHE_TTL_S=300" in text
+    assert "RAG_ANSWER_CACHE_TTL_S=120" in text
+    assert set(result["changed_keys"]) == {
+        "NEO4J_WRITE_BATCH_SIZE",
+        "QDRANT_ENABLE_QUANTIZATION",
+        "RAG_ANSWER_CACHE_TTL_S",
+        "RAG_CACHE_ENABLED",
+        "RAG_RETRIEVAL_CHANNEL_TIMEOUT_S",
+        "RAG_RETRIEVAL_CACHE_TTL_S",
+    }
+
+
 def test_testcase_gen_runtime_uses_current_main_llm_settings(monkeypatch):
     old_api_key = settings.API_KEY
     old_base_url = settings.API_BASE_URL

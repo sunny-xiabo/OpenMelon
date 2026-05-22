@@ -42,9 +42,12 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: str = ""
+    QDRANT_ENABLE_QUANTIZATION: bool = True
+    QDRANT_QUANTIZATION_TYPE: str = "scalar_int8"
+    QDRANT_FORCE_RECREATE_ON_QUANTIZATION: bool = True
     VECTOR_FALLBACK_TO_NEO4J: bool = True
+    NEO4J_WRITE_BATCH_SIZE: int = 500
 
-    STORAGE_BACKEND: str = "postgres"
     POSTGRES_HEALTHCHECK_ENABLED: bool = False
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
@@ -63,6 +66,12 @@ class Settings(BaseSettings):
 
     HYBRID_GRAPH_WEIGHT: float = 0.4
     HYBRID_VECTOR_WEIGHT: float = 0.6
+    RAG_RETRIEVAL_CHANNEL_TIMEOUT_S: float = 5.0
+    RAG_CACHE_ENABLED: bool = True
+    RAG_RETRIEVAL_CACHE_TTL_S: int = 300
+    RAG_ANSWER_CACHE_TTL_S: int = 120
+    RAG_RETRIEVAL_CACHE_MAX_ENTRIES: int = 256
+    RAG_ANSWER_CACHE_MAX_ENTRIES: int = 128
 
     GENERATION_TEMPERATURE: float = 0.3
     GENERATION_MAX_TOKENS: int = 2000
@@ -96,10 +105,6 @@ class Settings(BaseSettings):
         provider = normalize_provider(self.LLM_PROVIDER)
         defaults = get_provider_defaults(provider)
         self.LLM_PROVIDER = provider
-        backend = (self.STORAGE_BACKEND or "postgres").strip().lower()
-        if backend != "postgres":
-            raise ValueError("STORAGE_BACKEND must be postgres for the PostgreSQL-only runtime")
-        self.STORAGE_BACKEND = "postgres"
         if not self.DATABASE_URL.strip():
             raise ValueError("DATABASE_URL is required for PostgreSQL-only runtime")
 

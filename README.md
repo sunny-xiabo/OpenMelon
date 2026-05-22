@@ -41,10 +41,12 @@ cp .env.example .env
 # 至少填写：
 # LLM_PROVIDER=qwen
 # API_KEY=你的大模型密钥
+# 本机运行后端时还需要：
+# DATABASE_URL=postgresql://openmelon:openmelon@localhost:5432/openmelon
 ```
 > 默认不提供 Embedding 的模型（如 DeepSeek）需额外配置 Embedding 参数，详见 [.env.example](.env.example)。
 >
-> 如果初始化阶段还没有 `.env`，也可以先启动前后端，再到“设置 -> 运行配置”里执行最小初始化或从模板初始化。
+> PostgreSQL 是唯一运行期元数据库。Docker 一键启动会给 app 容器注入 `DATABASE_URL`；本机启动后端前，请先启动 `postgres` 服务并在 `.env` 中配置 localhost 连接串。
 
 ### 2. 启动服务（两种方式任选）
 
@@ -222,9 +224,9 @@ OpenMelon/
 
 后端所有的运行时产物（数据库、日志、导出文件、上传文件）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
 
-当前业务元数据库为 PostgreSQL-only：`DATABASE_URL` 是必填运行配置，API execution、FileTracker、Prompt Hub、NodeTypeStore、日志中心事件日志和 AI 调用日志均写入 PostgreSQL。系统健康会直接检查 PostgreSQL 运行态，不再显示 SQLite 回退状态。
+当前业务元数据库为 PostgreSQL-only：`DATABASE_URL` 是必填运行配置，API execution、FileTracker、Prompt Hub、NodeTypeStore、日志中心事件日志和 AI 调用日志均写入 PostgreSQL。系统健康会直接检查 PostgreSQL 运行态。
 
-PostgreSQL 本地环境直接由 `docker-compose.yml` 提供，运维备份、恢复和重置步骤见 `docs/Knowledge/sqlite-to-postgres-migration-runbook.md` 与 `docs/Knowledge/postgres-runtime-observation-smoke.md`。索引治理任务队列是进程内状态，重启应用会清空当前待处理任务视图。
+PostgreSQL 本地环境直接由 `docker-compose.yml` 提供。新环境启动时，后端会在 PostgreSQL 中自动确保运行期表结构；运维备份、恢复、重置和索引治理说明见 [MANUAL.md](MANUAL.md#15-数据维护与清理)。索引治理任务队列是进程内状态，重启应用会清空当前待处理任务视图。
 
 ---
 

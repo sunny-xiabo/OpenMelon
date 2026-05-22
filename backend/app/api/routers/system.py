@@ -99,6 +99,10 @@ async def _check_qdrant_health(request: Request) -> dict:
     try:
         collections = await asyncio.wait_for(client.get_collections(), timeout=3.0)
         collection_names = [item.name for item in getattr(collections, "collections", [])]
+        collection_details = []
+        for collection_name in collection_names:
+            if hasattr(vector_ops, "get_qdrant_collection_info"):
+                collection_details.append(await vector_ops.get_qdrant_collection_info(collection_name))
         return _health_component(
             "ok",
             "Qdrant 可用",
@@ -106,6 +110,7 @@ async def _check_qdrant_health(request: Request) -> dict:
             host=settings.QDRANT_HOST,
             port=settings.QDRANT_PORT,
             collections=collection_names,
+            collection_details=collection_details,
         )
     except asyncio.TimeoutError:
         return _health_component(
