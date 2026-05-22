@@ -1355,6 +1355,18 @@ flowchart TD
 
 生成后的 DSL 仍然可以在编排工作台里继续编辑，例如补充鉴权 Header、变量提取、断言或请求体。
 
+#### 后台执行队列
+
+后台执行采用单节点 asyncio 队列，默认最多同时运行 2 个 API 自动化任务，等待并发槽位超过 60 秒会标记为失败。可通过运行配置调整：
+
+| 配置项 | 默认值 | 说明 |
+|------|------|------|
+| `API_EXECUTION_MAX_CONCURRENT_RUNS` | `2` | 后台 API 执行最大并发 |
+| `API_EXECUTION_QUEUE_WAIT_TIMEOUT_S` | `60` | 等待并发槽位的超时时间（秒） |
+| `API_EXECUTION_SSE_QUEUE_SIZE` | `100` | 单个 SSE 进度订阅的缓冲上限 |
+
+可调用 `GET /api/api-execution/runs/queue/status` 查看当前单进程队列状态、SSE 订阅数以及存储中的 queued/running 记录数量。`parallel_group` 已作为真实执行语义启用：显式设置并行组后，同一拓扑层内同组步骤并行执行；并行步骤提取同名变量且值不同会失败并给出 `variable_conflict` 诊断。
+
 #### 项目测试任务复用
 
 Agent 生成 DSL 后，可以在「Agent 测试」页顶部的「项目测试任务」面板保存为项目级任务。保存后的任务绑定当前项目，后续进入同一项目时可以直接载入到编排执行阶段，不必再次选择模块、勾接口或重新生成 DSL。

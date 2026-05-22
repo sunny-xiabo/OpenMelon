@@ -22,7 +22,7 @@ from app.api_execution.router_deps import (
     # Schemas - Agent
     APIAgentAction, APIAgentContextResponse, APIAgentTestPlanRequest, APIAgentTestPlanResponse,
     # Schemas - Runs
-    APIRunReport, APIRunHistoryResponse, APIStepRunResult,
+    APIExecutionQueueStatus, APIRunReport, APIRunHistoryResponse, APIStepRunResult,
     RunScriptRequest, CreateRunResponse,
     # Schemas - DSL/Spec
     APITestCaseDsl, GenerateDslRequest, ValidateDslRequest,
@@ -79,6 +79,7 @@ from app.api_execution.services.run_service import (
     list_run_history_service,
     list_case_runs_service,
     get_run_report_service,
+    get_queue_status_service,
     stream_run_progress_service,
     cancel_background_run_service,
     clear_all_runs_service,
@@ -162,7 +163,7 @@ __all__ = [
     "APIAssetSyncResponse", "APIAssetTestPlanRequest", "APIAssetTestPlanResponse",
     "APIAssetImpactResponse", "APIProjectAssetsResponse", "APIInterfaceListResponse",
     "APIAgentAction", "APIAgentContextResponse", "APIAgentTestPlanRequest", "APIAgentTestPlanResponse",
-    "APIRunReport", "APIRunHistoryResponse", "APIStepRunResult",
+    "APIExecutionQueueStatus", "APIRunReport", "APIRunHistoryResponse", "APIStepRunResult",
     "RunScriptRequest", "CreateRunResponse",
     "APITestCaseDsl", "GenerateDslRequest", "ValidateDslRequest",
     "OpenAPIParseResponse", "OperationsResponse", "ParseUrlRequest", "DemoBootstrapResponse",
@@ -191,7 +192,7 @@ __all__ = [
     "sync_project_spec_assets", "ensure_project_assets", "EXECUTABLE_INTERFACE_STATUSES",
     "auto_repair_and_rerun_service", "run_single_step_service", "run_all_steps_service",
     "create_background_run_service", "list_run_history_service", "list_case_runs_service",
-    "get_run_report_service", "stream_run_progress_service", "cancel_background_run_service",
+    "get_run_report_service", "get_queue_status_service", "stream_run_progress_service", "cancel_background_run_service",
     "clear_all_runs_service", "delete_run_history_service", "batch_delete_run_history_service",
     "save_run_report", "log_task_event",
     "parse_openapi_file_service", "parse_openapi_url_service", "load_demo_openapi_service",

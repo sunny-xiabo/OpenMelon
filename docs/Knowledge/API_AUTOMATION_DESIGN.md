@@ -199,9 +199,9 @@ class VariableSetup(BaseModel):
 **实现**:
 - `_build_step_levels(steps)` — Kahn 算法拓扑排序，返回可并行执行的层级列表
 - `_detect_cycle(steps, step_map)` — DFS 检测循环依赖，有环抛 ValueError
-- `_needs_dag_execution(steps)` — 检测是否有步骤使用 `depends_on`，无则走串行路径（向后兼容）
-- `_run_dag()` — 按层级执行，单步骤走串行，多步骤用 `asyncio.gather` 并行
-- 并行步骤各自持有变量副本，组完成后合并 extraction 到全局变量
+- `_needs_dag_execution(steps)` — 检测是否有步骤使用 `depends_on` 或 `parallel_group`，无则走串行路径（向后兼容）
+- `_run_dag()` — 按层级执行；未使用 `parallel_group` 时保持原有层级并行，使用后同一拓扑层内按并行组分批执行
+- 并行步骤各自持有变量副本，组完成后合并 extraction 到全局变量；同名变量不同值会显式标记 `variable_conflict` 失败
 - `continue_on_failure=False` 时，任何并行组有失败即停止后续组
 
 ### 涉及文件
@@ -227,7 +227,7 @@ class VariableSetup(BaseModel):
 **实现**:
 - `run_queue.py` 维护 `_sse_channels: dict[str, list[asyncio.Queue]]` 映射
 - `subscribe_sse(run_id)` / `unsubscribe_sse(run_id, queue)` 管理连接
-- `_broadcast_sse(run_id, event, data)` 向所有订阅者广播
+- `_broadcast_sse(run_id, event, data)` 向所有订阅者广播；SSE 队列使用 `API_EXECUTION_SSE_QUEUE_SIZE` 控制上限，慢客户端会丢弃旧进度保留最新进度
 - `_update_progress` 中写入 storage 后广播 `progress` 事件
 - `_mark_finished` 中广播 `finished` 事件并关闭所有连接
 - `_close_sse_channels(run_id)` 发送 None 信号终止流
@@ -239,6 +239,15 @@ class VariableSetup(BaseModel):
 | 文件 | 说明 |
 |------|------|
 | `backend/app/api_execution/routers.py` | SSE 端点 |
+
+### 队列运行时配置
+
+单节点生产加固保留当前 asyncio 后台队列，不引入外部队列依赖。队列吞吐和等待策略由以下配置控制：
+
+- `API_EXECUTION_MAX_CONCURRENT_RUNS`：后台执行最大并发，默认 `2`
+- `API_EXECUTION_QUEUE_WAIT_TIMEOUT_S`：等待并发槽位超时时间，默认 `60`
+- `API_EXECUTION_SSE_QUEUE_SIZE`：单个 SSE 订阅连接的进度缓冲上限，默认 `100`
+- `GET /api/api-execution/runs/queue/status`：返回单进程队列状态、存储中的 queued/running 计数和 SSE 订阅数
 | `backend/app/api_execution/run_queue.py` | 进度广播 |
 
 ---

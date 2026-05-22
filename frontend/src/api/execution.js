@@ -283,6 +283,9 @@ export const apiExecutionAPI = {
       method: 'POST',
     }),
 
+  getExecutionQueueStatus: () =>
+    fetchJSON(`${API_BASE}/api-execution/runs/queue/status`),
+
   getStorageMigrationReadiness: () =>
     fetchJSON(`${API_BASE}/api-execution/storage/migration-readiness`),
 

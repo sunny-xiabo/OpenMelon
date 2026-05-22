@@ -2,7 +2,8 @@ import asyncio
 
 from app.api_execution import run_queue
 from app.api_execution.schemas import APITestCaseDsl, RunScriptRequest
-from app.api_execution.storage import APIExecutionStore
+from app.api_execution.storage import APIExecutionStore, override_api_execution_store
+from app.config import settings
 
 
 def test_background_run_finishes_and_persists_report(monkeypatch, tmp_path):
@@ -135,8 +136,92 @@ def test_background_run_can_be_cancelled(monkeypatch, tmp_path):
     asyncio.run(scenario())
 
 
-async def _wait_for_status(store, run_id, statuses):
-    for _ in range(50):
+def test_queue_status_uses_provider_store_and_config(monkeypatch, tmp_path):
+    store = APIExecutionStore(tmp_path)
+    monkeypatch.setattr(settings, "API_EXECUTION_MAX_CONCURRENT_RUNS", 3)
+    monkeypatch.setattr(settings, "API_EXECUTION_QUEUE_WAIT_TIMEOUT_S", 7)
+    monkeypatch.setattr(settings, "API_EXECUTION_SSE_QUEUE_SIZE", 1)
+    run_queue.reset_queue_state_for_tests()
+    store.save_run({"run_id": "queued-1", "run_at": "2026-05-21T00:00:00Z", "status": "queued"})
+    store.save_run({"run_id": "running-1", "run_at": "2026-05-21T00:00:01Z", "status": "running"})
+
+    with override_api_execution_store(store):
+        queue = run_queue.subscribe_sse("queued-1")
+        try:
+            status = run_queue.get_queue_status()
+        finally:
+            run_queue.unsubscribe_sse("queued-1", queue)
+            monkeypatch.setattr(settings, "API_EXECUTION_MAX_CONCURRENT_RUNS", 2)
+            monkeypatch.setattr(settings, "API_EXECUTION_QUEUE_WAIT_TIMEOUT_S", 60)
+            monkeypatch.setattr(settings, "API_EXECUTION_SSE_QUEUE_SIZE", 100)
+            run_queue.reset_queue_state_for_tests()
+
+    assert status["queue_mode"] == "single_process"
+    assert status["max_concurrent_runs"] == 3
+    assert status["queue_wait_timeout_s"] == 7
+    assert status["sse_queue_size"] == 1
+    assert status["storage_queued_count"] == 1
+    assert status["storage_running_count"] == 1
+    assert status["sse_subscriber_count"] == 1
+    assert status["available_slots"] == 3
+
+
+def test_sse_bounded_queue_drops_stale_progress(monkeypatch):
+    monkeypatch.setattr(settings, "API_EXECUTION_SSE_QUEUE_SIZE", 1)
+    run_queue.reset_queue_state_for_tests()
+    queue = run_queue.subscribe_sse("run-1")
+    try:
+        asyncio.run(run_queue._broadcast_sse("run-1", "progress", {"seq": 1}))
+        asyncio.run(run_queue._broadcast_sse("run-1", "progress", {"seq": 2}))
+        message = queue.get_nowait()
+    finally:
+        run_queue.unsubscribe_sse("run-1", queue)
+        monkeypatch.setattr(settings, "API_EXECUTION_SSE_QUEUE_SIZE", 100)
+        run_queue.reset_queue_state_for_tests()
+
+    assert message["data"]["seq"] == 2
+
+
+def test_background_run_uses_configured_queue_timeout(monkeypatch, tmp_path):
+    async def scenario():
+        store = APIExecutionStore(tmp_path)
+        monkeypatch.setattr(settings, "API_EXECUTION_MAX_CONCURRENT_RUNS", 1)
+        monkeypatch.setattr(settings, "API_EXECUTION_QUEUE_WAIT_TIMEOUT_S", 1)
+        run_queue.reset_queue_state_for_tests()
+        started = asyncio.Event()
+
+        async def fake_run_all_steps(script, *args, **kwargs):
+            if script.case_id == "case_slow":
+                started.set()
+                await asyncio.sleep(2)
+            return {
+                "status": "passed",
+                "duration_ms": 12,
+                "total": 1,
+                "passed": 1,
+                "failed": 0,
+                "skipped": 0,
+                "results": [],
+            }
+
+        monkeypatch.setattr(run_queue, "run_all_steps", fake_run_all_steps)
+        with override_api_execution_store(store):
+            first = await run_queue.enqueue_run(_request(case_id="case_slow"), {"base_url": "http://example.test"})
+            await started.wait()
+            second = await run_queue.enqueue_run(_request(case_id="case_waiting"), {"base_url": "http://example.test"})
+            saved = await _wait_for_status(store, second["run_id"], {"failed"})
+            await run_queue.cancel_run(first["run_id"])
+            monkeypatch.setattr(settings, "API_EXECUTION_MAX_CONCURRENT_RUNS", 2)
+            monkeypatch.setattr(settings, "API_EXECUTION_QUEUE_WAIT_TIMEOUT_S", 60)
+            run_queue.reset_queue_state_for_tests()
+
+        assert "排队等待超时（1秒）" in saved["failure_reason"]
+
+    asyncio.run(scenario())
+
+
+async def _wait_for_status(store, run_id, statuses, attempts=200):
+    for _ in range(attempts):
         saved = store.get_run(run_id)
         if saved and saved.get("status") in statuses:
             return saved
@@ -144,9 +229,9 @@ async def _wait_for_status(store, run_id, statuses):
     raise AssertionError(f"run {run_id} did not reach {statuses}")
 
 
-def _request(step_count=1):
+def _request(step_count=1, case_id="case_queue"):
     script = APITestCaseDsl(
-        case_id="case_queue",
+        case_id=case_id,
         name="后台执行 smoke",
         base_url="http://example.test",
         steps=[

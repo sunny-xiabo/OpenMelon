@@ -10,12 +10,21 @@ from app.api.logging_service import log_event
 from app.api_execution.ai_assistant import build_repair_patch
 from app.api_execution.diagnostics import enrich_run_report
 from app.api_execution.policy import assert_execution_allowed
-from app.api_execution.run_queue import cancel_run, enqueue_run, subscribe_sse, unsubscribe_sse
+from app.api_execution.run_queue import cancel_run, enqueue_run, get_queue_status, subscribe_sse, unsubscribe_sse
 from app.api_execution.runner import run_all_steps, run_single_step
 from app.api_execution.schemas import APITestCaseDsl, RunScriptRequest
-from app.api_execution.storage import api_execution_store
+from app.api_execution.storage import api_execution_store as _default_api_execution_store
+from app.api_execution.storage import get_api_execution_store
 from app.api_execution.utils import execution_options as _execution_options
 from app.api_execution.utils import now_iso as _now_iso
+
+api_execution_store = _default_api_execution_store
+
+
+def _store():
+    if api_execution_store is not _default_api_execution_store:
+        return api_execution_store
+    return get_api_execution_store()
 
 
 def _script_with_environment_variables(script: APITestCaseDsl, environment_snapshot: dict[str, Any] | None) -> APITestCaseDsl:
@@ -57,7 +66,7 @@ def save_run_report(report: dict[str, Any]) -> dict[str, Any]:
         "run_id": report.get("run_id") or str(uuid.uuid4()),
         "run_at": _now_iso(),
     }
-    api_execution_store.save_run(saved)
+    _store().save_run(saved)
     save_unified_automation_records(saved)
     save_knowledge_ingest_candidate(saved)
     _log_run_event(saved)
@@ -168,7 +177,7 @@ def save_policy_audit(action: str, decision: dict[str, Any], run_id: str | None 
         "approved": decision.get("allowed", False),
         "approval_note": "系统策略自动判定",
     }
-    saved = api_execution_store.save_policy_audit(audit)
+    saved = _store().save_policy_audit(audit)
     _log_policy_event(saved)
     return saved
 
@@ -238,7 +247,7 @@ def save_unified_automation_records(run: dict[str, Any]) -> None:
     script = run.get("script") or {}
     definition_id = f"api:{run.get('case_id') or script.get('case_id') or run.get('run_id')}"
     automation_run_id = f"api-run:{run.get('run_id')}"
-    api_execution_store.save_automation_definition(
+    _store().save_automation_definition(
         {
             "definition_id": definition_id,
             "automation_type": "api",
@@ -251,7 +260,7 @@ def save_unified_automation_records(run: dict[str, Any]) -> None:
             "updated_at": now,
         }
     )
-    api_execution_store.save_automation_run(
+    _store().save_automation_run(
         {
             "automation_run_id": automation_run_id,
             "automation_type": "api",
@@ -266,7 +275,7 @@ def save_unified_automation_records(run: dict[str, Any]) -> None:
         }
     )
     for stage, status in _stage_events_from_run(run):
-        api_execution_store.save_run_stage_event(
+        _store().save_run_stage_event(
             {
                 "event_id": f"{automation_run_id}:{stage}",
                 "automation_run_id": automation_run_id,
@@ -276,7 +285,7 @@ def save_unified_automation_records(run: dict[str, Any]) -> None:
                 "detail": _run_result_summary(run) if stage == "summary" else {},
             }
         )
-    api_execution_store.save_artifact_meta(
+    _store().save_artifact_meta(
         {
             "artifact_id": f"{automation_run_id}:report-json",
             "automation_run_id": automation_run_id,
@@ -487,7 +496,7 @@ def save_automation_task(
         "resolved_at": None,
         "resolution_note": "",
     }
-    saved = api_execution_store.save_automation_task(task)
+    saved = _store().save_automation_task(task)
     log_task_event(saved)
     return saved
 
@@ -507,7 +516,7 @@ def _decision_from_run(run: dict[str, Any], *, risk_level: str, reason: str) -> 
 
 
 async def auto_repair_and_rerun_service(run_id: str) -> dict[str, Any]:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if not run:
         raise NotFoundError(message=str("执行历史不存在"))
     script = _script_from_report(run)
@@ -599,7 +608,7 @@ async def run_single_step_service(request: RunScriptRequest) -> dict[str, Any]:
 
 async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
     try:
-        if request.replace_run_id and not api_execution_store.get_run(request.replace_run_id):
+        if request.replace_run_id and not _store().get_run(request.replace_run_id):
             raise NotFoundError(message=str("要更新的执行历史不存在"))
         executable_script = _script_with_environment_variables(request.script, request.environment_snapshot)
         request = request.model_copy(update={"script": executable_script})
@@ -619,7 +628,7 @@ async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
         report["execution_options"] = _execution_options(request, policy_decision)
         if request.replace_run_id:
             report["run_id"] = request.replace_run_id
-            existing = api_execution_store.get_run(request.replace_run_id) or {}
+            existing = _store().get_run(request.replace_run_id) or {}
             if request.step_ids:
                 report = _merge_partial_run_report(existing, report, request.script)
             if request.script.ai_repair_source:
@@ -648,28 +657,32 @@ def list_run_history_service(
     safe_limit = max(1, min(limit, 50))
     safe_offset = max(0, offset)
     safe_status = status if status in {"queued", "running", "passed", "failed", "cancelled"} else None
-    items = api_execution_store.list_runs(safe_limit, safe_status, keyword, project_id, offset=safe_offset)
-    total = api_execution_store.count_runs(safe_status, keyword, project_id)
+    items = _store().list_runs(safe_limit, safe_status, keyword, project_id, offset=safe_offset)
+    total = _store().count_runs(safe_status, keyword, project_id)
     return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "runs": items}
 
 
 def list_case_runs_service(case_id: str, limit: int = 20, offset: int = 0) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 50))
     safe_offset = max(0, offset)
-    items = api_execution_store.list_runs(safe_limit, keyword=case_id, offset=safe_offset)
-    total = api_execution_store.count_runs(keyword=case_id)
+    items = _store().list_runs(safe_limit, keyword=case_id, offset=safe_offset)
+    total = _store().count_runs(keyword=case_id)
     return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "runs": items}
 
 
 def get_run_report_service(run_id: str) -> dict[str, Any]:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if not run:
         raise NotFoundError(message=str("执行历史不存在"))
     return run
 
 
+def get_queue_status_service() -> dict[str, Any]:
+    return get_queue_status()
+
+
 def stream_run_progress_service(run_id: str) -> StreamingResponse:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if not run:
         raise NotFoundError(message=str("执行历史不存在"))
 
@@ -715,20 +728,20 @@ async def cancel_background_run_service(run_id: str) -> dict[str, Any]:
 
 
 async def clear_all_runs_service() -> dict[str, int]:
-    runs = api_execution_store.list_runs(limit=1000)
+    runs = _store().list_runs(limit=1000)
     for run in runs:
         if run.get("status") in {"queued", "running"}:
             await cancel_run(run.get("run_id"))
 
-    deleted_count = api_execution_store.delete_all_runs()
+    deleted_count = _store().delete_all_runs()
     return {"deleted_count": deleted_count}
 
 
 async def delete_run_history_service(run_id: str) -> dict[str, bool]:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if run and run.get("status") in {"queued", "running"}:
         await cancel_run(run_id)
-    if not api_execution_store.delete_run(run_id):
+    if not _store().delete_run(run_id):
         raise NotFoundError(message=str("执行历史不存在"))
     return {"deleted": True}
 
@@ -736,10 +749,10 @@ async def delete_run_history_service(run_id: str) -> dict[str, bool]:
 async def batch_delete_run_history_service(run_ids: list[str]) -> dict[str, int]:
     deleted_count = 0
     for run_id in run_ids:
-        run = api_execution_store.get_run(run_id)
+        run = _store().get_run(run_id)
         if run and run.get("status") in {"queued", "running"}:
             await cancel_run(run_id)
-        if api_execution_store.delete_run(run_id):
+        if _store().delete_run(run_id):
             deleted_count += 1
     return {"deleted_count": deleted_count}
 

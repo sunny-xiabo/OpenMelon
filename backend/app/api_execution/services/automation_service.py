@@ -4,9 +4,18 @@ from app.api.errors import NotFoundError
 from app.api_execution.dsl_generator import generate_api_dsl
 from app.api_execution.run_queue import enqueue_run
 from app.api_execution.schemas import APITestCaseDsl, RunScriptRequest
-from app.api_execution.storage import api_execution_store
+from app.api_execution.storage import api_execution_store as _default_api_execution_store
+from app.api_execution.storage import get_api_execution_store
 from app.api_execution.utils import execution_options as _execution_options
 from app.api_execution.utils import now_iso as _now_iso
+
+api_execution_store = _default_api_execution_store
+
+
+def _store():
+    if api_execution_store is not _default_api_execution_store:
+        return api_execution_store
+    return get_api_execution_store()
 
 async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str) -> dict[str, Any]:
     from app.api_execution.services.run_service import (
@@ -24,7 +33,7 @@ async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str)
     if not project.get("allow_ai_execution"):
         return _automation_item(project_id, project_name, "blocked", reason="项目未开启 AI 自动执行")
 
-    environment = api_execution_store.get_environment(project.get("default_environment_id", ""))
+    environment = _store().get_environment(project.get("default_environment_id", ""))
     if not environment or not environment.get("enabled", True):
         return _automation_item(project_id, project_name, "blocked", reason="默认环境不存在或已停用")
 
@@ -49,7 +58,7 @@ async def _enqueue_scheduled_project(project: dict[str, Any], triggered_at: str)
     try:
         policy_decision = assert_policy_allowed(request)
         run = await enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
-        api_execution_store.save_project({**project, "last_scheduled_run_at": triggered_at, "updated_at": triggered_at})
+        _store().save_project({**project, "last_scheduled_run_at": triggered_at, "updated_at": triggered_at})
         save_policy_audit("scheduled_run", policy_decision, run_id=run.get("run_id"))
         return _automation_item(project_id, project_name, "queued", run_id=run.get("run_id"))
     except ValueError as exc:
@@ -93,7 +102,7 @@ def _sync_project_spec_dsl(project: dict[str, Any], triggered_at: str) -> dict[s
     except ValueError as exc:
         return _spec_sync_item(project_id, project_name, "blocked", spec_id=spec.get("spec_id", ""), reason=str(exc))
 
-    api_execution_store.save_project(
+    _store().save_project(
         {
             **project,
             "spec_id": spec.get("spec_id"),
@@ -113,7 +122,7 @@ def _sync_project_spec_dsl(project: dict[str, Any], triggered_at: str) -> dict[s
 
 
 def _generate_project_dsl(project: dict[str, Any], spec: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    spec = spec or api_execution_store.get_spec(project.get("spec_id", ""))
+    spec = spec or _store().get_spec(project.get("spec_id", ""))
     if not spec:
         return None
     operation_ids = _project_operation_ids(project, spec)
@@ -135,10 +144,10 @@ def _project_operation_ids(project: dict[str, Any], spec: dict[str, Any]) -> lis
 
 
 def _latest_project_spec(project: dict[str, Any]) -> dict[str, Any] | None:
-    current = api_execution_store.get_spec(project.get("spec_id", ""))
+    current = _store().get_spec(project.get("spec_id", ""))
     source_url = current.get("source_url") if current else ""
     if source_url:
-        return api_execution_store.get_latest_spec_by_source_url(source_url) or current
+        return _store().get_latest_spec_by_source_url(source_url) or current
     return current
 
 
@@ -212,7 +221,7 @@ def list_policy_audits_service(
 ) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 100))
     safe_offset = max(0, offset)
-    audits = api_execution_store.list_policy_audits(safe_limit + safe_offset, project_id, action)
+    audits = _store().list_policy_audits(safe_limit + safe_offset, project_id, action)
     items = audits[safe_offset:safe_offset + safe_limit]
     return {"total": len(audits), "limit": safe_limit, "offset": safe_offset, "items": items, "audits": items}
 
@@ -226,8 +235,8 @@ def list_automation_tasks_service(
     safe_limit = max(1, min(limit, 100))
     safe_offset = max(0, offset)
     safe_status = status if status in {"pending", "running", "resolved", "failed"} else None
-    items = api_execution_store.list_automation_tasks(safe_limit, safe_status, project_id, offset=safe_offset)
-    total = api_execution_store.count_automation_tasks(safe_status, project_id)
+    items = _store().list_automation_tasks(safe_limit, safe_status, project_id, offset=safe_offset)
+    total = _store().count_automation_tasks(safe_status, project_id)
     return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "tasks": items}
 
 
@@ -241,7 +250,7 @@ def resolve_automation_task_service(task_id: str) -> dict[str, Any]:
     from app.api_execution.services.run_service import log_task_event
 
     now = _now_iso()
-    task = api_execution_store.update_automation_task(
+    task = _store().update_automation_task(
         task_id,
         {
             "status": "resolved",
@@ -259,7 +268,7 @@ def resolve_automation_task_service(task_id: str) -> dict[str, Any]:
 async def trigger_scheduled_runs_service() -> dict[str, Any]:
     triggered_at = _now_iso()
     items = []
-    for project in api_execution_store.list_projects():
+    for project in _store().list_projects():
         items.append(await _enqueue_scheduled_project(project, triggered_at))
     return {"triggered_at": triggered_at, "items": items}
 
@@ -267,7 +276,7 @@ async def trigger_scheduled_runs_service() -> dict[str, Any]:
 def trigger_spec_sync_service() -> dict[str, Any]:
     triggered_at = _now_iso()
     items = []
-    for project in api_execution_store.list_projects():
+    for project in _store().list_projects():
         items.append(_sync_project_spec_dsl(project, triggered_at))
     return {"triggered_at": triggered_at, "items": items}
 
@@ -275,7 +284,8 @@ def trigger_spec_sync_service() -> dict[str, Any]:
 def get_storage_migration_readiness_service() -> dict[str, Any]:
     from app.storage.migration_readiness import build_sqlite_to_pg_readiness
 
-    if getattr(api_execution_store, "storage_engine", "sqlite") == "postgres":
+    store = _store()
+    if getattr(store, "storage_engine", "sqlite") == "postgres":
         return {
             "generated_at": _now_iso(),
             "storage_engine": "postgres",
@@ -293,7 +303,7 @@ def get_storage_migration_readiness_service() -> dict[str, Any]:
             },
             "recommended_steps": ["使用 sqlite_to_postgres.py verify 校验最近一次迁移快照。"],
         }
-    return build_sqlite_to_pg_readiness(api_execution_store, generated_at=_now_iso())
+    return build_sqlite_to_pg_readiness(store, generated_at=_now_iso())
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

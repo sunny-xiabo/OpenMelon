@@ -247,3 +247,139 @@ def test_run_all_steps_runs_cleanup_after_failure(monkeypatch):
         "http://example.test/fail",
         "http://example.test/cleanup",
     ]
+
+
+def test_parallel_group_runs_grouped_steps_together_and_ungrouped_sequentially(monkeypatch):
+    class ParallelClient:
+        active = 0
+        starts = []
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def request(self, method, url, **kwargs):
+            self.__class__.active += 1
+            self.__class__.starts.append((url, self.__class__.active))
+            await asyncio.sleep(0.01)
+            self.__class__.active -= 1
+            return httpx.Response(200, text="ok")
+
+    ParallelClient.active = 0
+    ParallelClient.starts = []
+    monkeypatch.setattr("app.api_execution.runner.httpx.AsyncClient", ParallelClient)
+    script = APITestCaseDsl(
+        case_id="case_parallel_group",
+        name="并行组 smoke",
+        base_url="http://example.test",
+        steps=[
+            {"id": "a", "name": "A", "method": "GET", "path": "/a", "operation_id": "a", "parallel_group": "g1"},
+            {"id": "b", "name": "B", "method": "GET", "path": "/b", "operation_id": "b", "parallel_group": "g1"},
+            {"id": "c", "name": "C", "method": "GET", "path": "/c", "operation_id": "c"},
+        ],
+    )
+
+    report = asyncio.run(run_all_steps(script))
+
+    assert report["status"] == "passed"
+    assert max(active for _url, active in ParallelClient.starts) == 2
+    c_start = next(active for url, active in ParallelClient.starts if url.endswith("/c"))
+    assert c_start == 1
+
+
+def test_parallel_group_same_extraction_value_merges_once(monkeypatch):
+    class SameValueClient(FakeAsyncClient):
+        async def request(self, method, url, **kwargs):
+            self.requests.append({"method": method, "url": url, **kwargs})
+            if url.endswith("/next/shared-token"):
+                return httpx.Response(200, text="ok")
+            return httpx.Response(200, json={"data": {"token": "shared-token"}})
+
+    SameValueClient.requests = []
+    monkeypatch.setattr("app.api_execution.runner.httpx.AsyncClient", SameValueClient)
+    script = APITestCaseDsl(
+        case_id="case_parallel_same_value",
+        name="并行变量同值",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "a",
+                "name": "A",
+                "method": "GET",
+                "path": "/a",
+                "operation_id": "a",
+                "parallel_group": "g1",
+                "extractions": [{"name": "token", "source": "body", "path": "data.token"}],
+            },
+            {
+                "id": "b",
+                "name": "B",
+                "method": "GET",
+                "path": "/b",
+                "operation_id": "b",
+                "parallel_group": "g1",
+                "extractions": [{"name": "token", "source": "body", "path": "data.token"}],
+            },
+            {
+                "id": "next",
+                "name": "Next",
+                "method": "GET",
+                "path": "/next/{{token}}",
+                "operation_id": "next",
+                "depends_on": ["a", "b"],
+            },
+        ],
+    )
+
+    report = asyncio.run(run_all_steps(script))
+
+    assert report["status"] == "passed"
+    assert SameValueClient.requests[-1]["url"] == "http://example.test/next/shared-token"
+
+
+def test_parallel_group_conflicting_extractions_fail_explicitly(monkeypatch):
+    class ConflictClient(FakeAsyncClient):
+        async def request(self, method, url, **kwargs):
+            if url.endswith("/a"):
+                return httpx.Response(200, json={"data": {"token": "token-a"}})
+            if url.endswith("/b"):
+                return httpx.Response(200, json={"data": {"token": "token-b"}})
+            return httpx.Response(200, text="ok")
+
+    monkeypatch.setattr("app.api_execution.runner.httpx.AsyncClient", ConflictClient)
+    script = APITestCaseDsl(
+        case_id="case_parallel_conflict",
+        name="并行变量冲突",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "a",
+                "name": "A",
+                "method": "GET",
+                "path": "/a",
+                "operation_id": "a",
+                "parallel_group": "g1",
+                "extractions": [{"name": "token", "source": "body", "path": "data.token"}],
+            },
+            {
+                "id": "b",
+                "name": "B",
+                "method": "GET",
+                "path": "/b",
+                "operation_id": "b",
+                "parallel_group": "g1",
+                "extractions": [{"name": "token", "source": "body", "path": "data.token"}],
+            },
+        ],
+    )
+
+    report = asyncio.run(run_all_steps(script))
+
+    assert report["status"] == "failed"
+    assert [result["status"] for result in report["results"]] == ["failed", "failed"]
+    assert report["results"][0]["diagnostics"][0]["category"] == "variable_conflict"

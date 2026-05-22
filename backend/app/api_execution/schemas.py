@@ -803,6 +803,18 @@ class ExportScriptRequest(BaseModel):
     script: APITestCaseDsl
 
 
+class APIExecutionQueueStatus(BaseModel):
+    queue_mode: str = "single_process"
+    max_concurrent_runs: int = 2
+    queue_wait_timeout_s: int = 60
+    sse_queue_size: int = 100
+    active_task_count: int = 0
+    storage_queued_count: int = 0
+    storage_running_count: int = 0
+    sse_subscriber_count: int = 0
+    available_slots: int = 0
+
+
 class CreateRunResponse(BaseModel):
     run_id: str
     status: str

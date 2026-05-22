@@ -3,10 +3,10 @@ from typing import Annotated
 
 from app.api.deps import require_production_auth
 from app.api_execution.router_support import (
-    APIRunReport, APIStepRunResult, RunScriptRequest, CreateRunResponse, APIRunHistoryResponse,
+    APIExecutionQueueStatus, APIRunReport, APIStepRunResult, RunScriptRequest, CreateRunResponse, APIRunHistoryResponse,
     auto_repair_and_rerun_service, run_single_step_service, run_all_steps_service,
     create_background_run_service, list_run_history_service, list_case_runs_service,
-    get_run_report_service, stream_run_progress_service, cancel_background_run_service,
+    get_run_report_service, get_queue_status_service, stream_run_progress_service, cancel_background_run_service,
     clear_all_runs_service, delete_run_history_service, batch_delete_run_history_service,
 )
 
@@ -67,6 +67,11 @@ async def list_case_runs(
     offset: Annotated[int, Query(ge=0)] = 0,
 ):
     return list_case_runs_service(case_id, limit=limit, offset=offset)
+
+
+@router.get("/runs/queue/status", response_model=APIExecutionQueueStatus)
+async def get_queue_status():
+    return get_queue_status_service()
 
 
 @router.get("/runs/{run_id}", response_model=APIRunReport)

@@ -5,7 +5,9 @@ STORAGE_BACKEND=postgres is explicitly configured.
 """
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Any
 
 from app.config import settings
@@ -72,3 +74,28 @@ def _create_default_store() -> Any:
 
 
 api_execution_store = _create_default_store()
+_api_execution_store = api_execution_store
+
+
+def get_api_execution_store() -> Any:
+    """Return the active API execution store.
+
+    The module-level api_execution_store is kept for backward compatibility;
+    new execution paths should resolve the store at call time via this helper.
+    """
+    return _api_execution_store
+
+
+@contextmanager
+def override_api_execution_store(store: Any) -> Iterator[Any]:
+    """Temporarily replace the active store, mainly for isolated tests."""
+    global api_execution_store, _api_execution_store
+    previous = _api_execution_store
+    previous_public = api_execution_store
+    _api_execution_store = store
+    api_execution_store = store
+    try:
+        yield store
+    finally:
+        _api_execution_store = previous
+        api_execution_store = previous_public

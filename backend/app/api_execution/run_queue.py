@@ -3,19 +3,48 @@ import time
 import uuid
 from typing import Any
 
+from app.config import settings
 from app.api_execution.diagnostics import enrich_run_report
 from app.api_execution.policy import assert_execution_allowed
 from app.api_execution.runner import run_all_steps
 from app.api_execution.schemas import RunScriptRequest
-from app.api_execution.storage import api_execution_store
+from app.api_execution.storage import api_execution_store as _default_api_execution_store
+from app.api_execution.storage import get_api_execution_store
 from app.api_execution.utils import execution_options as _execution_options
 from app.api_execution.utils import now_iso as _now
 
-MAX_CONCURRENT_RUNS = 2
-QUEUE_WAIT_TIMEOUT_S = 60
 TERMINAL_STATUSES = {"passed", "failed", "cancelled"}
 
-_semaphore = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
+api_execution_store = _default_api_execution_store
+
+
+def _store():
+    if api_execution_store is not _default_api_execution_store:
+        return api_execution_store
+    return get_api_execution_store()
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _max_concurrent_runs() -> int:
+    return _positive_int(getattr(settings, "API_EXECUTION_MAX_CONCURRENT_RUNS", 2), 2)
+
+
+def _queue_wait_timeout_s() -> int:
+    return _positive_int(getattr(settings, "API_EXECUTION_QUEUE_WAIT_TIMEOUT_S", 60), 60)
+
+
+def _sse_queue_size() -> int:
+    return _positive_int(getattr(settings, "API_EXECUTION_SSE_QUEUE_SIZE", 100), 100)
+
+
+_semaphore_limit = _max_concurrent_runs()
+_semaphore = asyncio.Semaphore(_semaphore_limit)
 _tasks: dict[str, asyncio.Task] = {}
 _sse_channels: dict[str, list[asyncio.Queue]] = {}
 
@@ -56,7 +85,7 @@ async def enqueue_run(
         "current_step_name": None,
         "results": [],
     }
-    await api_execution_store.async_save_run(run)
+    await _store().async_save_run(run)
 
     task = asyncio.create_task(_execute_run(run_id, request, policy_decision))
     _tasks[run_id] = task
@@ -65,7 +94,7 @@ async def enqueue_run(
 
 
 async def cancel_run(run_id: str) -> dict[str, Any] | None:
-    run = await api_execution_store.async_get_run(run_id)
+    run = await _store().async_get_run(run_id)
     if not run:
         return None
     if run.get("status") in TERMINAL_STATUSES:
@@ -90,13 +119,14 @@ async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: 
     started = time.perf_counter()
     try:
         try:
-            await asyncio.wait_for(_semaphore.acquire(), timeout=QUEUE_WAIT_TIMEOUT_S)
+            queue_wait_timeout_s = _queue_wait_timeout_s()
+            await asyncio.wait_for(_semaphore.acquire(), timeout=queue_wait_timeout_s)
         except asyncio.TimeoutError:
             await _mark_finished(
                 run_id,
                 {
                     "status": "failed",
-                    "failure_reason": f"排队等待超时（{QUEUE_WAIT_TIMEOUT_S}秒），当前并发槽位已满，请稍后重试",
+                    "failure_reason": f"排队等待超时（{queue_wait_timeout_s}秒），当前并发槽位已满，请稍后重试",
                     "current_step_id": None,
                     "current_step_name": None,
                     "duration_ms": int((time.perf_counter() - started) * 1000),
@@ -106,7 +136,7 @@ async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: 
         try:
             if await _is_cancelled(run_id):
                 return
-            await api_execution_store.async_update_run(
+            await _store().async_update_run(
                 run_id,
                 {
                     "status": "running",
@@ -199,7 +229,7 @@ async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: 
 
 
 def subscribe_sse(run_id: str) -> asyncio.Queue:
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=_sse_queue_size())
     _sse_channels.setdefault(run_id, []).append(queue)
     return queue
 
@@ -220,8 +250,24 @@ async def _broadcast_sse(run_id: str, event: str, data: dict[str, Any]) -> None:
     if not channels:
         return
     message = {"event": event, "data": data}
-    for queue in channels:
-        await queue.put(message)
+    for queue in list(channels):
+        _offer_sse_message(queue, message)
+
+
+def _offer_sse_message(queue: asyncio.Queue, message: Any) -> None:
+    try:
+        queue.put_nowait(message)
+        return
+    except asyncio.QueueFull:
+        pass
+    try:
+        queue.get_nowait()
+    except asyncio.QueueEmpty:
+        pass
+    try:
+        queue.put_nowait(message)
+    except asyncio.QueueFull:
+        pass
 
 
 async def _update_progress(run_id: str, progress: dict[str, Any]) -> None:
@@ -243,7 +289,7 @@ async def _update_progress(run_id: str, progress: dict[str, Any]) -> None:
             "failed": failed,
         }
 
-    result = await api_execution_store.async_update_run_atomic(run_id, _updater)
+    result = await _store().async_update_run_atomic(run_id, _updater)
     if result is None:
         raise asyncio.CancelledError()
     await _broadcast_sse(run_id, "progress", {
@@ -274,7 +320,7 @@ async def _mark_finished(run_id: str, patch: dict[str, Any]) -> dict[str, Any] |
         merged["duration_ms"] = duration_ms
         return {**existing, **merged}
 
-    result = await api_execution_store.async_update_run_atomic(run_id, _updater)
+    result = await _store().async_update_run_atomic(run_id, _updater)
     if result:
         update_interface_test_results(result)
         await _broadcast_sse(run_id, "finished", {
@@ -288,11 +334,11 @@ async def _mark_finished(run_id: str, patch: dict[str, Any]) -> dict[str, Any] |
 def _close_sse_channels(run_id: str) -> None:
     channels = _sse_channels.pop(run_id, [])
     for queue in channels:
-        queue.put_nowait(None)
+        _offer_sse_message(queue, None)
 
 
 async def _is_cancelled(run_id: str) -> bool:
-    run = await api_execution_store.async_get_run(run_id)
+    run = await _store().async_get_run(run_id)
     return bool(run and run.get("status") == "cancelled")
 
 
@@ -305,7 +351,7 @@ async def _maybe_auto_rerun(
     if max_reruns <= 0:
         return
 
-    run = await api_execution_store.async_get_run(run_id)
+    run = await _store().async_get_run(run_id)
     if not run:
         return
     current_attempt = run.get("attempt", 1)
@@ -343,4 +389,33 @@ def _run_timeout_ms(request: RunScriptRequest) -> int:
 
 def recover_stale_runs() -> list[str]:
     """Mark runs stuck in queued/running as failed on startup. Returns recovered run IDs."""
-    return api_execution_store.recover_stale_runs()
+    return _store().recover_stale_runs()
+
+
+def get_queue_status() -> dict[str, Any]:
+    store = _store()
+    max_concurrent = _max_concurrent_runs()
+    active_task_count = sum(1 for task in _tasks.values() if not task.done())
+    sse_subscriber_count = sum(len(channels) for channels in _sse_channels.values())
+    return {
+        "queue_mode": "single_process",
+        "max_concurrent_runs": max_concurrent,
+        "queue_wait_timeout_s": _queue_wait_timeout_s(),
+        "sse_queue_size": _sse_queue_size(),
+        "active_task_count": active_task_count,
+        "storage_queued_count": store.count_runs(status="queued"),
+        "storage_running_count": store.count_runs(status="running"),
+        "sse_subscriber_count": sse_subscriber_count,
+        "available_slots": max(max_concurrent - active_task_count, 0),
+    }
+
+
+def reset_queue_state_for_tests() -> None:
+    global _semaphore, _semaphore_limit, _tasks, _sse_channels
+    for task in _tasks.values():
+        if not task.done():
+            task.cancel()
+    _tasks = {}
+    _sse_channels = {}
+    _semaphore_limit = _max_concurrent_runs()
+    _semaphore = asyncio.Semaphore(_semaphore_limit)

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "openmelon"
     DATABASE_URL: str = ""
 
+    API_EXECUTION_MAX_CONCURRENT_RUNS: int = 2
+    API_EXECUTION_QUEUE_WAIT_TIMEOUT_S: int = 60
+    API_EXECUTION_SSE_QUEUE_SIZE: int = 100
+
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_DEPTH: int = 2
     RERANKER_TOP_K: int = 5

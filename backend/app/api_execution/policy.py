@@ -2,7 +2,16 @@ from fnmatch import fnmatch
 from typing import Any
 
 from app.api_execution.schemas import APITestCaseDsl
-from app.api_execution.storage import api_execution_store
+from app.api_execution.storage import api_execution_store as _default_api_execution_store
+from app.api_execution.storage import get_api_execution_store
+
+api_execution_store = _default_api_execution_store
+
+
+def _store():
+    if api_execution_store is not _default_api_execution_store:
+        return api_execution_store
+    return get_api_execution_store()
 
 HIGH_RISK_METHODS = {"DELETE"}
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -110,7 +119,7 @@ def assert_execution_allowed(script: APITestCaseDsl, **kwargs: Any) -> dict[str,
 
 
 def _resolve_project_policy(project_id: str | None, snapshot: dict[str, Any] | None) -> dict[str, Any]:
-    stored = api_execution_store.get_project(project_id) if project_id else None
+    stored = _store().get_project(project_id) if project_id else None
     return {
         **(snapshot or {}),
         **(stored or {}),
@@ -118,7 +127,7 @@ def _resolve_project_policy(project_id: str | None, snapshot: dict[str, Any] | N
 
 
 def _resolve_environment(environment_id: str | None, snapshot: dict[str, Any] | None) -> dict[str, Any]:
-    stored = api_execution_store.get_environment(environment_id) if environment_id else None
+    stored = _store().get_environment(environment_id) if environment_id else None
     return {
         **(snapshot or {}),
         **(stored or {}),

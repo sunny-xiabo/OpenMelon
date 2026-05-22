@@ -19,6 +19,7 @@ from app.api_execution.schemas import (
     APITestCaseDsl,
     APITestStep,
     AssertionResult,
+    FailureDiagnostic,
     VariableSetup,
 )
 
@@ -87,7 +88,31 @@ def _detect_cycle(steps: list[APITestStep], step_map: dict[str, APITestStep]) ->
 
 def _needs_dag_execution(steps: list[APITestStep]) -> bool:
     """Check if any step has depends_on, requiring DAG-based execution."""
-    return any(step.depends_on for step in steps)
+    return any(step.depends_on or step.parallel_group for step in steps)
+
+
+def _uses_parallel_groups(steps: list[APITestStep]) -> bool:
+    return any(bool(step.parallel_group) for step in steps)
+
+
+def _parallel_batches(level: list[APITestStep], use_parallel_groups: bool) -> list[list[APITestStep]]:
+    if not use_parallel_groups:
+        return [level]
+
+    batches: list[list[APITestStep]] = []
+    consumed: set[str] = set()
+    for step in level:
+        if step.id in consumed:
+            continue
+        if not step.parallel_group:
+            batches.append([step])
+            consumed.add(step.id)
+            continue
+        group = step.parallel_group
+        batch = [candidate for candidate in level if candidate.parallel_group == group and candidate.id not in consumed]
+        consumed.update(candidate.id for candidate in batch)
+        batches.append(batch)
+    return batches
 
 
 def _init_variables(script: APITestCaseDsl, environment: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -320,79 +345,155 @@ async def _run_dag(
     phase: str = "main",
 ) -> list[APIStepRunResult]:
     levels = _build_step_levels(runnable_steps)
+    use_parallel_groups = _uses_parallel_groups(runnable_steps)
 
     for level in levels:
-        if len(level) == 1:
-            # Single step — run sequentially, share variables directly
-            result = await _execute_one_step(
-                client, level[0], base_url, global_headers, variables, progress_callback,
-                progress_total, results, phase=phase,
-            )
-            results.append(result)
-            if result.status != "passed" and not continue_on_failure:
-                break
-        else:
-            # Parallel execution — each step gets a copy of variables
-            if progress_callback:
-                for step in level:
-                    await progress_callback(
-                        {
-                            "event": "step_started",
-                            "progress_total": progress_total,
-                            "progress_completed": len(results),
-                            "current_step_id": step.id,
-                            "current_step_name": step.name,
-                            "results": [r.model_dump() for r in results],
-                        }
-                    )
-
-            tasks = [
-                _execute_one_step(
-                    client, step, base_url, global_headers, dict(variables), None,
+        for batch in _parallel_batches(level, use_parallel_groups):
+            if len(batch) == 1:
+                result = await _execute_one_step(
+                    client, batch[0], base_url, global_headers, variables, progress_callback,
                     progress_total, results, phase=phase,
                 )
-                for step in level
-            ]
-            level_results = await asyncio.gather(*tasks, return_exceptions=True)
+                results.append(result)
+                if result.status != "passed" and not continue_on_failure:
+                    return results
+                continue
 
-            has_failure = False
-            for step, step_result in zip(level, level_results):
-                if isinstance(step_result, BaseException):
-                    step_result = APIStepRunResult(
-                        step_id=step.id,
-                        name=step.name,
-                        method=step.method,
-                        url="",
-                        status="failed",
-                        duration_ms=0,
-                        error=str(step_result),
-                        phase=phase,
-                    )
-                else:
-                    step_result.phase = phase
-                results.append(step_result)
-                # Merge extracted variables back
-                if step_result.extracted:
-                    variables.update(step_result.extracted)
-                if step_result.status != "passed":
-                    has_failure = True
-
-            if progress_callback:
-                await progress_callback(
-                    {
-                        "event": "step_finished",
-                        "progress_total": progress_total,
-                        "progress_completed": len(results),
-                        "current_step_id": None,
-                        "current_step_name": None,
-                        "results": [r.model_dump() for r in results],
-                    }
-                )
-
+            batch_results = await _run_parallel_batch(
+                client,
+                batch,
+                base_url,
+                global_headers,
+                variables,
+                progress_callback,
+                progress_total,
+                results,
+                phase=phase,
+            )
+            results.extend(batch_results)
+            has_failure = any(result.status != "passed" for result in batch_results)
             if has_failure and not continue_on_failure:
-                break
+                return results
 
     return results
+
+
+async def _run_parallel_batch(
+    client: httpx.AsyncClient,
+    batch: list[APITestStep],
+    base_url: str,
+    global_headers: dict[str, Any] | None,
+    variables: dict[str, Any],
+    progress_callback: ProgressCallback | None,
+    progress_total: int,
+    results: list[APIStepRunResult],
+    phase: str = "main",
+) -> list[APIStepRunResult]:
+    if progress_callback:
+        for step in batch:
+            await progress_callback(
+                {
+                    "event": "step_started",
+                    "progress_total": progress_total,
+                    "progress_completed": len(results),
+                    "current_step_id": step.id,
+                    "current_step_name": step.name,
+                    "results": [r.model_dump() for r in results],
+                }
+            )
+
+    tasks = [
+        _execute_one_step(
+            client, step, base_url, global_headers, dict(variables), None,
+            progress_total, results, phase=phase,
+        )
+        for step in batch
+    ]
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    batch_results: list[APIStepRunResult] = []
+    for step, step_result in zip(batch, raw_results):
+        if isinstance(step_result, BaseException):
+            step_result = APIStepRunResult(
+                step_id=step.id,
+                name=step.name,
+                method=step.method,
+                url="",
+                status="failed",
+                duration_ms=0,
+                error=str(step_result),
+                phase=phase,
+            )
+        else:
+            step_result.phase = phase
+        batch_results.append(step_result)
+
+    _merge_parallel_extractions(batch_results, variables)
+
+    if progress_callback:
+        await progress_callback(
+            {
+                "event": "step_finished",
+                "progress_total": progress_total,
+                "progress_completed": len(results) + len(batch_results),
+                "current_step_id": None,
+                "current_step_name": None,
+                "results": [r.model_dump() for r in [*results, *batch_results]],
+            }
+        )
+
+    return batch_results
+
+
+def _merge_parallel_extractions(results: list[APIStepRunResult], variables: dict[str, Any]) -> None:
+    values_by_key: dict[str, Any] = {}
+    owners_by_key: dict[str, list[APIStepRunResult]] = {}
+    conflict_keys: set[str] = set()
+
+    for result in results:
+        for key, value in (result.extracted or {}).items():
+            owners_by_key.setdefault(key, []).append(result)
+            if key not in values_by_key:
+                values_by_key[key] = value
+                continue
+            if not _values_equal(values_by_key[key], value):
+                conflict_keys.add(key)
+
+    if not conflict_keys:
+        variables.update(values_by_key)
+        return
+
+    for key, value in values_by_key.items():
+        if key not in conflict_keys:
+            variables[key] = value
+
+    for key in sorted(conflict_keys):
+        owners = owners_by_key.get(key, [])
+        owner_names = ", ".join(owner.step_id for owner in owners)
+        message = f"并行组变量冲突: 变量 {key} 被多个步骤提取出不同值（{owner_names}）"
+        for owner in owners:
+            owner.status = "failed"
+            owner.error = f"{owner.error}; {message}" if owner.error else message
+            owner.diagnostics.append(
+                FailureDiagnostic(
+                    step_id=owner.step_id,
+                    step_name=owner.name,
+                    category="variable_conflict",
+                    severity="high",
+                    explanation=message,
+                    suggestions=[
+                        "为并行步骤配置不同的 extraction 变量名，或增加 depends_on 让变量写入顺序变为串行。",
+                        "如果这些步骤确实应写入同一变量，请确保返回值完全一致。",
+                    ],
+                )
+            )
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    try:
+        return json.dumps(left, ensure_ascii=False, sort_keys=True) == json.dumps(right, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        return left == right
 
 
 async def _execute_one_step(

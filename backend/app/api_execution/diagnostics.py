@@ -49,6 +49,20 @@ def build_failure_diagnostics(report: dict[str, Any], script: APITestCaseDsl) ->
 def _diagnose_result(result: dict[str, Any], step_id: str, step_name: str) -> list[dict[str, Any]]:
     if result.get("error"):
         error_text = str(result.get("error") or "")
+        if "并行组变量冲突" in error_text or "variable conflict" in error_text.lower():
+            return [
+                _diagnostic(
+                    step_id,
+                    step_name,
+                    "variable_conflict",
+                    "high",
+                    error_text,
+                    [
+                        "为并行步骤配置不同的 extraction 变量名，避免多个步骤同时写入同一变量。",
+                        "如果确实需要复用变量，请增加 depends_on 让变量写入顺序变为串行。",
+                    ],
+                )
+            ]
         if "{{" in error_text or "变量" in error_text or "variable" in error_text.lower():
             return [
                 _diagnostic(
