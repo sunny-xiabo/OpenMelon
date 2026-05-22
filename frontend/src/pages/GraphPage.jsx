@@ -4,6 +4,10 @@ import EmptyState from '../components/EmptyState';
 import GraphLegend from '../features/Graph/components/GraphLegend';
 import GraphToolbar from '../features/Graph/components/GraphToolbar';
 import NodeDetailPanel from '../features/Graph/components/NodeDetailPanel';
+import {
+  buildGraphRenderState,
+  focusGraphNode,
+} from '../features/Graph/utils/graphRendering';
 
 // Hooks
 import { 
@@ -19,6 +23,10 @@ export default function GraphPage({ isActive = true }) {
   const containerRef = useRef(null);
   const networkRef = useRef(null);
   const graphLibRef = useRef(null);
+  const graphStateRef = useRef(null);
+  const graphDataRef = useRef(null);
+  const expandedClusterKeysRef = useRef(new Set());
+  const renderGraphRef = useRef(null);
   const [graphEngineLoading, setGraphEngineLoading] = useState(false);
   const [graphEngineReady, setGraphEngineReady] = useState(false);
   
@@ -56,9 +64,10 @@ export default function GraphPage({ isActive = true }) {
       if (cancelled || !containerRef.current || networkRef.current) return;
       graphLibRef.current = { DataSet };
       const options = {
-        physics: { enabled: true, stabilization: { iterations: 100 } },
-        interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true },
-        edges: { smooth: { type: 'curvedCW', roundness: 0.2 }, color: '#cbd5e1' },
+        autoResize: true,
+        physics: { enabled: false },
+        interaction: { hover: false, tooltipDelay: 0, zoomView: true, dragView: true, hideEdgesOnDrag: true },
+        edges: { smooth: false, color: '#cbd5e1' },
       };
       
       const network = new Network(containerRef.current, { nodes: new DataSet([]), edges: new DataSet([]) }, options);
@@ -69,6 +78,14 @@ export default function GraphPage({ isActive = true }) {
       network.on('click', async (params) => {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
+          const clusterKey = graphStateRef.current?.collapsedClusterLookup?.get(nodeId);
+          if (clusterKey) {
+            setDetailOpen(false);
+            setSelectedNode(null);
+            expandedClusterKeysRef.current = new Set([...expandedClusterKeysRef.current, clusterKey]);
+            renderGraphRef.current?.(graphDataRef.current);
+            return;
+          }
           setDetailOpen(true);
           setDetailCollapsed(false);
           try {
@@ -81,10 +98,6 @@ export default function GraphPage({ isActive = true }) {
         }
       });
 
-      network.on('stabilizationIterationsDone', () => {
-        network.setOptions({ physics: { enabled: false } });
-        network.fit();
-      });
     }
     initNetwork().catch((error) => {
       console.error('Failed to load graph engine:', error);
@@ -104,40 +117,47 @@ export default function GraphPage({ isActive = true }) {
     };
   }, [getNodeDetail, graphReady, isActive]);
 
-  // 渲染图谱逻辑 (增加健壮性检查)
   const renderGraph = useCallback((data, focusLabel) => {
-    // 关键修复：检查 Network 实例及其内部渲染体是否存在
     const DataSet = graphLibRef.current?.DataSet;
     if (!networkRef.current || !networkRef.current.body || !DataSet || !data) return;
     
     try {
-      const nodes = (data.nodes || []).map(n => {
-        const g = n.group || n.labels?.[0] || 'Entity';
-        const visual = legend.find(l => l.type === g) || { color: { bg: '#94a3b8', border: '#64748b' }, size: 20 };
-        return { 
-          id: n.id, 
-          label: n.label || n.id, 
-          group: g, 
-          color: { background: visual.color.bg, border: visual.color.border }, 
-          size: visual.size,
-          font: { color: '#fff', size: 12 } 
-        };
-      });
-      const edges = (data.relationships || []).map((r, i) => ({ 
-        id: i, from: r.source || r.from, to: r.target || r.to, label: r.label || r.type 
-      }));
+      if (graphDataRef.current !== data) {
+        graphDataRef.current = data;
+        expandedClusterKeysRef.current = new Set();
+      }
+      let graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
 
-      // 静默设置数据，防止触发未初始化的 unselectAll
-      networkRef.current.setData({ nodes: new DataSet(nodes), edges: new DataSet(edges) });
-      
       if (focusLabel) {
-        const target = nodes.find(n => n.label === focusLabel);
-        if (target) networkRef.current.focus(target.id, { scale: 1.2, animation: true });
+        const hiddenTarget = graphState.allNodes.find((node) => node.label === focusLabel || node.id === focusLabel || node.properties?.name === focusLabel);
+        const clusterId = hiddenTarget ? graphState.nodeClusterLookup.get(hiddenTarget.id) : null;
+        const clusterKey = clusterId ? graphState.collapsedClusterLookup.get(clusterId) : null;
+        if (clusterKey) {
+          expandedClusterKeysRef.current = new Set([...expandedClusterKeysRef.current, clusterKey]);
+          graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
+        }
+      }
+
+      graphStateRef.current = graphState;
+      networkRef.current.setOptions(graphState.options);
+      networkRef.current.setData({ nodes: new DataSet(graphState.nodes), edges: new DataSet(graphState.edges) });
+
+      if (focusLabel) {
+        const target = graphState.nodes.find((node) => node.label === focusLabel || node.id === focusLabel || node.properties?.name === focusLabel);
+        if (target) focusGraphNode(networkRef.current, target.id, graphState.nodeClusterLookup);
+      } else {
+        window.setTimeout(() => {
+          networkRef.current?.fit({ animation: graphState.mode === 'full' });
+        }, graphState.mode === 'full' ? 80 : 40);
       }
     } catch (e) {
       console.warn('Vis-network rendering suppressed due to internal state:', e.message);
     }
   }, [legend]);
+
+  useEffect(() => {
+    renderGraphRef.current = renderGraph;
+  }, [renderGraph]);
 
   // 数据变化时重新渲染
   useEffect(() => {
