@@ -1,4 +1,7 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 
 from app.api.deps import require_production_auth
@@ -10,8 +13,21 @@ from app.api.schemas import (
     PromptHubTemplatePayload,
 )
 from app.services.prompt_hub_tracker import prompt_hub_tracker
+from app.services.prompt_hub_safety import (
+    annotate_prompt_hub_records,
+    execute_prompt_hub_safety_action_service,
+    list_prompt_hub_safety_recommendations_service,
+)
 
 router = APIRouter(prefix="/prompt-hub", tags=["prompt-hub"])
+
+
+class PromptHubSafetyActionRequest(BaseModel):
+    action: str
+    record_kind: str
+    record_id: str
+    confirm: bool = False
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 def _log_prompt_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
@@ -41,7 +57,7 @@ async def get_prompt_hub_options():
 @router.get("/templates")
 async def get_prompt_hub_templates():
     try:
-        return {"templates": prompt_hub_tracker.list_templates(enabled_only=False)}
+        return {"templates": annotate_prompt_hub_records(prompt_hub_tracker.list_templates(enabled_only=False), "template")}
     except ValueError as exc:
         raise InternalError(details=str(exc)) from exc
 
@@ -49,9 +65,33 @@ async def get_prompt_hub_templates():
 @router.get("/skills")
 async def get_prompt_hub_skills():
     try:
-        return {"skills": prompt_hub_tracker.list_skills(enabled_only=False)}
+        return {"skills": annotate_prompt_hub_records(prompt_hub_tracker.list_skills(enabled_only=False), "skill")}
     except ValueError as exc:
         raise InternalError(details=str(exc)) from exc
+
+
+@router.get("/safety/recommendations")
+async def get_prompt_hub_safety_recommendations():
+    try:
+        return list_prompt_hub_safety_recommendations_service()
+    except ValueError as exc:
+        raise InternalError(details=str(exc)) from exc
+
+
+@router.post(
+    "/safety/actions",
+    dependencies=[Depends(require_production_auth)],
+)
+async def execute_prompt_hub_safety_action(payload: PromptHubSafetyActionRequest):
+    try:
+        return execute_prompt_hub_safety_action_service(
+            action=payload.action,
+            record_kind=payload.record_kind,
+            record_id=payload.record_id,
+            confirm=payload.confirm,
+        )
+    except ValueError as exc:
+        raise InvalidRequestError(message=str(exc)) from exc
 
 
 @router.get("/skill-categories")

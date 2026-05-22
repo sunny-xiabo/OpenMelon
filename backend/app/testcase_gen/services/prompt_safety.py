@@ -57,4 +57,28 @@ def summarize_prompt_content_safety(items: list[dict[str, Any]]) -> list[str]:
     return warnings
 
 
+def analyze_prompt_hub_record(record: dict[str, Any], kind: str = "record") -> dict[str, Any]:
+    content = " ".join(
+        str(record.get(field, "") or "")
+        for field in ("name", "description", "review_summary", "content")
+    )
+    signals = sorted(set(detect_prompt_injection_signals(content)))
+    enabled = bool(record.get("enabled", True))
+    is_default = bool(record.get("is_default", False))
+    risk_level = "low"
+    if signals:
+        risk_level = "high" if enabled and (len(signals) >= 2 or is_default) else "medium"
+    return {
+        "kind": kind,
+        "record_id": record.get("id", ""),
+        "name": record.get("name", ""),
+        "enabled": enabled,
+        "is_default": is_default,
+        "risk_level": risk_level,
+        "signals": signals,
+        "signal_count": len(signals),
+        "safe_to_disable": enabled and not is_default,
+    }
+
+
 __all__ = [name for name in globals() if not name.startswith("__")]

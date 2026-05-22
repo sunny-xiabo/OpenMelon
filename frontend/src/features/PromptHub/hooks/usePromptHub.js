@@ -7,6 +7,7 @@ export const PROMPT_HUB_KEYS = {
   templates: ['prompt-hub', 'templates'],
   skills: ['prompt-hub', 'skills'],
   categories: ['prompt-hub', 'categories'],
+  safetyRecommendations: ['prompt-hub', 'safety-recommendations'],
 };
 
 /**
@@ -59,6 +60,17 @@ export function usePromptHubSummary() {
     isLoading: templatesQuery.isLoading || skillsQuery.isLoading,
     data: buildPromptHubSummary(templatesQuery.data || [], skillsQuery.data || []),
   };
+}
+
+/**
+ * 获取 Prompt Hub 安全闭环建议
+ */
+export function usePromptHubSafetyRecommendations() {
+  return useQuery({
+    queryKey: PROMPT_HUB_KEYS.safetyRecommendations,
+    queryFn: promptHubAPI.getSafetyRecommendations,
+    refetchOnWindowFocus: false,
+  });
 }
 
 /**

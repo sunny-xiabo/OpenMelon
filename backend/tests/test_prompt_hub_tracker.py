@@ -67,6 +67,19 @@ def test_get_template_by_id_falls_back_to_default_when_template_missing(tracker:
     assert fallback["is_default"] is True
 
 
+def test_load_data_repairs_missing_enabled_default_template(tracker: PromptHubTracker):
+    data = tracker.load_data()
+    broken_templates = [{**item, "is_default": False} for item in data["templates"]]
+    with tracker._lock:
+        tracker._replace_data_no_lock({**data, "templates": broken_templates})
+
+    categories = tracker.list_skill_categories()
+    templates = tracker.list_templates()
+
+    assert categories
+    assert len([item for item in templates if item.get("enabled") and item.get("is_default")]) == 1
+
+
 def test_delete_default_template_is_rejected(tracker: PromptHubTracker):
     with pytest.raises(ValueError, match="默认模板"):
         tracker.delete_template("default-detailed")

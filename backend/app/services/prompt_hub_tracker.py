@@ -78,6 +78,7 @@ class PromptHubTracker(BasePostgresStore):
     def load_data(self) -> dict[str, Any]:
         with self._lock:
             data = self._read_data_no_lock()
+            data = self._repair_runtime_data_no_lock(data)
             self._validate_data(data)
             return data
 
@@ -355,6 +356,33 @@ class PromptHubTracker(BasePostgresStore):
         )
         self._validate_data(candidate)
         self._replace_data_no_lock(candidate)
+        return candidate
+
+    def _repair_runtime_data_no_lock(self, data: dict[str, Any]) -> dict[str, Any]:
+        candidate = self._upgrade_legacy_data(copy.deepcopy(data))
+        repaired = False
+        templates = candidate.get("templates") or []
+        enabled_templates = [item for item in templates if item.get("enabled", True)]
+        if templates and not enabled_templates:
+            fallback = next((item for item in templates if item.get("id") == DEFAULT_TEMPLATE_ID), templates[0])
+            fallback["enabled"] = True
+            enabled_templates = [fallback]
+            repaired = True
+        enabled_defaults = [item for item in enabled_templates if item.get("is_default")]
+        if enabled_templates and len(enabled_defaults) != 1:
+            preferred_id = DEFAULT_TEMPLATE_ID if any(item.get("id") == DEFAULT_TEMPLATE_ID and item.get("enabled", True) for item in templates) else None
+            candidate["templates"] = self._normalize_default_template(templates, preferred_id)
+            repaired = True
+
+        categories = candidate.get("skill_categories") or []
+        if categories and not any(item.get("is_default") for item in categories):
+            categories[0]["is_default"] = True
+            candidate["skill_categories"] = categories
+            repaired = True
+
+        if repaired:
+            candidate["updated_at"] = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            self._replace_data_no_lock(candidate)
         return candidate
 
     def _initialize_from_json_or_defaults(self) -> None:
