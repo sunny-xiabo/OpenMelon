@@ -22,7 +22,7 @@ cp .env.example .env
 ```bash
 # 终端 1：依赖服务（项目根目录）
 cd OpenMelon
-docker compose up -d neo4j
+docker compose up -d postgres neo4j
 
 # 如果启用了外部向量库，再执行：
 docker compose up -d qdrant
@@ -56,7 +56,7 @@ docker compose up -d --build
 docker compose logs -f app
 ```
 
-该命令会构建并启动前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载重依赖，耗时较长；后续会复用缓存。
+该命令会构建并启动前端、主后端、Reranker Sidecar、PostgreSQL、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载重依赖，耗时较长；后续会复用缓存。
 
 ### 0.3 第一次进入系统先做什么
 
@@ -217,6 +217,8 @@ docker compose logs -f app
 - [14. 故障排查](#14-故障排查)
 - [15. 数据维护与清理](#15-数据维护与清理)
   - [15.1 推荐入口：索引治理](#151-推荐入口索引治理)
+  - [15.2 删除向量存储数据](#152-删除向量存储数据)
+  - [15.3 PostgreSQL 备份与恢复](#153-postgresql-备份与恢复)
 
 ---
 
@@ -391,7 +393,7 @@ cp .env.example .env
 # 编辑 .env，设置 LLM_PROVIDER 和 API_KEY
 
 # 2. 构建并启动完整服务
-# 包含前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant
+# 包含前端、主后端、Reranker Sidecar、PostgreSQL、Neo4j 和 Qdrant
 docker compose up -d --build
 
 # 3. 查看应用日志
@@ -399,7 +401,7 @@ docker compose logs -f app
 ```
 
 > 首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding`、`sentence-transformers` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
-> 如果只需要启动基础依赖给本机后端使用，可以执行 `docker compose up -d neo4j qdrant`。
+> 如果只需要启动基础依赖给本机后端使用，可以执行 `docker compose up -d postgres neo4j qdrant`。
 
 #### 2.1.2 Docker 后端开发模式
 
@@ -444,8 +446,8 @@ docker compose up -d --build --force-recreate web
 ### 2.2 本地开发（uv）
 
 ```bash
-# 先启动 Neo4j
-docker compose up -d neo4j
+# 先启动 PostgreSQL 和 Neo4j
+docker compose up -d postgres neo4j
 
 # 终端 1: 启动后端
 conda activate openmlon
@@ -463,7 +465,7 @@ cd frontend && npm install && npm run dev
 
 ```bash
 # 终端 1：依赖服务（项目根目录）
-docker compose up -d neo4j
+docker compose up -d postgres neo4j
 
 # 可选：启用外部向量库时再执行
 docker compose up -d qdrant
@@ -1089,7 +1091,7 @@ curl -X POST "http://localhost:8000/api/test-cases/generate-mindmap" \
 
 相关存储与接口：
 
-- 持久化配置：当前元数据库中的 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表；PG 模式下写入 PostgreSQL，SQLite 模式下写入 `backend/runtime/data/openmelon.db`
+- 持久化配置：当前元数据库中的 `prompt_hub_meta`、`prompt_templates`、`prompt_skill_categories`、`prompt_skills` 表；统一写入 PostgreSQL
 - 迁移兼容源：[backend/runtime/data/prompt_hub.json](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/runtime/data/prompt_hub.json) 仅在空库初始化时读取，不再作为正常写入目标
 - 后端读取与校验：[backend/app/services/prompt_hub_tracker.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/services/prompt_hub_tracker.py)
 - 管理接口：[backend/app/api/routers/prompt_hub.py](/Users/xiabo/SoftwareTest/CarbonPy/OpenMelon/backend/app/api/routers/prompt_hub.py)
@@ -1261,7 +1263,7 @@ curl -X POST "http://localhost:8000/api/test-cases/generate-mindmap" \
 
 ## 8. API 自动化
 
-API 自动化模块用于把接口规范沉淀为项目级接口资产，再由 API Agent 基于模块或接口资产生成可执行的冒烟测试 DSL。当前已完成的是 **API Agent v1 + P4 运维与诊断增强**：能围绕项目-模块-接口台账做导入、同步、筛选、计划生成、推荐解释、依赖发现、业务链路自动编排、项目级配置向导、策略校验、执行、Agent 失败诊断、调度/CI 入口、SQLite/PG 迁移准备检查、结果回写和测试任务复用；更复杂的跨系统业务语义推理和可视化自由编排仍属于后续增强。
+API 自动化模块用于把接口规范沉淀为项目级接口资产，再由 API Agent 基于模块或接口资产生成可执行的冒烟测试 DSL。当前已完成的是 **API Agent v1 + P4 运维与诊断增强**：能围绕项目-模块-接口台账做导入、同步、筛选、计划生成、推荐解释、依赖发现、业务链路自动编排、项目级配置向导、策略校验、执行、Agent 失败诊断、调度/CI 入口、结果回写和测试任务复用；更复杂的跨系统业务语义推理和可视化自由编排仍属于后续增强。
 
 ### 8.1 模块定位
 
@@ -1281,7 +1283,7 @@ API 自动化模块用于把接口规范沉淀为项目级接口资产，再由 
 | 执行与报告 | 支持单步执行、批量执行、后台执行、失败步骤重跑、历史记录查看和报告导出 |
 | AI 辅助 | 支持 AI DSL 补全、Agent 失败诊断摘要、修复补丁生成和低风险受控自动修复重跑 |
 | 调度/CI 入口 | 支持手动触发项目级定时执行、规格同步 DSL 生成，并提供 CI 可调用命令 |
-| 存储迁移准备 | 提供 SQLite -> PG readiness 检查，展示 JSONB 映射风险、表规模和归档建议 |
+| 存储 | PostgreSQL-only，运行时不再提供迁移准备检查 |
 | 策略与审计 | 支持项目级自动化边界、接口白名单/黑名单、风险识别、策略审计和人工待处理队列 |
 | 知识沉淀 | 执行完成后生成待沉淀候选，人工确认后再写入知识库、向量库和 Neo4j 图谱 |
 
@@ -1481,7 +1483,7 @@ Agent 生成 DSL 后，可以在「Agent 测试」页顶部的「项目测试任
 9. 点击执行，查看报告和接口资产上的最近测试结果。
 10. 若执行失败，先看「执行结果与诊断」中的 Agent 诊断摘要，再生成 AI 修复草稿或重跑失败步骤。
 11. 确认结果可信后，进入待处理队列点击「确认沉淀」，将成功链路或修复经验写入知识库。
-12. 稳定项目可在执行历史区使用调度/CI 入口触发定时执行或规格同步，并定期查看 SQLite/PG 迁移准备状态。
+12. 稳定项目可在执行历史区使用调度/CI 入口触发定时执行或规格同步，并定期查看运行态健康检查。
 
 ### 8.9 API DSL 是什么
 
@@ -1580,7 +1582,7 @@ flowchart TD
     Candidate --> Review{"结果是否可信？"}
     Review -->|"可信"| Ingest["确认沉淀"]
     Review -->|"不可信"| Skip["标记完成，不写入知识库"]
-    Ingest --> Local["SQLite knowledge_items"]
+    Ingest --> Local["PostgreSQL knowledge_items"]
     Ingest --> Vector["api_execution_knowledge 向量"]
     Ingest --> Graph["Neo4j 覆盖关系"]
     Local --> Reuse["AI 修复复用"]
@@ -1606,7 +1608,7 @@ flowchart TD
 
 ### 8.15 执行历史管理
 
-执行历史位于「API 自动化」页面底部的「执行历史」区域，存储在当前元数据库的 `runs` 表中；PG 模式下写入 PostgreSQL，SQLite 模式下写入 `backend/runtime/data/openmelon.db`。
+执行历史位于「API 自动化」页面底部的「执行历史」区域，存储在当前元数据库的 `runs` 表中，并写入 PostgreSQL。
 
 **搜索与筛选**
 
@@ -1653,7 +1655,7 @@ flowchart TD
 |------|------|
 | 触发定时执行 | 调用 `POST /api/api-execution/automation/scheduled-runs/trigger`，扫描已开启定时执行且允许 AI 执行的项目，并把符合策略的项目执行入队 |
 | 同步规格 DSL | 调用 `POST /api/api-execution/automation/spec-sync/trigger`，对接口资产有变化的项目重新生成项目级 DSL |
-| 迁移检查 | 调用 `GET /api/api-execution/storage/migration-readiness`，查看 SQLite 表规模、JSON 字段风险、PG JSONB 映射建议和执行历史归档策略 |
+| 迁移检查 | 已下线，不再提供迁移准备接口 |
 | CI 命令 | 页面展示对应 `curl` 命令，可放到流水线或外部调度系统中调用 |
 
 当前没有内置常驻调度器；推荐由外部 CI、cron 或平台调度调用上述触发接口，仍由项目策略决定是否允许执行。
@@ -1697,7 +1699,7 @@ flowchart TD
 
 ### 8.17 当前边界与 TODO
 
-当前 API Agent 已经支持“项目接口资产 -> 模块/接口选择 -> Agent 推荐解释 -> 冒烟/负向 DSL -> 依赖发现与链路编排 -> 项目测试任务复用 -> 执行 -> Agent 诊断/修复 -> 结果回写”的闭环，但还不是完整自治 Agent。P4 已收口在配置体验、依赖图确认、失败诊断、调度/CI 入口和 SQLite/PG 迁移准备；后续增强建议放到 P5：
+当前 API Agent 已经支持“项目接口资产 -> 模块/接口选择 -> Agent 推荐解释 -> 冒烟/负向 DSL -> 依赖发现与链路编排 -> 项目测试任务复用 -> 执行 -> Agent 诊断/修复 -> 结果回写”的闭环，但还不是完整自治 Agent。P4 已收口在配置体验、依赖图确认、失败诊断和调度/CI 入口；后续增强建议放到 P5：
 
 | 优先级 | TODO | 说明 |
 |------|------|------|
@@ -1921,7 +1923,7 @@ GET    /api/history/{session_id}             # 获取会话聊天记录
 
 ### 12.2 配置管理
 
-**服务端配置**：当前元数据库中的 `graph_node_types` 表，通过「设置 > 节点类型配置」页面管理；PG 模式下写入 PostgreSQL，SQLite 模式下写入 `backend/runtime/data/openmelon.db`。
+**服务端配置**：当前元数据库中的 `graph_node_types` 表，通过「设置 > 节点类型配置」页面管理，并写入 PostgreSQL。
 
 **初始化种子**：`backend/config/node_types.json` 仅在空库初始化时读取，不再作为页面 CRUD 的写入目标。
 
@@ -2026,14 +2028,13 @@ GET /api/query 200 3200ms
 
 ### 13.6 本地运行期存储
 
-OpenMelon 的结构化运行期数据使用共享元数据库，具体后端由 `STORAGE_BACKEND` 决定：
+OpenMelon 的结构化运行期数据统一写入 PostgreSQL，`DATABASE_URL` 为必填配置：
 
 | 配置 | 说明 |
 |------|------|
-| `STORAGE_BACKEND=sqlite` | 使用 `backend/runtime/data/openmelon.db` 作为本地元数据库 |
-| `STORAGE_BACKEND=postgres` | 使用 `DATABASE_URL` 指向的 PostgreSQL 作为主运行元数据库 |
-| `backend/runtime/data/openmelon.db` | SQLite 本地库；PG 模式下作为 legacy 回滚备份和迁移一致性参考 |
-| `backend/runtime/data/openmelon.db-wal` / `.db-shm` | SQLite WAL / 共享内存辅助文件，仅 SQLite 写入期需要关注 |
+| `DATABASE_URL=postgresql://...` | 运行时主元数据库连接串 |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | 本地 Docker 启动 PostgreSQL 时使用 |
+| `backend/runtime/` | 运行时数据目录，保留上传、导出和日志等应用文件 |
 
 当前写入共享元数据库的数据包括：
 
@@ -2043,21 +2044,11 @@ OpenMelon 的结构化运行期数据使用共享元数据库，具体后端由 
 - Prompt Hub 模板、技能、技能分类和版本元信息
 - 图谱节点类型配置（`graph_node_types` 表）
 
-旧 JSON 文件如 `backend/runtime/data/file_tracker.json`、`backend/runtime/data/prompt_hub.json` 等只作为空库初始化和迁移兼容源保留，正常写入不再回写 JSON。
-
-> SQLite 数据库和 WAL/SHM 文件属于运行期产物，已通过 `.gitignore` 排除，不应提交到代码仓库。PG 观察期内 SQLite 保留为 legacy 回滚备份，不再作为主运行库。
-
-API 自动化已提供只读迁移准备检查：
-
-```bash
-curl "http://127.0.0.1:8000/api/api-execution/storage/migration-readiness"
-```
-
-该接口不会修改数据，会返回当前 SQLite 表规模、`runs` / `event_logs` / `ai_call_logs` 数量、JSON 字段风险、PG JSONB 映射建议和执行历史归档策略。当前推荐的迁移原则是：`project_id`、`status`、`run_at`、`method`、`path` 等稳定检索字段拆列，`script`、`results`、`execution_options`、OpenAPI 片段和扩展配置保留 JSONB；认证、环境变量和 headers 迁移前需要做敏感值扫描或改为 Secret 引用。
+旧 JSON 文件如 `backend/runtime/data/file_tracker.json`、`backend/runtime/data/prompt_hub.json` 等只作为首次初始化的静态配置源保留，正常写入不再回写 JSON。
 
 ### 13.7 日志中心
 
-「设置 -> 日志中心」读取当前元数据库中的统一事件日志；PG 模式下读取 PostgreSQL 的 `event_logs`，SQLite 模式下读取 `openmelon.db`。它适合排查“某个操作发生了什么、是否被策略阻断、关联任务在哪一步失败”。
+「设置 -> 日志中心」读取当前元数据库中的统一事件日志，来源为 PostgreSQL 的 `event_logs`。它适合排查“某个操作发生了什么、是否被策略阻断、关联任务在哪一步失败”。
 
 | 能力 | 说明 |
 |------|------|
@@ -2117,7 +2108,7 @@ docker compose up -d neo4j
 
 - 生产模式镜像没有重新 build，容器还在跑旧镜像
 - 或者当前没有使用带源码挂载的 Docker 开发模式
-- 空 SQLite 库首次启动需要读取 `node_types.json` 作为初始化种子
+- 空库首次启动需要读取 `node_types.json` 作为初始化种子
 
 **解决**：
 
@@ -2188,6 +2179,8 @@ pip install FlagEmbedding>=1.3 sentence-transformers>=3.0
 - 用「重建」从 Neo4j 已有 embedding 异步回填 Qdrant。
 - 用「清理孤儿」或「清理源缺失」处理明确可删除的残留索引。
 
+索引治理的任务列表是进程内状态，不持久化到数据库；如果需要清空当前任务队列或让列表回到初始状态，直接重启 app 容器即可。
+
 只有在索引治理无法覆盖、需要直接操作底层数据库或做灾难恢复时，才建议使用下面的手工方式。
 
 ### 15.2 删除向量存储数据
@@ -2224,6 +2217,35 @@ pip install FlagEmbedding>=1.3 sentence-transformers>=3.0
     ```cypher
     MATCH (tc:TestCaseVector) RETURN count(tc)
     ```
+
+### 15.3 PostgreSQL 备份与恢复
+
+PostgreSQL 是当前唯一的运行时元数据库，建议把备份和恢复作为日常运维动作。
+
+**备份数据库**
+
+```bash
+docker compose exec postgres pg_dump \
+  -U ${POSTGRES_USER:-openmelon} \
+  -d ${POSTGRES_DB:-openmelon} \
+  -Fc > openmelon-$(date +%Y%m%d%H%M%S).dump
+```
+
+**恢复数据库**
+
+```bash
+cat openmelon-backup.dump | docker compose exec -T postgres pg_restore \
+  -U ${POSTGRES_USER:-openmelon} \
+  -d ${POSTGRES_DB:-openmelon} \
+  --clean --if-exists --no-owner --no-privileges
+```
+
+**重置治理状态**
+
+1. 先在「索引治理」里取消仍在运行的重建任务。
+2. 重启 `app` 容器，清空进程内任务队列。
+3. 如需重建派生索引，先做「一致性扫描」，再执行「重建」或「清理」。
+4. 如果要做完整开发环境重置，可执行 `docker compose down -v`，但这会删除 PostgreSQL、Neo4j 和 Qdrant 卷数据。
 *   **全量删除**:
     ```cypher
     MATCH (tc:TestCaseVector) DETACH DELETE tc

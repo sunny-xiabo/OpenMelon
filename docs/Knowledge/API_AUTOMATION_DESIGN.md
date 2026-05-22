@@ -1,6 +1,6 @@
 # API 自动化功能设计方案
 
-> 最后更新: 2026-05-08 (API 自动化存储已收敛为 SQLite-only)
+> 最后更新: 2026-05-22 (API 自动化存储已收敛为 PostgreSQL-only)
 
 ## 概述
 
@@ -8,7 +8,7 @@
 
 ---
 
-## 一、存储层抽象 (已完成)
+## 一、存储层 (已完成)
 
 ### 问题
 
@@ -16,29 +16,25 @@
 
 ### 方案
 
-抽象存储接口，SQLite 起步，后期可迁移到 PostgreSQL。当前运行时入口已收敛为 SQLite-only，JSON 文件只作为迁移种子。
+API 自动化的结构化运行时数据统一写入 PostgreSQL，`DATABASE_URL` 为必填配置。旧 JSON 种子仅用于首次初始化少量静态配置。
 
 **接口定义** (`storage.py`):
-- `APIExecutionStore` — SQLite 兼容构造器，保留旧名称以减少调用面变更
-- `SQLiteStore` — API 自动化实际存储实现
+- `APIExecutionStore` — PostgreSQL 兼容构造器，保留旧名称以减少调用面变更
+- `PostgresStore` — API 自动化实际存储实现
 
-**SQLite 设计** (`app/storage/sqlite_store.py` + `app/api_execution/sqlite_store.py`):
+**PostgreSQL 设计** (`app/storage/postgres_store.py` + `app/api_execution/api_execution_store.py`):
 - 表: `runs`, `projects`, `environments`, `specs`, `policy_audits`, `automation_tasks`, `automation_definitions`, `automation_runs`, `run_stage_events`, `artifact_meta`, `knowledge_items`
 - 索引: `status`, `project_id`, `run_at`, `created_at`, `item_type`, `content_hash`
-- WAL 模式 + `busy_timeout=5000`
-- JSON-in-TEXT 存储模式，兼顾灵活性与查询能力
-- 共享连接架构: `BaseSQLiteStore` (app/storage) 提供连接管理和通用工具方法，各模块子类继承并定义自己的表和方法，共享同一个 db 文件
+- JSONB + 普通索引混合模式，兼顾灵活性与查询能力
+- 共享连接架构: `BasePostgresStore` (app/storage) 提供连接管理和通用工具方法，各模块子类继承并定义自己的表和方法
 
-**自动迁移**:
-- 启动时创建共享 SQLite store
-- 如果共享 DB 为空且旧 JSON 文件存在，逐条读取写入 SQLite
-- 迁移后保留 JSON 文件作为备份/初始化兼容源，不再作为运行时写入目标
+**初始化**:
+- 启动时创建共享 PostgreSQL store
+- 旧 JSON 文件仅作为静态配置初始化源，不参与历史运行记录迁移
 
 **分页**: `list_runs` 等方法支持 `offset` 参数
 
-### 后期迁移 PG
-
-当前已补齐只读 readiness 检查：`GET /api/api-execution/storage/migration-readiness`。该接口会返回 SQLite 表规模、JSON 字段风险、PG JSONB 映射建议和执行历史归档策略，用于迁移前评估。
+### 运行时约定
 
 迁移原则：
 
@@ -47,15 +43,13 @@
 - 敏感配置单独处理：项目认证、环境变量和 headers 迁移前需要扫描敏感键，生产环境优先迁为 Secret 引用或密文。
 - 执行历史先定归档：普通通过记录可按项目/月归档，失败、策略阻断、已沉淀知识的记录延长保留。
 
-真正切换 PG 时，再新增 `PostgresStore` 实现，使用 `asyncpg` 或 `psycopg`，迁移脚本分页读取 SQLite `data` 字段，写入 PG 后校验行数、核心字段和 JSON hash。
-
 ### 涉及文件
 
 | 文件 | 说明 |
 |------|------|
-| `backend/app/storage/sqlite_store.py` | BaseSQLiteStore 基类 + 共享连接管理 |
-| `backend/app/api_execution/storage.py` | API 自动化 SQLite-only 入口 + 默认 store |
-| `backend/app/api_execution/sqlite_store.py` | API 执行模块 SQLite 实现 (继承 BaseSQLiteStore) |
+| `backend/app/storage/postgres_store.py` | BasePostgresStore 基类 + 共享连接管理 |
+| `backend/app/api_execution/storage.py` | API 自动化 PostgreSQL-only 入口 + 默认 store |
+| `backend/app/api_execution/api_execution_store.py` | API 执行模块 PostgreSQL 实现 (继承 BasePostgresStore) |
 | `backend/app/api_execution/__init__.py` | API 自动化模块初始化 |
 
 ---
@@ -276,7 +270,7 @@ class APITestSuite(BaseModel):
 
 **路由**: Suite CRUD + `POST /suites/{suite_id}/run`
 
-**存储**: `suites.json` 或 SQLite suites 表
+**存储**: `suites.json` 或 PostgreSQL suites 表
 
 ### 涉及文件
 
@@ -343,7 +337,7 @@ class APITestSuite(BaseModel):
 
 | 阶段 | 模块 | 状态 |
 |------|------|------|
-| P0 | SQLite 存储 | 已完成 |
+| P0 | PostgreSQL 存储 | 已完成 |
 | P0 | 步骤级重试 | 已完成 |
 | P0 | 变量系统增强 | 已完成 |
 | P0 | 项目级 max_reruns | 已完成 |

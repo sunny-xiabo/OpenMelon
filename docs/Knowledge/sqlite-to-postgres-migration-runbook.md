@@ -1,97 +1,90 @@
-# SQLite -> PostgreSQL Migration Runbook
+# PostgreSQL Runtime Operations Guide
 
-> Current status: OpenMelon can run on PostgreSQL for shared metadata stores. SQLite is kept as a legacy rollback path during the migration observation period.
+> OpenMelon 现在采用 PostgreSQL-only 运行时元数据库。本页不再描述 SQLite 迁移流程，只保留 PostgreSQL 的备份、恢复和重置动作。
 
-## Preflight
+## 1. 启动运行时
 
-1. Keep the application writing to SQLite until the cutover window.
-2. Start the optional PostgreSQL service when running a migration drill:
+本地最小运行集：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.pg.yml up -d postgres
+docker compose up -d postgres neo4j
 ```
 
-3. Call `GET /api/api-execution/storage/migration-readiness` and resolve high-risk findings before export.
-4. Inspect the generated migration plan:
+如需外部向量库，再启动：
 
 ```bash
-uv run python backend/scripts/sqlite_to_postgres.py plan --sqlite backend/runtime/data/openmelon.db
+docker compose up -d qdrant
 ```
 
-5. Review the PostgreSQL DDL before applying it:
+应用运行前请确保 `DATABASE_URL` 已配置，例如：
 
 ```bash
-uv run python backend/scripts/sqlite_to_postgres.py schema --sqlite backend/runtime/data/openmelon.db
-```
-
-## Target Shape
-
-- Keep stable query fields as normal PostgreSQL columns.
-- Map the existing SQLite `data` payload to PostgreSQL `JSONB`.
-- Prefer `psycopg[binary,pool]` for the first production cutover because the current store is synchronous.
-
-## Cutover Design
-
-1. Freeze writes to SQLite.
-2. Back up the SQLite database file.
-3. Create PostgreSQL tables with the current indexed columns plus `data JSONB`.
-4. Export SQLite tables in primary-key order and import in batches.
-5. Verify each table:
-   - row count
-   - primary-key set
-   - indexed column values
-   - JSON payload hash
-6. Run the read-only `compare` command for primary-key samples.
-7. Set `STORAGE_BACKEND=postgres` and `DATABASE_URL`.
-8. Start the backend and run smoke tests for API execution, file tracking, Prompt Hub, node type config, system health, and logs.
-9. Keep the SQLite database file as rollback backup until production smoke tests pass.
-
-## Migration Drill Commands
-
-Install optional PostgreSQL migration dependencies:
-
-```bash
-uv sync --extra postgres
-```
-
-Copy SQLite data into PostgreSQL:
-
-```bash
-uv run --extra postgres python backend/scripts/sqlite_to_postgres.py copy \
-  --sqlite backend/runtime/data/openmelon.db \
-  --database-url "$DATABASE_URL"
-```
-
-Verify row counts and canonical JSON hashes:
-
-```bash
-uv run --extra postgres python backend/scripts/sqlite_to_postgres.py verify \
-  --sqlite backend/runtime/data/openmelon.db \
-  --database-url "$DATABASE_URL"
-```
-
-Run a read-only comparison with primary-key samples:
-
-```bash
-uv run --extra postgres python backend/scripts/sqlite_to_postgres.py compare \
-  --sqlite backend/runtime/data/openmelon.db \
-  --database-url "$DATABASE_URL"
-```
-
-## PostgreSQL Runtime And SQLite Sunset
-
-PostgreSQL is used when explicitly enabled:
-
-```bash
-STORAGE_BACKEND=postgres
 DATABASE_URL=postgresql://openmelon:openmelon@postgres:5432/openmelon
-POSTGRES_HEALTHCHECK_ENABLED=true
 ```
 
-The PostgreSQL runtime covers API execution, file tracker, Prompt Hub, and node type configuration. In `STORAGE_BACKEND=postgres` mode, SQLite health is reported as `legacy` and does not decide the overall runtime status. Keep the SQLite database file and cutover backup until the PostgreSQL observation period is complete.
+## 2. 备份 PostgreSQL
 
-Do not run fresh `copy --truncate` after new writes have reached PostgreSQL unless you intentionally want to discard those PG writes. During the observation period, use PostgreSQL as the source of truth and keep SQLite only for rollback investigation.
+推荐使用 `pg_dump` 做逻辑备份：
 
-## Rollback
+```bash
+docker compose exec postgres pg_dump \
+  -U ${POSTGRES_USER:-openmelon} \
+  -d ${POSTGRES_DB:-openmelon} \
+  -Fc > openmelon-$(date +%Y%m%d%H%M%S).dump
+```
 
-If smoke tests fail before new writes are accepted, point the runtime entrypoint back to SQLite and keep the PostgreSQL import for investigation. If writes have already reached PostgreSQL, export changed rows first before rollback.
+如果要保留可读 SQL，可以把 `-Fc` 换成 `-Fp`。
+
+## 3. 恢复 PostgreSQL
+
+```bash
+cat openmelon-backup.dump | docker compose exec -T postgres pg_restore \
+  -U ${POSTGRES_USER:-openmelon} \
+  -d ${POSTGRES_DB:-openmelon} \
+  --clean --if-exists --no-owner --no-privileges
+```
+
+如果备份文件是纯 SQL，改用 `psql`：
+
+```bash
+cat openmelon-backup.sql | docker compose exec -T postgres psql \
+  -U ${POSTGRES_USER:-openmelon} \
+  -d ${POSTGRES_DB:-openmelon}
+```
+
+## 4. 重置索引治理状态
+
+索引治理的任务列表是进程内状态，不写入数据库。要清空当前任务队列，重启 `app` 容器即可：
+
+```bash
+docker compose restart app
+```
+
+如果要重置派生索引状态，按下面顺序处理：
+
+1. 在「索引治理」页面取消正在运行的任务。
+2. 执行「一致性扫描」确认缺失、孤儿和源缺失情况。
+3. 需要时执行「重建」或「清理」。
+4. 如需彻底清空派生向量，可手工删除 Qdrant 集合后再重建。
+
+常见集合：
+
+- `doc_chunks`
+- `test_cases`
+
+示例：
+
+```bash
+curl -X DELETE "http://localhost:6333/collections/doc_chunks"
+curl -X DELETE "http://localhost:6333/collections/test_cases"
+```
+
+## 5. 完整开发环境重置
+
+如需一次性清空 PostgreSQL、Neo4j、Qdrant 卷数据，可使用：
+
+```bash
+docker compose down -v
+```
+
+这个命令会删除所有挂载卷，请只在明确需要重置整个本地环境时使用。

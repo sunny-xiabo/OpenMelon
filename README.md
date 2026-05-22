@@ -12,7 +12,7 @@
 
 - **多通道智能问答 (Agentic RAG)**：LLM 自动识别用户问题意图（图谱/向量/混合/可视化），支持自动改写查询、评估答案充分性的多步推理，搭配 BGE 重排序 (Reranker) 提升精度，所有回答均标注精确引用。
 - **多智能体测试用例生成**：基于 AutoGen 的三阶段流水线（需求分析、用例生成、用例评审），支持 Prompt Hub 动态配置模板与技能；生成结果默认落盘至图谱，开启外部向量库后同步写入 Qdrant，支持导出 Excel/XMind。
-- **全链路 API 自动化**：支持项目-模块-接口资产台账、OpenAPI 差异预览确认同步、项目级认证/前置依赖/清理流程配置向导、变量引用检查、API Agent 冒烟与参数负向测试计划生成、推荐解释、依赖发现、业务链路自动编排、画布式依赖图确认、Agent 失败诊断摘要、调度/CI 触发入口、SQLite/PG 迁移准备检查、项目测试任务复用与治理、策略校验、执行结果回写、AI 修复补丁、执行历史批量管理及执行经验知识沉淀。
+- **全链路 API 自动化**：支持项目-模块-接口资产台账、OpenAPI 差异预览确认同步、项目级认证/前置依赖/清理流程配置向导、变量引用检查、API Agent 冒烟与参数负向测试计划生成、推荐解释、依赖发现、业务链路自动编排、画布式依赖图确认、Agent 失败诊断摘要、调度/CI 触发入口、PostgreSQL 运行态健康检查、项目测试任务复用与治理、策略校验、执行结果回写、AI 修复补丁、执行历史批量管理及执行经验知识沉淀。
 - **动态图谱可视化**：vis.js 实时渲染，支持拖拽、缩放、节点高亮，支持多维筛选和 2 度关系子图探索。
 - **全链路数据仪表盘**：涵盖图谱覆盖率、API 自动化健康度及 UI 自动化（规划中）的多维度可视化聚合看板，快速定位高风险功能。
 - **索引治理工作台**：统一查看业务源、Neo4j 图谱索引与 Qdrant 向量库的一致性，支持缺失/孤儿/源缺失诊断、明细查看、状态同步、异步回填和审计记录。
@@ -53,13 +53,13 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-该命令会构建并启动前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
+该命令会构建并启动前端、主后端、Reranker Sidecar、PostgreSQL、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
 
 #### 方式 B：本机开发模式（推荐前端或快速调试）
 ```bash
 # 启动依赖服务
-# 如只调试主后端，可只启动 neo4j qdrant；Reranker 可在 .env 中关闭或改为 local
-docker compose up -d neo4j qdrant
+# 如只调试主后端，可只启动 postgres neo4j qdrant；Reranker 可在 .env 中关闭或改为 local
+docker compose up -d postgres neo4j qdrant
 
 # 启动后端
 cd backend
@@ -197,18 +197,16 @@ OpenMelon/
 │   ├── api_execution/       # API 自动化模块（项目/模块/接口资产、Agent 测试任务、DSL、编排执行、策略、诊断、调度入口、AI 修复、知识沉淀）
 │   │   ├── routes/          # 各子模块路由（runs、specs、projects、knowledge、templates 等）
 │   │   ├── services/        # 业务服务（run_service、spec_service、knowledge_service 等）
-│   │   ├── sqlite_store.py  # 模块专属 SQLite 存储门面与读写行为
-│   │   ├── sqlite_schema.py # API 执行模块 SQLite 表结构
-│   │   ├── sqlite_migration.py # JSON 存量数据迁移与兼容工具
-│   │   └── sqlite_filters.py # 执行记录查询过滤条件构建
+│   │   ├── postgres_store.py # API 执行模块 PostgreSQL 存储门面与索引查询
+│   │   └── storage.py        # 运行时存储实例与 provider 入口
 │   ├── index_governance/    # 索引治理模块（Neo4j/Qdrant 一致性扫描、清理、回填任务）
 │   ├── engine/              # RAG 核心编排层（意图路由、多路召回、Rerank）
-│   ├── storage/             # 存储底座（SQLite / PostgreSQL 元数据库、Neo4j 知识图谱与 Qdrant 向量库）
+│   ├── storage/             # 存储底座（PostgreSQL 元数据库、Neo4j 知识图谱与 Qdrant 向量库）
 │   ├── services/            # 业务逻辑（文档解析、覆盖率计算、会话管理、企业 Webhook 等）
 │   ├── testcase_gen/        # 基于 AutoGen 的多智能体测试用例生成模块
 │   └── runtime_paths.py     # 集中管理所有运行时产物路径，支持 OPENMELON_DATA_DIR 环境变量
-├── backend/runtime/         # 运行时产物（数据库、日志、上传文件等，不提交 git）
-│   ├── data/openmelon.db    # SQLite 本地库与 PG 回滚备份（PG 模式下不再作为主运行库）
+├── backend/runtime/         # 运行时产物（数据库连接外部化，保留上传文件与日志等）
+│   ├── data/                # 上传文件、Prompt Hub 种子和其他运行时文件
 │   ├── data/uploads/        # 用户上传的原始文件
 │   └── logs/                # 应用日志
 ├── frontend/src/
@@ -224,9 +222,9 @@ OpenMelon/
 
 后端所有的运行时产物（数据库、日志、导出文件、上传文件）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
 
-当前业务元数据库由 `STORAGE_BACKEND` 决定：默认仍可使用 SQLite；设置 `STORAGE_BACKEND=postgres` 且提供 `DATABASE_URL` 后，API execution、FileTracker、Prompt Hub、NodeTypeStore、日志中心事件日志和 AI 调用日志会写入 PostgreSQL。PG 模式下 SQLite 在系统健康中标记为 `legacy`，主要作为回滚备份和迁移一致性参考。
+当前业务元数据库为 PostgreSQL-only：`DATABASE_URL` 是必填运行配置，API execution、FileTracker、Prompt Hub、NodeTypeStore、日志中心事件日志和 AI 调用日志均写入 PostgreSQL。系统健康会直接检查 PostgreSQL 运行态，不再显示 SQLite 回退状态。
 
-PostgreSQL 本地环境可通过 `docker-compose.pg.yml` 启动，迁移和观察期操作见 `docs/Knowledge/sqlite-to-postgres-migration-runbook.md` 与 `docs/Knowledge/postgres-runtime-observation-smoke.md`。进入 PG 观察期后不要再执行 `copy --truncate` 覆盖 PG 新写入，日常只运行 `verify` / `compare` 做只读参考。
+PostgreSQL 本地环境直接由 `docker-compose.yml` 提供，运维备份、恢复和重置步骤见 `docs/Knowledge/sqlite-to-postgres-migration-runbook.md` 与 `docs/Knowledge/postgres-runtime-observation-smoke.md`。索引治理任务队列是进程内状态，重启应用会清空当前待处理任务视图。
 
 ---
 
