@@ -273,6 +273,25 @@ export const apiExecutionAPI = {
       method: 'POST',
     }),
 
+  getRecommendations: ({ projectId = '' } = {}) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('project_id', projectId);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return fetchJSON(`${API_BASE}/api-execution/recommendations${suffix}`);
+  },
+
+  executeRecommendationAction: ({ action, targetId = '', projectId = '', confirm = false, params = {} }) =>
+    fetchJSON(`${API_BASE}/api-execution/recommendations/actions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        action,
+        target_id: targetId,
+        project_id: projectId,
+        confirm,
+        params,
+      }),
+    }),
+
   triggerScheduledRuns: () =>
     fetchJSON(`${API_BASE}/api-execution/automation/scheduled-runs/trigger`, {
       method: 'POST',

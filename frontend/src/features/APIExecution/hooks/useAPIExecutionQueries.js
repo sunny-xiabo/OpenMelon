@@ -10,6 +10,7 @@ export const EXEC_KEYS = {
   flowTemplates: (projectId) => ['exec', 'flow-templates', projectId],
   history: (params) => ['exec', 'history', params],
   tasks: (projectId) => ['exec', 'tasks', 'pending', projectId],
+  recommendations: (projectId) => ['exec', 'recommendations', projectId || 'all'],
 };
 
 /**
@@ -114,6 +115,17 @@ export function usePendingTasks(projectId) {
       });
       return data.items || data.tasks || [];
     },
+  });
+}
+
+/**
+ * 获取 API 自动化闭环建议
+ */
+export function useAPIExecutionRecommendations(projectId) {
+  return useQuery({
+    queryKey: EXEC_KEYS.recommendations(projectId),
+    queryFn: () => apiExecutionAPI.getRecommendations({ projectId }),
+    refetchOnWindowFocus: false,
   });
 }
 

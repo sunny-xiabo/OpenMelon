@@ -10,7 +10,6 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  Divider,
   FormControl,
   IconButton,
   InputLabel,
@@ -18,12 +17,6 @@ import {
   Paper,
   Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
@@ -40,16 +33,24 @@ import {
   ScheduleSendOutlined,
   SearchOutlined,
   TerminalOutlined,
+  WarningAmberOutlined,
 } from '@mui/icons-material';
+import { alpha, useTheme } from '@mui/material/styles';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '../../../api/client';
+import { apiExecutionAPI } from '../../../api/execution';
+import ConfirmDialog from '../../../components/ConfirmDialog';
+import { useSnackbar } from '../../../components/SnackbarProvider';
 import { SWITCH_TAB_EVENT, SETTINGS_SECTION_EVENT } from '../../../constants/events';
 import { useAPIExecution } from '../context';
+import { EXEC_KEYS, useAPIExecutionRecommendations } from '../hooks/useAPIExecutionQueries';
 import {
   formatDuration,
   formatRunTime,
   getRunModeLabel,
   getRunStatusMeta,
 } from '../utils';
+import VirtualizedList from '../../../components/VirtualizedList';
 
 const getCiApiBase = () => {
   if (API_BASE.startsWith('http')) return API_BASE;
@@ -65,6 +66,18 @@ const getTriggerStatusColor = (status = '') => {
   if (status === 'blocked') return 'error';
   if (status === 'skipped' || status === 'unchanged') return 'default';
   return 'warning';
+};
+
+const recommendationSeverityMeta = {
+  error: { label: '严重', color: 'error' },
+  warning: { label: '警告', color: 'warning' },
+  info: { label: '建议', color: 'info' },
+};
+
+const riskLabel = {
+  low: '低风险',
+  medium: '需确认',
+  high: '高风险',
 };
 
 export default function RunHistory() {
@@ -221,6 +234,15 @@ export default function RunHistory() {
         onCopySnippet={copySnippet}
       />
 
+      <APIExecutionRecommendationsPanel
+        projectId={runHistoryProjectId}
+        onAfterAction={fetchHistory}
+        onFocusRun={(runId) => {
+          setRunHistoryKeyword(runId);
+          setRunHistoryStatus('');
+        }}
+      />
+
       <RunHistoryTable
         runHistory={runHistory}
         loadRunIntoEditor={loadRunIntoEditor}
@@ -230,6 +252,181 @@ export default function RunHistory() {
         handleBatchDeleteRuns={handleBatchDeleteRuns}
       />
     </Paper>
+  );
+}
+
+export function APIExecutionRecommendationsPanel({ projectId, onFocusRun, onAfterAction }) {
+  const theme = useTheme();
+  const queryClient = useQueryClient();
+  const showSnackbar = useSnackbar();
+  const [confirmDialog, setConfirmDialog] = React.useState({ open: false });
+  const recommendationsQuery = useAPIExecutionRecommendations(projectId);
+  const actionMutation = useMutation({
+    mutationFn: apiExecutionAPI.executeRecommendationAction,
+    onSuccess: async (data) => {
+      showSnackbar(data?.message || 'API 自动化闭环动作已执行', { severity: 'success' });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: EXEC_KEYS.recommendations(projectId) }),
+        queryClient.invalidateQueries({ queryKey: ['exec', 'history'] }),
+        queryClient.invalidateQueries({ queryKey: EXEC_KEYS.tasks(projectId) }),
+        queryClient.invalidateQueries({ queryKey: ['exec', 'agent-context'] }),
+      ]);
+      onAfterAction?.();
+    },
+    onError: (error) => {
+      showSnackbar(error.message || 'API 自动化闭环动作执行失败', { severity: 'error' });
+    },
+  });
+
+  const recommendations = recommendationsQuery.data?.items || [];
+  const visibleItems = recommendations.slice(0, 4);
+
+  const handleLocalAction = (recommendation, action) => {
+    const entry = action.entry || recommendation.entry || {};
+    const runId = action.target_id || recommendation.related_run_id || entry.run_id || '';
+    if (action.action === 'open_run' && runId) {
+      onFocusRun?.(runId);
+      showSnackbar('已按执行 ID 定位历史记录', { severity: 'info' });
+      return;
+    }
+    if (action.action === 'open_task') {
+      if (entry.run_id || recommendation.related_run_id) {
+        onFocusRun?.(entry.run_id || recommendation.related_run_id);
+        showSnackbar('已定位任务关联的执行记录', { severity: 'info' });
+        return;
+      }
+      showSnackbar('请在当前 API 自动化工作台检查队列、策略和待办状态', { severity: 'info' });
+    }
+  };
+
+  const executeAction = async (recommendation, action, confirm = false) => {
+    if (action.frontend_only) {
+      handleLocalAction(recommendation, action);
+      return;
+    }
+    await actionMutation.mutateAsync({
+      action: action.action || action.id,
+      targetId: action.target_id || recommendation.related_run_id || recommendation.related_task_id || '',
+      projectId,
+      confirm,
+      params: action.params || {},
+    });
+  };
+
+  const requestAction = (recommendation, action) => {
+    if (!action.requires_confirmation) {
+      executeAction(recommendation, action, false);
+      return;
+    }
+    setConfirmDialog({
+      open: true,
+      title: action.risk_level === 'high' ? '确认执行高风险闭环动作' : '确认执行闭环动作',
+      message: `将执行「${action.label}」。\n\n来源建议：${recommendation.title}\n原因：${recommendation.reason}`,
+      confirmText: action.label,
+      danger: action.risk_level === 'high',
+      onConfirm: async () => {
+        setConfirmDialog({ open: false });
+        await executeAction(recommendation, action, true);
+      },
+    });
+  };
+
+  return (
+    <Box
+      sx={{
+        mb: 2,
+        p: 1.5,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
+        bgcolor: 'rgba(255,255,255,0.52)',
+      }}
+    >
+      <Stack spacing={1.5}>
+        <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} gap={1}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <WarningAmberOutlined color="primary" />
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>API 自动化闭环建议</Typography>
+              <Typography variant="caption" color="text.secondary">从失败诊断、策略审计、队列和待确认任务中生成，不进入治理中心。</Typography>
+            </Box>
+          </Stack>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<RefreshOutlined />}
+            onClick={() => recommendationsQuery.refetch()}
+            disabled={recommendationsQuery.isFetching}
+          >
+            刷新建议
+          </Button>
+        </Stack>
+
+        {recommendationsQuery.isError ? (
+          <Alert severity="error">{recommendationsQuery.error?.message || '闭环建议加载失败'}</Alert>
+        ) : !recommendations.length && !recommendationsQuery.isLoading ? (
+          <Alert severity="success">当前未发现需要处理的 API 自动化闭环项。</Alert>
+        ) : (
+          <Stack spacing={1}>
+            {visibleItems.map((recommendation) => {
+              const meta = recommendationSeverityMeta[recommendation.severity] || recommendationSeverityMeta.info;
+              return (
+                <Box
+                  key={recommendation.id}
+                  sx={{
+                    p: 1.25,
+                    border: '1px solid',
+                    borderColor: alpha(theme.palette[meta.color].main, 0.2),
+                    borderRadius: 2,
+                    bgcolor: alpha(theme.palette[meta.color].main, 0.045),
+                  }}
+                >
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                      <Chip size="small" color={meta.color} label={meta.label} variant="outlined" />
+                      <Typography variant="body2" sx={{ fontWeight: 800 }}>{recommendation.title}</Typography>
+                      {!!recommendation.risk_level && (
+                        <Chip size="small" label={riskLabel[recommendation.risk_level] || recommendation.risk_level} sx={{ borderRadius: 1.5 }} />
+                      )}
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary">{recommendation.reason}</Typography>
+                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                      {(recommendation.evidence || []).slice(0, 4).map((item) => (
+                        <Chip key={`${recommendation.id}-${item.label}`} size="small" label={`${item.label}: ${item.value}`} sx={{ borderRadius: 1.5 }} />
+                      ))}
+                    </Stack>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {(recommendation.actions || []).map((action) => (
+                        <Button
+                          key={`${recommendation.id}-${action.id}`}
+                          size="small"
+                          variant={action.risk_level === 'high' ? 'contained' : 'outlined'}
+                          color={action.risk_level === 'high' ? 'warning' : 'primary'}
+                          startIcon={<AutoAwesomeOutlined />}
+                          disabled={actionMutation.isPending}
+                          onClick={() => requestAction(recommendation, action)}
+                        >
+                          {action.label}
+                        </Button>
+                      ))}
+                    </Stack>
+                  </Stack>
+                </Box>
+              );
+            })}
+            {recommendations.length > visibleItems.length && (
+              <Typography variant="caption" color="text.secondary">
+                还有 {recommendations.length - visibleItems.length} 条建议，优先展示严重和最新项。
+              </Typography>
+            )}
+          </Stack>
+        )}
+      </Stack>
+      <ConfirmDialog
+        {...confirmDialog}
+        onCancel={() => setConfirmDialog({ open: false })}
+      />
+    </Box>
   );
 }
 
@@ -343,6 +540,7 @@ function RunHistoryTable({ runHistory, loadRunIntoEditor, handleReplayRun, handl
   const [selectedIds, setSelectedIds] = React.useState([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [deleteTarget, setDeleteTarget] = React.useState(null); // 'batch' or run_id string
+  const selectedIdSet = React.useMemo(() => new Set(selectedIds), [selectedIds]);
 
   React.useEffect(() => {
     setSelectedIds([]);
@@ -370,7 +568,7 @@ function RunHistoryTable({ runHistory, loadRunIntoEditor, handleReplayRun, handl
       setSelectedIds([]);
     } else if (deleteTarget) {
       handleDeleteRun(deleteTarget);
-      setSelectedIds((prev) => prev.filter(id => id !== deleteTarget));
+      setSelectedIds((prev) => prev.filter((id) => id !== deleteTarget));
     }
     setDeleteDialogOpen(false);
     setDeleteTarget(null);
@@ -382,18 +580,20 @@ function RunHistoryTable({ runHistory, loadRunIntoEditor, handleReplayRun, handl
 
   const isAllSelected = runHistory.length > 0 && selectedIds.length === runHistory.length;
   const isIndeterminate = selectedIds.length > 0 && selectedIds.length < runHistory.length;
+  const columnTemplate = '56px minmax(240px, 1.6fr) 120px 96px 96px 160px 180px';
+  const scrollHeight = 'min(64vh, 680px)';
 
   return (
-    <Box>
+    <Box sx={{ minWidth: 0 }}>
       {selectedIds.length > 0 && (
         <Stack direction="row" spacing={2} sx={{ mb: 2, px: 2, py: 1, bgcolor: 'error.50', borderRadius: 2, alignItems: 'center' }}>
           <Typography variant="body2" sx={{ color: 'error.main', fontWeight: 600 }}>已选择 {selectedIds.length} 项</Typography>
-          <Button 
-            size="small" 
-            variant="contained" 
-            color="error" 
-            disableElevation 
-            onClick={() => { setDeleteTarget('batch'); setDeleteDialogOpen(true); }} 
+          <Button
+            size="small"
+            variant="contained"
+            color="error"
+            disableElevation
+            onClick={() => { setDeleteTarget('batch'); setDeleteDialogOpen(true); }}
             startIcon={<DeleteOutline />}
             sx={{ borderRadius: 2 }}
           >
@@ -401,78 +601,117 @@ function RunHistoryTable({ runHistory, loadRunIntoEditor, handleReplayRun, handl
           </Button>
         </Stack>
       )}
-      <TableContainer>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell padding="checkbox">
-                <Checkbox
-                  color="primary"
-                  indeterminate={isIndeterminate}
-                  checked={isAllSelected}
-                  onChange={handleSelectAll}
-                />
-              </TableCell>
-              <TableCell>执行记录</TableCell>
-              <TableCell>状态</TableCell>
-              <TableCell>模式</TableCell>
-              <TableCell>耗时</TableCell>
-              <TableCell>时间</TableCell>
-              <TableCell align="right">操作</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {runHistory.map((run) => {
-              const statusMeta = getRunStatusMeta(run.status);
-              const isSelected = selectedIds.includes(run.run_id);
-              return (
-                <TableRow key={run.run_id} hover selected={isSelected}>
-                  <TableCell padding="checkbox">
-                    <Checkbox
-                      color="primary"
-                      checked={isSelected}
-                      onChange={(event) => handleSelectOne(event, run.run_id)}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{run.case_name || run.case_id || run.run_id}</Typography>
-                    <Typography variant="caption" color="text.secondary">{run.run_id}</Typography>
-                  </TableCell>
-                  <TableCell><Chip size="small" color={statusMeta.color} label={statusMeta.label} variant="outlined" /></TableCell>
-                  <TableCell>{getRunModeLabel(run.mode)}</TableCell>
-                  <TableCell>{formatDuration(run.duration_ms)}</TableCell>
-                  <TableCell>{formatRunTime(run.run_at) || '未记录'}</TableCell>
-                  <TableCell align="right">
-                    <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                      <Tooltip title="载入到编辑器"><IconButton size="small" onClick={() => loadRunIntoEditor(run)}><EditOutlined fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="重跑"><IconButton size="small" onClick={() => handleReplayRun(run)}><RefreshOutlined fontSize="small" /></IconButton></Tooltip>
-                      {run.status === 'failed' && (
-                        <Tooltip title="受控修复"><IconButton size="small" onClick={() => handleAutoRepairRun(run.run_id)}><AutoAwesomeOutlined fontSize="small" /></IconButton></Tooltip>
-                      )}
-                      <Tooltip title="删除记录">
-                        <IconButton size="small" color="error" onClick={() => { setDeleteTarget(run.run_id); setDeleteDialogOpen(true); }}>
-                          <DeleteOutline fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </TableContainer>
 
-      <Dialog 
-        open={deleteDialogOpen} 
+      <Box sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden', bgcolor: 'background.paper' }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: columnTemplate,
+            alignItems: 'center',
+            px: 1.5,
+            py: 1,
+            bgcolor: 'rgba(248,250,252,0.96)',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Checkbox
+              color="primary"
+              indeterminate={isIndeterminate}
+              checked={isAllSelected}
+              onChange={handleSelectAll}
+              size="small"
+            />
+          </Box>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>执行记录</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>状态</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>模式</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>耗时</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary' }}>时间</Typography>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textAlign: 'right' }}>操作</Typography>
+        </Box>
+
+        <VirtualizedList
+          items={runHistory}
+          height={scrollHeight}
+          estimateSize={76}
+          overscan={10}
+          getItemKey={(run) => run.run_id}
+          ariaLabel="执行历史列表"
+          renderItem={(run, index) => {
+            const statusMeta = getRunStatusMeta(run.status);
+            const isSelected = selectedIdSet.has(run.run_id);
+            return (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: columnTemplate,
+                  alignItems: 'center',
+                  minHeight: 74,
+                  px: 1.5,
+                  py: 1,
+                  borderBottom: index === runHistory.length - 1 ? 'none' : '1px solid',
+                  borderColor: 'divider',
+                  bgcolor: isSelected ? 'rgba(239,68,68,0.05)' : 'background.paper',
+                  transition: 'background-color 0.15s ease',
+                  '&:hover': {
+                    bgcolor: isSelected ? 'rgba(239,68,68,0.08)' : 'rgba(15,23,42,0.03)',
+                  },
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Checkbox
+                    color="primary"
+                    checked={isSelected}
+                    onChange={(event) => handleSelectOne(event, run.run_id)}
+                    size="small"
+                  />
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {run.case_name || run.case_id || run.run_id}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {run.run_id}
+                  </Typography>
+                </Box>
+                <Box sx={{ minWidth: 0 }}>
+                  <Chip size="small" color={statusMeta.color} label={statusMeta.label} variant="outlined" />
+                </Box>
+                <Typography variant="body2" sx={{ color: 'text.primary' }}>{getRunModeLabel(run.mode)}</Typography>
+                <Typography variant="body2" sx={{ color: 'text.primary' }}>{formatDuration(run.duration_ms)}</Typography>
+                <Typography variant="body2" sx={{ color: 'text.primary' }}>{formatRunTime(run.run_at) || '未记录'}</Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                    <Tooltip title="载入到编辑器"><IconButton size="small" onClick={() => loadRunIntoEditor(run)}><EditOutlined fontSize="small" /></IconButton></Tooltip>
+                    <Tooltip title="重跑"><IconButton size="small" onClick={() => handleReplayRun(run)}><RefreshOutlined fontSize="small" /></IconButton></Tooltip>
+                    {run.status === 'failed' && (
+                      <Tooltip title="受控修复"><IconButton size="small" onClick={() => handleAutoRepairRun(run.run_id)}><AutoAwesomeOutlined fontSize="small" /></IconButton></Tooltip>
+                    )}
+                    <Tooltip title="删除记录">
+                      <IconButton size="small" color="error" onClick={() => { setDeleteTarget(run.run_id); setDeleteDialogOpen(true); }}>
+                        <DeleteOutline fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                </Box>
+              </Box>
+            );
+          }}
+        />
+      </Box>
+
+      <Dialog
+        open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}
         PaperProps={{ sx: { borderRadius: 3, p: 1 } }}
       >
         <DialogTitle sx={{ fontWeight: 800 }}>确认删除</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            {deleteTarget === 'batch' 
-              ? `您确定要删除选中的 ${selectedIds.length} 条执行记录吗？` 
+            {deleteTarget === 'batch'
+              ? `您确定要删除选中的 ${selectedIds.length} 条执行记录吗？`
               : '您确定要删除这条执行记录吗？'}
             此操作不可撤销。
           </DialogContentText>
