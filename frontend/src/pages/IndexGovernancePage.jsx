@@ -54,6 +54,7 @@ import { indexGovernanceAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
+import GovernanceRecommendationsPanel from '../features/IndexGovernance/GovernanceRecommendationsPanel';
 import healthySvg from '../assets/system_healthy.svg';
 
 const PIPELINE_STEPS = [
@@ -554,6 +555,8 @@ export default function IndexGovernancePage({ isActive }) {
           </Button>
         </Box>
       </PageHeader>
+
+      <GovernanceRecommendationsPanel />
 
       <Paper 
         elevation={0} 

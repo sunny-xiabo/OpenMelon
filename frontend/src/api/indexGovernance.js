@@ -5,6 +5,11 @@ export const indexGovernanceAPI = {
   getAssets: () => fetchJSON(`${API_BASE}/index-governance/assets`),
   getAssetDetails: (assetKey) => fetchJSON(`${API_BASE}/index-governance/assets/${assetKey}/details`),
   getDiagnostics: () => fetchJSON(`${API_BASE}/index-governance/diagnostics`),
+  getRecommendations: () => fetchJSON(`${API_BASE}/index-governance/recommendations`),
+  executeRecommendationAction: ({ action, assetKey = '', confirm = false }) => fetchJSON(`${API_BASE}/index-governance/recommendations/actions`, {
+    method: 'POST',
+    body: JSON.stringify({ action, asset_key: assetKey, confirm }),
+  }),
   scan: () => fetchJSON(`${API_BASE}/index-governance/scan`, {
     method: 'POST',
   }),

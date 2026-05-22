@@ -8,8 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from app.api.deps import require_production_auth
+from app.api.ai_observability_service import get_ai_debug_settings, update_ai_debug_settings
 from app.api.logging_service import safe_log_event
+from app.engine.rag.cache import bump_rag_cache_version, clear_rag_cache, get_rag_cache_status
 from app.api_execution.storage import api_execution_store
+from app.config import settings
+from app.index_governance.recommendations import build_governance_recommendations
 from app.index_governance.tasks import TERMINAL_STATUSES, task_manager
 
 router = APIRouter(prefix="/index-governance", tags=["index-governance"])
@@ -57,6 +61,12 @@ class TaskActionRequest(BaseModel):
     confirm: bool = False
 
 
+class RecommendationActionRequest(BaseModel):
+    action: str
+    asset_key: str = ""
+    confirm: bool = False
+
+
 @router.get("/summary")
 async def get_index_governance_summary(request: Request) -> dict[str, Any]:
     assets = await _build_assets(request)
@@ -101,6 +111,61 @@ async def list_index_governance_diagnostics(request: Request) -> dict[str, Any]:
     assets = await _build_assets(request)
     diagnostics = _build_diagnostics_from_assets(assets)
     return {"items": diagnostics, "total": len(diagnostics)}
+
+
+@router.get("/recommendations")
+async def list_index_governance_recommendations(request: Request) -> dict[str, Any]:
+    assets = await _build_assets(request)
+    diagnostics = _build_diagnostics_from_assets(assets)
+    ai_summary = api_execution_store.summarize_ai_call_logs(feature="rag")
+    recent_failures = [
+        item for item in api_execution_store.list_ai_call_logs(feature="rag", status="failed", limit=8)
+        if ((item.get("data") or {}).get("debug_snapshot"))
+    ]
+    result = build_governance_recommendations(
+        assets=assets,
+        diagnostics=diagnostics,
+        ai_summary=ai_summary,
+        cache_status=get_rag_cache_status(),
+        recent_failures=recent_failures,
+    )
+    result["context"] = {
+        "rag_ai_summary": ai_summary,
+        "rag_cache_status": get_rag_cache_status(),
+        "ai_debug_enabled": bool(get_ai_debug_settings().get("enabled")),
+    }
+    return result
+
+
+@router.post("/recommendations/actions", dependencies=[Depends(require_production_auth)])
+async def execute_index_governance_recommendation_action(request: Request, body: RecommendationActionRequest) -> dict[str, Any]:
+    action = body.action.strip()
+    asset_key = body.asset_key.strip()
+    if action == "scan_index":
+        result = await scan_index_governance(request)
+    elif action == "rebuild_qdrant":
+        result = await create_rebuild_qdrant_task(request, CleanupRequest(asset_key=asset_key, confirm=body.confirm))
+    elif action == "cleanup_orphans":
+        result = await cleanup_index_governance_orphans(request, CleanupRequest(asset_key=asset_key, confirm=body.confirm))
+    elif action == "cleanup_source_orphans":
+        result = await cleanup_index_governance_source_orphans(request, CleanupRequest(asset_key=asset_key, confirm=body.confirm))
+    elif action == "clear_rag_cache":
+        version = clear_rag_cache("index_governance_recommendation")
+        result = {"success": True, "version": version, "status": get_rag_cache_status(), "message": "已清空 RAG cache"}
+    elif action == "enable_debug_snapshot":
+        _require_confirm(body.confirm, "开启 AI/RAG 调试快照")
+        result = update_ai_debug_settings({**get_ai_debug_settings(), "enabled": True, "retention_minutes": 30, "max_chars": 4000})
+    else:
+        raise HTTPException(status_code=400, detail="不支持的治理建议动作")
+    _log_index_governance_event(
+        "warning" if body.confirm else "info",
+        "index_governance_recommendation_action_executed",
+        "索引治理闭环动作已执行",
+        f"已执行建议动作 {action}",
+        refs=[asset_key, action],
+        data={"action": action, "asset_key": asset_key, "result": result},
+    )
+    return {"action": action, "asset_key": asset_key, "result": result, "message": "建议动作已执行"}
 
 
 @router.post("/scan", dependencies=[Depends(require_production_auth)])
@@ -372,6 +437,7 @@ async def _build_assets(request: Request) -> list[dict[str, Any]]:
     qdrant_counts = await _get_qdrant_counts(request)
     neo4j_ids = await _get_neo4j_ids(request)
     qdrant_ids = await _get_qdrant_ids(request)
+    vector_ops = getattr(request.app.state, "vector_ops", None)
     business_counts = _get_business_counts(request)
     assets = []
     for definition in ASSET_DEFINITIONS:
@@ -400,6 +466,11 @@ async def _build_assets(request: Request) -> list[dict[str, Any]]:
             "business_count": business_count,
             "neo4j_count": neo4j_count,
             "qdrant_count": qdrant_count,
+            "qdrant_collection_info": (
+                await vector_ops.get_qdrant_collection_info(definition["qdrant_collection"])
+                if vector_ops is not None and hasattr(vector_ops, "get_qdrant_collection_info")
+                else None
+            ),
             "active_count": min(_safe_int(neo4j_count), _safe_int(qdrant_count)),
             "issue_count": issue_count,
             "missing_in_qdrant_count": len(missing_in_qdrant),
@@ -700,6 +771,8 @@ async def _run_rebuild_qdrant_task(request: Any, task_id: str) -> None:
             refs=[task.asset_key, task_id],
             data={"asset_key": task.asset_key, "task_id": task_id, "rebuilt": rebuilt},
         )
+        if rebuilt > 0:
+            bump_rag_cache_version("qdrant_rebuilt")
     except Exception as exc:
         error_message = _exception_message(exc)
         task_manager.update(
@@ -732,6 +805,13 @@ async def _rebuild_qdrant_from_neo4j(request: Request, key: str, task_id: str | 
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Qdrant 客户端不可用: {exc}") from exc
 
+    collection_name = _get_asset_definition(key)["qdrant_collection"]
+    if hasattr(vector_ops, "ensure_qdrant_collection"):
+        await vector_ops.ensure_qdrant_collection(
+            collection_name,
+            recreate=bool(getattr(settings, "QDRANT_FORCE_RECREATE_ON_QUANTIZATION", False)),
+        )
+
     if key in {"documents", "api_knowledge"}:
         records = await _load_document_chunks_for_rebuild(request, key)
         if task_id:
@@ -754,13 +834,13 @@ async def _rebuild_qdrant_from_neo4j(request: Request, key: str, task_id: str | 
                 payload=payload,
             ))
             if len(points) >= 128:
-                await qdrant.upsert(collection_name="doc_chunks", points=points)
+                await qdrant.upsert(collection_name=collection_name, points=points)
                 rebuilt += len(points)
                 points = []
                 if task_id:
                     task_manager.update(task_id, processed=rebuilt)
         if points and not (task_id and task_manager.is_cancel_requested(task_id)):
-            await qdrant.upsert(collection_name="doc_chunks", points=points)
+            await qdrant.upsert(collection_name=collection_name, points=points)
             rebuilt += len(points)
             if task_id:
                 task_manager.update(task_id, processed=rebuilt)
@@ -794,13 +874,13 @@ async def _rebuild_qdrant_from_neo4j(request: Request, key: str, task_id: str | 
                 },
             ))
             if len(points) >= 128:
-                await qdrant.upsert(collection_name="test_cases", points=points)
+                await qdrant.upsert(collection_name=collection_name, points=points)
                 rebuilt += len(points)
                 points = []
                 if task_id:
                     task_manager.update(task_id, processed=rebuilt)
         if points and not (task_id and task_manager.is_cancel_requested(task_id)):
-            await qdrant.upsert(collection_name="test_cases", points=points)
+            await qdrant.upsert(collection_name=collection_name, points=points)
             rebuilt += len(points)
             if task_id:
                 task_manager.update(task_id, processed=rebuilt)

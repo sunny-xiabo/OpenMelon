@@ -43,6 +43,7 @@ import EmptyState from '../../../components/EmptyState';
 import ConfirmDialog from '../../../components/ConfirmDialog';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import { formatRunTime } from '../../APIExecution/utils';
+import GovernanceRecommendationsPanel from '../../IndexGovernance/GovernanceRecommendationsPanel';
 
 // Hooks
 import {
@@ -268,6 +269,14 @@ export default function AIObservabilityPanel() {
             <DistributionCard title="功能分布" items={summary?.feature_counts} color="#0891b2" />
             <DistributionCard title="失败原因" items={summary?.failure_reason_counts} color="#dc2626" />
           </Box>
+
+          {(feature === 'rag' || !feature) && (
+            <GovernanceRecommendationsPanel
+              compact
+              title="RAG 闭环建议"
+              caption="把 RAG 失败、降级和索引治理诊断串成可执行动作。"
+            />
+          )}
 
           <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.4)' }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
