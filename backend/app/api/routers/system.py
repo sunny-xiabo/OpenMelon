@@ -18,61 +18,14 @@ def _health_component(status: str, message: str = "", **details):
 
 
 def _overall_health_status(components: dict) -> str:
-    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
-    hard_down = set()
-    ignored_components = set()
-    if storage_backend == "postgres":
-        ignored_components.add("sqlite")
-    else:
-        hard_down.add("sqlite")
-    for name in hard_down:
-        if components.get(name, {}).get("status") == "down":
-            return "down"
+    if any(component.get("status") == "down" for component in components.values()):
+        return "down"
     if any(
-        component.get("status") in {"down", "degraded", "missing_config"}
-        for name, component in components.items()
-        if name not in ignored_components
+        component.get("status") in {"degraded", "missing_config"}
+        for component in components.values()
     ):
         return "degraded"
     return "ok"
-
-
-def _check_sqlite_health() -> dict:
-    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
-    if storage_backend == "postgres":
-        backup_path = DB_DIR / "openmelon.db.pg-cutover-backup"
-        return _health_component(
-            "legacy",
-            "SQLite 已降级为 PG 回滚备份，不参与运行时健康判断",
-            path=str(DB_PATH),
-            data_dir=str(DB_DIR),
-            backup_path=str(backup_path),
-            backup_exists=backup_path.exists(),
-            runtime_store="postgres",
-        )
-    try:
-        row = api_execution_store._query_one("SELECT 1 AS ok")
-        query_ok = bool(row and row["ok"] == 1)
-        db_dir_writable = DB_DIR.exists() and os.access(DB_DIR, os.W_OK)
-        status = "ok" if query_ok and db_dir_writable else "down"
-        message = "SQLite 可用" if status == "ok" else "SQLite 查询或数据目录写入检查失败"
-        return _health_component(
-            status,
-            message,
-            path=str(DB_PATH),
-            data_dir=str(DB_DIR),
-            query_ok=query_ok,
-            data_dir_writable=db_dir_writable,
-        )
-    except Exception as exc:
-        return _health_component(
-            "down",
-            f"SQLite 检查失败: {exc}",
-            path=str(DB_PATH),
-            data_dir=str(DB_DIR),
-            query_ok=False,
-            data_dir_writable=False,
-        )
 
 
 def _check_llm_config_health() -> dict:
@@ -186,30 +139,19 @@ def _postgres_target() -> tuple[str, int, str, str]:
 
 
 async def _check_postgres_health() -> dict:
-    configured = settings.POSTGRES_HEALTHCHECK_ENABLED or bool(settings.DATABASE_URL.strip())
     host, port, database, user = _postgres_target()
-    if not configured:
-        return _health_component(
-            "disabled",
-            "PostgreSQL 迁移库未启用健康检查",
-            host=host,
-            port=port,
-            database=database,
-            user=user,
-            migration_target=True,
-        )
     try:
         reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=3.0)
         writer.close()
         await writer.wait_closed()
         return _health_component(
             "ok",
-            "PostgreSQL 端口可用",
+            "PostgreSQL 运行时可用",
             host=host,
             port=port,
             database=database,
             user=user,
-            migration_target=True,
+            runtime_store=True,
         )
     except asyncio.TimeoutError:
         return _health_component(
@@ -219,7 +161,7 @@ async def _check_postgres_health() -> dict:
             port=port,
             database=database,
             user=user,
-            migration_target=True,
+            runtime_store=True,
         )
     except Exception as exc:
         return _health_component(
@@ -229,7 +171,7 @@ async def _check_postgres_health() -> dict:
             port=port,
             database=database,
             user=user,
-            migration_target=True,
+            runtime_store=True,
         )
 
 
@@ -285,7 +227,6 @@ async def ping():
 async def system_health(request: Request):
     components = {
         "api": _health_component("ok", "API 服务可用", version=APP_VERSION),
-        "sqlite": _check_sqlite_health(),
         "llm": _check_llm_config_health(),
         "neo4j": await _check_neo4j_health(request),
         "qdrant": await _check_qdrant_health(request),

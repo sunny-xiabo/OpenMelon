@@ -247,7 +247,7 @@ export default function LogCenter() {
       <ConfirmDialog
         open={cleanupDialogOpen}
         title="清理历史日志"
-        message={`将清理${projectId ? '当前项目' : '全部项目'}${moduleFilter ? ` / ${MODULE_LABELS[moduleFilter] || moduleFilter}` : ''}中 ${cleanupDays ? `${cleanupDays} 天前的` : '全部已记录的'} ${cleanupLevelLabel} 日志。\n\n此操作会从本地 SQLite 日志表删除记录，不能恢复。`}
+        message={`将清理${projectId ? '当前项目' : '全部项目'}${moduleFilter ? ` / ${MODULE_LABELS[moduleFilter] || moduleFilter}` : ''}中 ${cleanupDays ? `${cleanupDays} 天前的` : '全部已记录的'} ${cleanupLevelLabel} 日志。\n\n此操作会从 PostgreSQL 日志表删除记录，不能恢复。`}
         confirmText="清理日志"
         danger
         onConfirm={handleCleanup}

@@ -15,7 +15,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.api.routers.system import _check_postgres_health, _check_sqlite_health
+from app.api.routers.system import _check_postgres_health
 from app.api_execution.storage import api_execution_store
 from app.config import settings
 from app.models import graph_types
@@ -52,7 +52,6 @@ def _table_counts() -> dict[str, int]:
 
 async def _check_health() -> dict[str, Any]:
     postgres = await _check_postgres_health()
-    sqlite = _check_sqlite_health()
     if settings.STORAGE_BACKEND != "postgres":
         raise AssertionError(f"STORAGE_BACKEND must be postgres, got {settings.STORAGE_BACKEND!r}")
     if getattr(api_execution_store, "storage_engine", None) != "postgres":
@@ -65,13 +64,10 @@ async def _check_health() -> dict[str, Any]:
         raise AssertionError("NodeTypeStore is not using PostgreSQL")
     if postgres["status"] != "ok":
         raise AssertionError(f"PostgreSQL health is not ok: {postgres}")
-    if sqlite["status"] != "legacy":
-        raise AssertionError(f"SQLite health is not legacy in PG mode: {sqlite}")
     return _pass(
         "system_health",
         storage_backend=settings.STORAGE_BACKEND,
         postgres_health=postgres["status"],
-        sqlite_health=sqlite["status"],
     )
 
 
@@ -298,9 +294,7 @@ async def run_smoke() -> dict[str, Any]:
             if after_counts.get(table, 0) != before_counts.get(table, 0)
         },
         "observation_notes": [
-            "Do not run sqlite_to_postgres.py copy --truncate after PostgreSQL receives new writes.",
             "Investigate event_logs, ai_call_logs, and runs first if query latency or table growth becomes visible.",
-            "Keep SQLite as legacy rollback backup until the PostgreSQL observation period is complete.",
         ],
     }
 

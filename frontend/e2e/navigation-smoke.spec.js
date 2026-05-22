@@ -241,7 +241,7 @@ const mockApiPayload = (url) => {
       runtime: {},
       components: {
         api: { status: 'ok', message: 'API 服务可用' },
-        sqlite: { status: 'ok', message: 'SQLite 可用' },
+        postgres: { status: 'ok', message: 'PostgreSQL 可用' },
         llm: { status: 'missing_config', message: '未配置 API_KEY' },
         neo4j: { status: 'degraded', message: 'Neo4j 客户端未初始化' },
         qdrant: { status: 'disabled', message: '外部向量库未启用' },

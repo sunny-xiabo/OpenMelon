@@ -4,10 +4,10 @@ from app.api_execution.postgres_store import PostgresRow, _translate_sql, _postg
 from app.models.graph_types import PostgresNodeTypeStore
 from app.services.file_tracker import PostgresFileTracker
 from app.services.prompt_hub_tracker import PostgresPromptHubTracker
-from app.storage.postgres_store import postgres_schema_from_sqlite
+from app.storage.postgres_store import postgres_schema_from_text
 
 
-def test_postgres_row_serializes_jsonb_data_for_sqlite_store_methods():
+def test_postgres_row_serializes_jsonb_data_for_store_methods():
     row = PostgresRow({"data": {"run_id": "run-1", "status": "passed"}, "count": 1})
 
     assert json.loads(row["data"]) == {"run_id": "run-1", "status": "passed"}
@@ -29,7 +29,7 @@ def test_postgres_schema_maps_data_to_jsonb():
 
 
 def test_shared_postgres_schema_mapper_keeps_index_columns_and_maps_payload():
-    schema = postgres_schema_from_sqlite(
+    schema = postgres_schema_from_text(
         """
         CREATE TABLE IF NOT EXISTS sample_records (
             id TEXT PRIMARY KEY,

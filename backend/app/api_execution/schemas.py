@@ -633,18 +633,6 @@ class StorageRetentionPlan(BaseModel):
     archive_strategy: list[str] = []
 
 
-class StorageMigrationReadinessResponse(BaseModel):
-    generated_at: str
-    storage_engine: str = "sqlite"
-    database_path: str = ""
-    journal_mode: str = ""
-    pg_readiness: str = "ready_with_jsonb_mapping"
-    table_profiles: list[StorageTableProfile] = []
-    json_field_risks: list[StorageJsonRisk] = []
-    retention_plan: StorageRetentionPlan = Field(default_factory=StorageRetentionPlan)
-    recommended_steps: list[str] = []
-
-
 class AutomationDefinition(BaseModel):
     definition_id: str
     automation_type: str = "api"

@@ -5,8 +5,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from app.config import settings
-from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_sqlite
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_text
 
 
 DEFAULT_NODE_TYPES_CONFIG_PATH = (
@@ -37,14 +36,16 @@ FALLBACK_NODE_TYPE = "Entity"
 DOCUMENT_CHUNK_NODE_TYPE = "DocumentChunk"
 
 
-class NodeTypeStore(BaseSQLiteStore):
+class NodeTypeStore(BasePostgresStore):
     def __init__(
         self,
         db_path: Path | None = None,
         seed_path: Path | None = None,
+        database_url: str | None = None,
     ) -> None:
         self._seed_path = seed_path or NODE_TYPES_CONFIG_PATH
-        super().__init__(db_path)
+        _ = db_path
+        super().__init__(database_url or settings.DATABASE_URL)
         self._initialize_from_seed_if_empty()
 
     def _init_schema(self) -> None:
@@ -109,7 +110,7 @@ def _load_seed_configs(path: Path) -> List[Dict]:
         return json.load(f)
 
 
-class PostgresNodeTypeStore(BasePostgresStore, NodeTypeStore):
+class PostgresNodeTypeStore(NodeTypeStore):
     def __init__(
         self,
         database_url: str,
@@ -121,7 +122,7 @@ class PostgresNodeTypeStore(BasePostgresStore, NodeTypeStore):
 
     def _init_schema(self) -> None:
         self._conn.executescript(
-            postgres_schema_from_sqlite(
+            postgres_schema_from_text(
                 """
                 CREATE TABLE IF NOT EXISTS graph_node_types (
                     type TEXT PRIMARY KEY,
@@ -140,12 +141,7 @@ class PostgresNodeTypeStore(BasePostgresStore, NodeTypeStore):
 
 
 def _create_default_node_type_store() -> NodeTypeStore:
-    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
-    if storage_backend == "postgres":
-        return PostgresNodeTypeStore(settings.DATABASE_URL)
-    if storage_backend != "sqlite":
-        raise ValueError(f"Unsupported STORAGE_BACKEND: {settings.STORAGE_BACKEND}")
-    return NodeTypeStore()
+    return PostgresNodeTypeStore(settings.DATABASE_URL)
 
 
 node_type_store = _create_default_node_type_store()

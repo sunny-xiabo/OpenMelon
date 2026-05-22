@@ -1,7 +1,7 @@
 """Shared PostgreSQL store infrastructure.
 
-The runtime PostgreSQL path intentionally mirrors the SQLite helper surface so
-module stores can keep their domain methods while switching connections.
+The runtime PostgreSQL path keeps the same helper surface so module stores can
+preserve their domain methods while switching connections.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from typing import Any
 
 
 class PostgresRow(dict):
-    """Row adapter compatible with sqlite3.Row usage in SQLite stores."""
+    """Row adapter compatible with mapping-style row access."""
 
     def __init__(self, values: dict[str, Any]) -> None:
         super().__init__(values)
@@ -86,7 +86,7 @@ class BasePostgresStore:
 
     def __init__(self, database_url: str) -> None:
         if not database_url:
-            raise ValueError("DATABASE_URL is required when STORAGE_BACKEND=postgres")
+            raise ValueError("DATABASE_URL is required for PostgreSQL runtime")
         self._database_url = database_url
         self._conn = PostgresConnection(database_url)
         self._lock = Lock()
@@ -163,7 +163,7 @@ class BasePostgresStore:
         return value
 
 
-def postgres_schema_from_sqlite(sql: str) -> str:
+def postgres_schema_from_text(sql: str) -> str:
     return re.sub(r"\bdata TEXT NOT NULL\b", "data JSONB NOT NULL", sql)
 
 

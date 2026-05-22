@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     QDRANT_API_KEY: str = ""
     VECTOR_FALLBACK_TO_NEO4J: bool = True
 
-    STORAGE_BACKEND: str = "sqlite"
+    STORAGE_BACKEND: str = "postgres"
     POSTGRES_HEALTHCHECK_ENABLED: bool = False
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
@@ -96,6 +96,12 @@ class Settings(BaseSettings):
         provider = normalize_provider(self.LLM_PROVIDER)
         defaults = get_provider_defaults(provider)
         self.LLM_PROVIDER = provider
+        backend = (self.STORAGE_BACKEND or "postgres").strip().lower()
+        if backend != "postgres":
+            raise ValueError("STORAGE_BACKEND must be postgres for the PostgreSQL-only runtime")
+        self.STORAGE_BACKEND = "postgres"
+        if not self.DATABASE_URL.strip():
+            raise ValueError("DATABASE_URL is required for PostgreSQL-only runtime")
 
         if not self.API_BASE_URL:
             self.API_BASE_URL = defaults.api_base_url

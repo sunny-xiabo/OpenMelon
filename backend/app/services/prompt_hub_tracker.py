@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import settings
-from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_sqlite
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_text
 from app.testcase_gen.services.prompt_hub_defaults import (
     DEFAULT_PROMPT_HUB_DATA,
     DEFAULT_SKILL_CATEGORIES,
@@ -18,15 +17,17 @@ from app.testcase_gen.services.prompt_hub_defaults import (
 MAX_PROMPT_HUB_SKILLS = 20
 
 
-class PromptHubTracker(BaseSQLiteStore):
+class PromptHubTracker(BasePostgresStore):
     def __init__(
         self,
         data_file: Path | None = None,
         db_path: Path | None = None,
+        database_url: str | None = None,
     ) -> None:
         from app.runtime_paths import LEGACY_JSON_DIR
         self._data_file = data_file or (LEGACY_JSON_DIR / "prompt_hub.json")
-        super().__init__(db_path)
+        _ = db_path
+        super().__init__(database_url or settings.DATABASE_URL)
 
     def _init_schema(self) -> None:
         self._enable_foreign_keys()
@@ -607,7 +608,7 @@ class PromptHubTracker(BaseSQLiteStore):
                 raise ValueError(f"duplicate {kind[:-1]} name: {name}")
 
 
-class PostgresPromptHubTracker(BasePostgresStore, PromptHubTracker):
+class PostgresPromptHubTracker(PromptHubTracker):
     def __init__(
         self,
         data_file: Path | None = None,
@@ -621,7 +622,7 @@ class PostgresPromptHubTracker(BasePostgresStore, PromptHubTracker):
     def _init_schema(self) -> None:
         self._enable_foreign_keys()
         self._conn.executescript(
-            postgres_schema_from_sqlite(
+            postgres_schema_from_text(
                 """
                 CREATE TABLE IF NOT EXISTS prompt_hub_meta (
                     key TEXT PRIMARY KEY,
@@ -670,12 +671,7 @@ class PostgresPromptHubTracker(BasePostgresStore, PromptHubTracker):
 
 
 def _create_default_tracker() -> PromptHubTracker:
-    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
-    if storage_backend == "postgres":
-        return PostgresPromptHubTracker(database_url=settings.DATABASE_URL)
-    if storage_backend != "sqlite":
-        raise ValueError(f"Unsupported STORAGE_BACKEND: {settings.STORAGE_BACKEND}")
-    return PromptHubTracker()
+    return PostgresPromptHubTracker(database_url=settings.DATABASE_URL)
 
 
 prompt_hub_tracker = _create_default_tracker()

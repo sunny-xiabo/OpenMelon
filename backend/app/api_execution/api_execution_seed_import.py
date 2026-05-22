@@ -1,4 +1,4 @@
-"""JSON-to-SQLite migration helpers for API execution storage."""
+"""Legacy JSON seed import helpers for API execution storage."""
 
 from __future__ import annotations
 
@@ -99,12 +99,12 @@ def extract_indexed_columns(table: str, entity: dict[str, Any]) -> dict[str, Any
     return {}
 
 
-def migrate_json_seed_files(
+def import_json_seed_files(
     json_dir: Path,
     upsert: UpsertFn,
     commit: Callable[[], None],
 ) -> int:
-    """Import API execution JSON seed files into SQLite."""
+    """Import API execution JSON seed files into the active storage backend."""
     total = 0
     for table, filename, id_col in TABLE_FILE_MAP:
         filepath = json_dir / filename
@@ -118,7 +118,7 @@ def migrate_json_seed_files(
                 upsert(table, id_col, entity_id, extract_indexed_columns(table, entity), entity)
                 total += 1
             commit()
-            logger.info("Migrated %d records from %s to SQLite", len(data), filename)
+            logger.info("Imported %d records from %s", len(data), filename)
         except Exception as exc:
-            logger.warning("Failed to migrate %s: %s", filename, exc)
+            logger.warning("Failed to import %s: %s", filename, exc)
     return total

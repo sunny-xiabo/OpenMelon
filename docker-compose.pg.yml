@@ -1,6 +1,5 @@
-# Optional PostgreSQL service for future SQLite -> PostgreSQL migration drills.
-# It is not used by the backend runtime yet; start it explicitly with:
-# docker compose -f docker-compose.yml -f docker-compose.pg.yml up -d postgres
+# Deprecated compatibility file.
+# PostgreSQL is now part of the main docker-compose.yml runtime; prefer `docker compose up -d postgres`.
 
 services:
   postgres:

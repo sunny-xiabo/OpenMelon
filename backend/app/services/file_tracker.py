@@ -7,22 +7,24 @@ from typing import Any
 
 from app.config import settings
 from app.runtime_paths import LEGACY_JSON_DIR
-from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_sqlite
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_text
 
 logger = logging.getLogger(__name__)
 
 
-class FileTracker(BaseSQLiteStore):
+class FileTracker(BasePostgresStore):
     _JSON_FILE = LEGACY_JSON_DIR / "file_tracker.json"
+    storage_engine = "postgres"
 
     def __init__(
         self,
         db_path: Path | None = None,
         json_path: Path | None = None,
+        database_url: str | None = None,
     ) -> None:
         self._json_path = json_path or self._JSON_FILE
-        super().__init__(db_path)
+        _ = db_path
+        super().__init__(database_url or settings.DATABASE_URL)
         self._migrate_from_json_if_empty()
 
     def _init_schema(self) -> None:
@@ -161,11 +163,13 @@ class FileTracker(BaseSQLiteStore):
                 self._save_record_no_lock(record)
                 migrated += 1
             if migrated:
-                logger.info("Migrated %d file tracker records into SQLite", migrated)
+                logger.info("Migrated %d file tracker records into PostgreSQL", migrated)
             return migrated
 
 
-class PostgresFileTracker(BasePostgresStore, FileTracker):
+class PostgresFileTracker(FileTracker):
+    storage_engine = "postgres"
+
     def __init__(
         self,
         database_url: str,
@@ -177,7 +181,7 @@ class PostgresFileTracker(BasePostgresStore, FileTracker):
 
     def _init_schema(self) -> None:
         self._conn.executescript(
-            postgres_schema_from_sqlite(
+            postgres_schema_from_text(
                 """
                 CREATE TABLE IF NOT EXISTS file_records (
                     id TEXT PRIMARY KEY,
@@ -199,13 +203,8 @@ class PostgresFileTracker(BasePostgresStore, FileTracker):
 
 
 def _create_default_tracker() -> FileTracker:
-    storage_backend = (settings.STORAGE_BACKEND or "sqlite").strip().lower()
-    if storage_backend == "postgres":
-        logger.info("Using PostgreSQL file tracker store")
-        return PostgresFileTracker(settings.DATABASE_URL)
-    if storage_backend != "sqlite":
-        raise ValueError(f"Unsupported STORAGE_BACKEND: {settings.STORAGE_BACKEND}")
-    return FileTracker()
+    logger.info("Using PostgreSQL file tracker store")
+    return PostgresFileTracker(settings.DATABASE_URL)
 
 
 # Singleton instance used across the app

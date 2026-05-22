@@ -1,4 +1,4 @@
-"""SQLite schema statements for the API execution module."""
+"""Schema statements for the API execution module."""
 
 API_EXECUTION_SCHEMA_SQL = """
     CREATE TABLE IF NOT EXISTS runs (

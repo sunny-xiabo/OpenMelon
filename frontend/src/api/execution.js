@@ -286,9 +286,6 @@ export const apiExecutionAPI = {
   getExecutionQueueStatus: () =>
     fetchJSON(`${API_BASE}/api-execution/runs/queue/status`),
 
-  getStorageMigrationReadiness: () =>
-    fetchJSON(`${API_BASE}/api-execution/storage/migration-readiness`),
-
   ingestRunKnowledge: (limit = 20) =>
     fetchJSON(`${API_BASE}/api-execution/knowledge/ingest-runs?limit=${encodeURIComponent(limit)}`, {
       method: 'POST',

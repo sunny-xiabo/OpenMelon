@@ -30,7 +30,6 @@ export const RunHistoryProvider = ({ children }) => {
   const [runHistoryStatus, setRunHistoryStatus] = useState('');
   const [runHistoryKeyword, setRunHistoryKeyword] = useState('');
   const [automationTriggerResult, setAutomationTriggerResult] = useState(null);
-  const [storageReadiness, setStorageReadiness] = useState(null);
 
   // 使用 TanStack Query
   const historyParams = {
@@ -151,19 +150,6 @@ export const RunHistoryProvider = ({ children }) => {
     }
   };
 
-  const handleRefreshStorageReadiness = async () => {
-    setGlobalLoading(true);
-    try {
-      const data = await apiExecutionAPI.getStorageMigrationReadiness();
-      setStorageReadiness(data);
-      showSnackbar('已刷新 SQLite/PG 迁移准备检查', { severity: 'success' });
-    } catch (error) {
-      showSnackbar(error.message || '读取存储准备状态失败', { severity: 'error' });
-    } finally {
-      setGlobalLoading(false);
-    }
-  };
-
   const value = useMemo(() => ({
     runHistory, isHistoryLoading,
     automationTasks,
@@ -179,9 +165,7 @@ export const RunHistoryProvider = ({ children }) => {
     handleTriggerSpecSync,
     handleTriggerScheduledRuns,
     automationTriggerResult,
-    storageReadiness,
-    handleRefreshStorageReadiness,
-  }), [runHistory, isHistoryLoading, automationTasks, runHistoryProjectId, runHistoryStatus, runHistoryKeyword, automationTriggerResult, storageReadiness]);
+  }), [runHistory, isHistoryLoading, automationTasks, runHistoryProjectId, runHistoryStatus, runHistoryKeyword, automationTriggerResult]);
 
   return (
     <RunHistoryContext.Provider value={value}>

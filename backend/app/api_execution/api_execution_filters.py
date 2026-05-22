@@ -1,4 +1,4 @@
-"""WHERE-clause builders for API execution SQLite queries."""
+"""WHERE-clause builders for API execution queries."""
 
 from __future__ import annotations
 

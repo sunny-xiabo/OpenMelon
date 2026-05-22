@@ -39,7 +39,7 @@ from app.api_execution.router_deps import (
     # Schemas - Automation/Tasks
     AutomationTaskCenterSummaryResponse, AutomationTaskListResponse, AutomationTaskRecord,
     PolicyAuditListResponse,
-    ScheduledExecutionResponse, SpecSyncResponse, StorageMigrationReadinessResponse,
+    ScheduledExecutionResponse, SpecSyncResponse,
     # Schemas - Export
     ExportScriptRequest,
     # Constants
@@ -133,7 +133,6 @@ from app.api_execution.services.automation_service import (
     list_policy_audits_service,
     trigger_scheduled_runs_service,
     trigger_spec_sync_service,
-    get_storage_migration_readiness_service,
     list_automation_tasks_service,
     get_task_center_summary_service,
     resolve_automation_task_service,
@@ -175,7 +174,7 @@ __all__ = [
     "APIFlowTemplate", "APIFlowTemplateListResponse", "APIFlowTemplateUpsertRequest",
     "AutomationTaskCenterSummaryResponse", "AutomationTaskListResponse", "AutomationTaskRecord",
     "PolicyAuditListResponse",
-    "ScheduledExecutionResponse", "SpecSyncResponse", "StorageMigrationReadinessResponse",
+    "ScheduledExecutionResponse", "SpecSyncResponse",
     "ExportScriptRequest",
     # Constants
     "RUN_STATUSES", "FLOW_TEMPLATE_DEFINITION_TYPE",
@@ -209,7 +208,7 @@ __all__ = [
     "delete_knowledge_item_service",
     "list_flow_templates_service", "upsert_flow_template_service", "delete_flow_template_service",
     "list_policy_audits_service", "trigger_scheduled_runs_service", "trigger_spec_sync_service",
-    "get_storage_migration_readiness_service", "list_automation_tasks_service",
+    "list_automation_tasks_service",
     "get_task_center_summary_service", "resolve_automation_task_service",
     "get_dashboard_summary_service", "flow_template_from_definition",
     "flow_template_performance", "task_center_summary",

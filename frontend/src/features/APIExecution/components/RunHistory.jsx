@@ -39,7 +39,6 @@ import {
   RefreshOutlined,
   ScheduleSendOutlined,
   SearchOutlined,
-  StorageOutlined,
   TerminalOutlined,
 } from '@mui/icons-material';
 import { API_BASE } from '../../../api/client';
@@ -57,13 +56,6 @@ const getCiApiBase = () => {
   return 'http://127.0.0.1:8000/api';
 };
 
-const formatBytes = (value = 0) => {
-  const bytes = Number(value || 0);
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-};
-
 const getAutomationTypeLabel = (type = '') => (
   type === 'scheduled_runs' ? '定时执行' : type === 'spec_sync' ? '规格同步' : '自动化入口'
 );
@@ -73,12 +65,6 @@ const getTriggerStatusColor = (status = '') => {
   if (status === 'blocked') return 'error';
   if (status === 'skipped' || status === 'unchanged') return 'default';
   return 'warning';
-};
-
-const getReadinessLabel = (status = '') => {
-  if (status === 'empty_ready') return '空库可迁移';
-  if (status === 'needs_batch_migration_plan') return '需批量迁移计划';
-  return 'JSONB 映射就绪';
 };
 
 export default function RunHistory() {
@@ -106,8 +92,6 @@ export default function RunHistory() {
     handleTriggerScheduledRuns,
     handleTriggerSpecSync,
     automationTriggerResult,
-    storageReadiness,
-    handleRefreshStorageReadiness,
   } = useAPIExecution();
 
   const [clearAllDialogOpen, setClearAllDialogOpen] = React.useState(false);
@@ -233,8 +217,6 @@ export default function RunHistory() {
         onTriggerScheduledRuns={handleTriggerScheduledRuns}
         onTriggerSpecSync={handleTriggerSpecSync}
         automationTriggerResult={automationTriggerResult}
-        storageReadiness={storageReadiness}
-        onRefreshStorageReadiness={handleRefreshStorageReadiness}
         copiedSnippet={copiedSnippet}
         onCopySnippet={copySnippet}
       />
@@ -255,18 +237,12 @@ function AutomationOpsPanel({
   onTriggerScheduledRuns,
   onTriggerSpecSync,
   automationTriggerResult,
-  storageReadiness,
-  onRefreshStorageReadiness,
   copiedSnippet,
   onCopySnippet,
 }) {
   const ciApiBase = getCiApiBase();
   const scheduledSnippet = `curl -X POST "${ciApiBase}/api-execution/automation/scheduled-runs/trigger"`;
   const specSyncSnippet = `curl -X POST "${ciApiBase}/api-execution/automation/spec-sync/trigger"`;
-  const readinessSnippet = `curl "${ciApiBase}/api-execution/storage/migration-readiness"`;
-  const runProfile = (storageReadiness?.table_profiles || []).find((item) => item.table === 'runs');
-  const eventLogProfile = (storageReadiness?.table_profiles || []).find((item) => item.table === 'event_logs');
-  const dataBytes = (storageReadiness?.table_profiles || []).reduce((sum, item) => sum + Number(item.data_bytes || 0), 0);
 
   return (
     <Box
@@ -284,8 +260,8 @@ function AutomationOpsPanel({
           <Stack direction="row" spacing={1} alignItems="center">
             <TerminalOutlined color="primary" />
             <Box>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>调度 / CI / 存储准备</Typography>
-              <Typography variant="caption" color="text.secondary">项目级定时触发、规格同步和 SQLite/PG 迁移检查</Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>调度 / CI / 存储健康</Typography>
+              <Typography variant="caption" color="text.secondary">项目级定时触发和规格同步</Typography>
             </Box>
           </Stack>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -294,9 +270,6 @@ function AutomationOpsPanel({
             </Button>
             <Button size="small" variant="outlined" startIcon={<CloudSyncOutlined />} onClick={onTriggerSpecSync}>
               同步规格 DSL
-            </Button>
-            <Button size="small" variant="outlined" startIcon={<StorageOutlined />} onClick={onRefreshStorageReadiness}>
-              迁移检查
             </Button>
           </Stack>
         </Stack>
@@ -325,7 +298,6 @@ function AutomationOpsPanel({
               {[
                 ['scheduled', '定时执行', scheduledSnippet],
                 ['spec-sync', '规格同步', specSyncSnippet],
-                ['readiness', '迁移检查', readinessSnippet],
               ].map(([key, label, snippet]) => (
                 <Box
                   key={key}
@@ -361,41 +333,6 @@ function AutomationOpsPanel({
             </Stack>
           </Box>
 
-          <Box sx={{ minWidth: 0 }}>
-            {storageReadiness ? (
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                  <Chip size="small" color="success" label={getReadinessLabel(storageReadiness.pg_readiness)} />
-                  <Chip size="small" label={`${runProfile?.row_count || 0} 条历史`} variant="outlined" />
-                  <Chip size="small" label={`${eventLogProfile?.row_count || 0} 条日志`} variant="outlined" />
-                  <Chip size="small" label={formatBytes(dataBytes)} variant="outlined" />
-                </Stack>
-                <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
-                  {storageReadiness.retention_plan?.recommendation || '暂无归档建议'}
-                </Typography>
-                {!!storageReadiness.json_field_risks?.length && (
-                  <>
-                    <Divider flexItem />
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                      {storageReadiness.json_field_risks.map((risk) => (
-                        <Chip
-                          key={risk.area}
-                          size="small"
-                          color={risk.risk_level === 'high' ? 'error' : risk.risk_level === 'medium' ? 'warning' : 'info'}
-                          label={`${risk.area}：${risk.risk_level}`}
-                          variant="outlined"
-                        />
-                      ))}
-                    </Stack>
-                  </>
-                )}
-              </Stack>
-            ) : (
-              <Alert severity="info" sx={{ py: 0.5 }}>
-                <Typography variant="caption">未检查迁移准备状态。</Typography>
-              </Alert>
-            )}
-          </Box>
         </Box>
       </Stack>
     </Box>

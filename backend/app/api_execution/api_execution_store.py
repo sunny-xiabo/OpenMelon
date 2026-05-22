@@ -1,7 +1,6 @@
-"""SQLite storage backend for API execution module.
+"""PostgreSQL storage backend for API execution module.
 
 Provides indexed queries, no record limits, and pagination support.
-Uses the shared SQLite connection from app.storage.sqlite_store.
 """
 
 import json
@@ -14,21 +13,21 @@ from typing import Any
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.api_execution.sqlite_filters import build_ai_call_where, build_event_log_where
-from app.api_execution.sqlite_migration import migrate_json_seed_files
-from app.api_execution.sqlite_schema import API_EXECUTION_SCHEMA_SQL
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.api_execution.api_execution_filters import build_ai_call_where, build_event_log_where
+from app.api_execution.api_execution_seed_import import import_json_seed_files
+from app.api_execution.api_execution_schema import API_EXECUTION_SCHEMA_SQL
+from app.storage.postgres_store import BasePostgresStore
 
 
-class SQLiteStore(BaseSQLiteStore):
-    """SQLite-backed storage for API execution. Same public API as APIExecutionStore."""
+class APIExecutionStoreBase(BasePostgresStore):
+    """PostgreSQL-backed storage for API execution. Same public API as APIExecutionStore."""
 
-    storage_engine = "sqlite"
+    storage_engine = "postgres"
     _EVENT_LOG_PRUNE_INTERVAL_SECONDS = 300
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, database_url: str) -> None:
         self._last_event_log_prune_at = 0.0
-        super().__init__(*args, **kwargs)
+        super().__init__(database_url)
 
     def _init_schema(self) -> None:
         self._conn.executescript(API_EXECUTION_SCHEMA_SQL)
@@ -36,7 +35,7 @@ class SQLiteStore(BaseSQLiteStore):
         self._conn.execute(
             """
             UPDATE runs
-            SET environment_name = COALESCE(json_extract(data, '$.execution_options.environment_snapshot.name'), '')
+            SET environment_name = COALESCE(data #>> '{execution_options,environment_snapshot,name}', '')
             WHERE environment_name = ''
             """
         )
@@ -45,7 +44,7 @@ class SQLiteStore(BaseSQLiteStore):
         self._conn.execute(
             """
             UPDATE knowledge_items
-            SET status = COALESCE(NULLIF(json_extract(data, '$.status'), ''), 'active')
+            SET status = COALESCE(NULLIF(data #>> '{status}', ''), 'active')
             WHERE status = ''
             """
         )
@@ -1153,8 +1152,8 @@ class SQLiteStore(BaseSQLiteStore):
     async def async_save_event_log(self, event: dict[str, Any]) -> dict[str, Any]:
         return await run_in_threadpool(self.save_event_log, event)
 
-    # ---- migration from JSON ----
+    # ---- legacy JSON seed import ----
 
     def migrate_from_json(self, json_dir: Path) -> int:
-        """Import all JSON data files into SQLite. Returns count of imported records."""
-        return migrate_json_seed_files(json_dir, self._upsert, self._conn.commit)
+        """Import all JSON data files into PostgreSQL. Returns count of imported records."""
+        return import_json_seed_files(json_dir, self._upsert, self._conn.commit)

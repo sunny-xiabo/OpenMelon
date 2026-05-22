@@ -4,9 +4,9 @@ from typing import Annotated
 from app.api.deps import require_production_auth
 from app.api_execution.router_support import (
     PolicyAuditListResponse, AutomationTaskListResponse, AutomationTaskCenterSummaryResponse,
-    AutomationTaskRecord, ScheduledExecutionResponse, SpecSyncResponse, StorageMigrationReadinessResponse,
+    AutomationTaskRecord, ScheduledExecutionResponse, SpecSyncResponse,
     list_policy_audits_service, trigger_scheduled_runs_service, trigger_spec_sync_service,
-    get_storage_migration_readiness_service, list_automation_tasks_service,
+    list_automation_tasks_service,
     get_task_center_summary_service, resolve_automation_task_service,
 )
 
@@ -63,11 +63,6 @@ async def trigger_scheduled_runs():
 )
 async def trigger_spec_sync():
     return trigger_spec_sync_service()
-
-
-@router.get("/storage/migration-readiness", response_model=StorageMigrationReadinessResponse)
-async def get_storage_migration_readiness():
-    return get_storage_migration_readiness_service()
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

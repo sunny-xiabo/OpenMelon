@@ -77,7 +77,6 @@ from app.api_execution.schemas import (
     APIStepRunResult,
     ScheduledExecutionResponse,
     SpecSyncResponse,
-    StorageMigrationReadinessResponse,
     ValidateDslRequest,
 )
 from app.api_execution.ai_assistant import (
@@ -161,7 +160,7 @@ __all__ = [
     "KnowledgeReviewResponse", "KnowledgeSearchResponse", "KnowledgeStatusUpdateRequest",
     "OpenAPIParseResponse", "OperationsResponse", "ParseUrlRequest", "APIRunReport",
     "APIRunHistoryResponse", "RunScriptRequest", "APIStepRunResult",
-    "ScheduledExecutionResponse", "SpecSyncResponse", "StorageMigrationReadinessResponse",
+    "ScheduledExecutionResponse", "SpecSyncResponse",
     "ValidateDslRequest",
     # Constants
     "RUN_STATUSES", "FLOW_TEMPLATE_DEFINITION_TYPE",
