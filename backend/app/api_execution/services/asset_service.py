@@ -13,6 +13,7 @@ from typing import Any
 
 from app.api.errors import InvalidRequestError, NotFoundError
 from app.api_execution.dsl_generator import generate_api_dsl
+from app.api_execution.orchestration_planner import plan_api_orchestration
 from app.api_execution.schemas import (
     APIAssetInterfaceCreateRequest,
     APIAssetInterfaceUpdateRequest,
@@ -201,130 +202,22 @@ def _orchestration_sort_key(interface: dict[str, Any]) -> tuple[int, str]:
     return bucket, _resource_name_from_path(path), path
 
 
-def _variable_name_for_resource(resource: str) -> str:
-    return f"{resource or 'created'}_id"
-
-
-def _step_has_extraction(step: dict[str, Any], name: str) -> bool:
-    return any(item.get("name") == name for item in step.get("extractions") or [])
-
-
-def _ensure_depends_on(step: dict[str, Any], dependency: str) -> None:
-    if not dependency or dependency == step.get("id"):
-        return
-    current = list(step.get("depends_on") or [])
-    if dependency not in current:
-        current.append(dependency)
-    step["depends_on"] = current
-
-
-def _matches_resource_param(param_name: str, resource: str) -> bool:
-    param = _singular_resource(str(param_name or "").replace("_id", "").replace("id", ""))
-    resource = _singular_resource(resource)
-    return bool(param and resource and (param == resource or param in resource or resource in param))
-
-
-def _is_generic_id_param(param_name: str) -> bool:
-    return str(param_name or "").lower() in {"id", "uuid"}
-
-
 def _discover_dependencies_and_recommendations(
     project: dict[str, Any],
     steps: list[dict[str, Any]],
     interfaces: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], str]:
-    recommendations: list[dict[str, Any]] = []
-    dependency_graph: list[dict[str, Any]] = []
-    producers: dict[str, dict[str, str]] = {}
-    auth_step_id = ""
-
-    if not project.get("auth_config") and not project.get("setup_steps") and not any(_looks_like_auth_interface(item) for item in interfaces):
-        recommendations.append(
-            {
-                "type": "missing_config",
-                "severity": "warning",
-                "title": "缺少项目级认证或登录前置",
-                "message": "如果这些接口需要登录，建议在项目配置中维护认证和 setup_steps，或把登录接口纳入本次链路。",
-            }
-        )
-
-    for step, interface in zip(steps, interfaces):
-        resource = _resource_name_from_path(interface.get("path", ""))
-        step_id = step.get("id", "")
-        if _looks_like_auth_interface(interface):
-            auth_step_id = auth_step_id or step_id
-            if not _step_has_extraction(step, "access_token"):
-                step.setdefault("extractions", []).append({"name": "access_token", "source": "body", "path": "data.token"})
-                recommendations.append(
-                    {
-                        "type": "dependency",
-                        "severity": "info",
-                        "title": "已补充登录 token 提取占位",
-                        "message": f"{step.get('name') or step_id} 暂按 data.token 提取 access_token，请按真实响应确认。",
-                        "step_id": step_id,
-                    }
-                )
-        elif auth_step_id:
-            _ensure_depends_on(step, auth_step_id)
-            if not any(str(key).lower() == "authorization" for key in (step.get("headers") or {})):
-                step.setdefault("headers", {})["Authorization"] = "Bearer {{access_token}}"
-            dependency_graph.append(
-                {
-                    "from": auth_step_id,
-                    "to": step_id,
-                    "type": "auth",
-                    "reason": "登录/鉴权步骤先提取 access_token，后续接口使用 Authorization。",
-                }
-            )
-
-        if _looks_like_create_interface(interface):
-            variable_name = _variable_name_for_resource(resource)
-            if not _step_has_extraction(step, variable_name):
-                step.setdefault("extractions", []).append({"name": variable_name, "source": "body", "path": "data.id"})
-            producers[resource] = {"step_id": step_id, "variable": variable_name}
-            recommendations.append(
-                {
-                    "type": "dependency",
-                    "severity": "info",
-                    "title": "已识别创建接口",
-                    "message": f"{step.get('name') or step_id} 会尝试提取 {variable_name}，供后续详情、更新或删除接口引用。",
-                    "step_id": step_id,
-                }
-            )
-
-        for param_name, param_value in list((step.get("path_params") or {}).items()):
-            for resource_name, producer in producers.items():
-                resource_matches_path = bool(resource and resource == resource_name and _is_generic_id_param(param_name))
-                if not (_matches_resource_param(param_name, resource_name) or resource_matches_path):
-                    continue
-                step["path_params"][param_name] = "{{" + producer["variable"] + "}}"
-                _ensure_depends_on(step, producer["step_id"])
-                dependency_graph.append(
-                    {
-                        "from": producer["step_id"],
-                        "to": step_id,
-                        "type": "resource_id",
-                        "variable": producer["variable"],
-                        "reason": f"路径参数 {param_name} 复用前置创建接口提取的 {producer['variable']}。",
-                    }
-                )
-                break
-            if isinstance(param_value, str) and param_value.startswith("example_") and param_value == step.get("path_params", {}).get(param_name):
-                recommendations.append(
-                    {
-                        "type": "missing_dependency",
-                        "severity": "warning",
-                        "title": "路径参数仍需确认来源",
-                        "message": f"{step.get('name') or step_id} 的 {param_name} 仍是示例值，建议补充前置创建/查询步骤或手工绑定变量。",
-                        "step_id": step_id,
-                    }
-                )
-
-    if dependency_graph:
-        summary = f"已发现 {len(dependency_graph)} 条前后置依赖，并按 登录 -> 创建 -> 详情/更新 -> 查询 -> 删除 的顺序编排。"
-    else:
-        summary = "未发现明确前后置依赖，已按接口风险和方法顺序生成可独立执行的测试步骤。"
-    return steps, recommendations, dependency_graph, summary
+    planner_result = plan_api_orchestration(
+        steps,
+        operations=interfaces,
+        project_context=project,
+    )
+    return (
+        planner_result["steps"],
+        planner_result["recommendations"],
+        planner_result["dependency_graph"],
+        planner_result["orchestration_summary"],
+    )
 
 
 def _normalize_setup_step(raw_step: dict[str, Any], index: int) -> dict[str, Any]:

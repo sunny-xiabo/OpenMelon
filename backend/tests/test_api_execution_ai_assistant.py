@@ -74,11 +74,43 @@ def test_enhance_dsl_completes_basic_orchestration_chain():
     assert steps[1].depends_on == ["s1"]
     assert steps[1].headers["Authorization"] == "Bearer {{access_token}}"
     assert steps[1].extractions[0].name == "order_id"
-    assert steps[2].depends_on == ["s2"]
+    assert steps[2].depends_on == ["s1", "s2"]
     assert steps[2].headers["Authorization"] == "Bearer {{access_token}}"
     assert steps[2].path_params["id"] == "{{order_id}}"
     assert any(operation["field"] == "depends_on" for operation in patch["patch_operations"])
     assert any(operation["field"] == "path_params" for operation in patch["patch_operations"])
+
+
+def test_enhance_dsl_does_not_blindly_chain_independent_reads():
+    script = APITestCaseDsl(
+        case_id="case_ai_parallel_reads",
+        name="AI DSL parallel reads",
+        base_url="http://example.test",
+        steps=[
+            {
+                "id": "s1",
+                "name": "List users",
+                "method": "GET",
+                "path": "/users",
+                "operation_id": "listUsers",
+            },
+            {
+                "id": "s2",
+                "name": "List orders",
+                "method": "GET",
+                "path": "/orders",
+                "operation_id": "listOrders",
+            },
+        ],
+    )
+
+    patch = enhance_dsl(script)
+    steps = patch["patched_script"].steps
+
+    assert steps[0].depends_on == []
+    assert steps[1].depends_on == []
+    assert steps[0].parallel_group == "parallel_read_1"
+    assert steps[1].parallel_group == "parallel_read_1"
 
 
 @pytest.mark.asyncio
