@@ -656,6 +656,9 @@ PostgreSQL 是唯一的结构化运行期元数据库。新环境部署时只需
 | `POSTGRES_PASSWORD` | `openmelon` | Docker Compose 创建 PostgreSQL 密码时使用 |
 | `POSTGRES_PORT` | `5432` | 本机暴露的 PostgreSQL 端口 |
 | `POSTGRES_HEALTHCHECK_ENABLED` | `false` | 是否在系统健康中启用额外主机连通性探测 |
+| `POSTGRES_POOL_MIN_SIZE` | `1` | PostgreSQL 连接池最小连接数 |
+| `POSTGRES_POOL_MAX_SIZE` | `10` | PostgreSQL 连接池最大连接数 |
+| `POSTGRES_POOL_TIMEOUT_S` | `30` | 从连接池获取连接的超时时间（秒） |
 
 常用连接串：
 
@@ -666,6 +669,9 @@ DATABASE_URL=postgresql://openmelon:openmelon@localhost:5432/openmelon
 # app 容器内连接 postgres 服务
 DATABASE_URL=postgresql://openmelon:openmelon@postgres:5432/openmelon
 ```
+
+API 自动化执行默认只允许访问 localhost、127.0.0.1、::1 和 RFC1918 私网地址。公网 API 目标需要在项目策略 `egress_allowlist` 中显式配置，例如 `api.example.com` 或 `*.example.internal`。
+如需临时兼容旧行为，可设置 `API_EXECUTION_EGRESS_GUARD_ENABLED=false` 关闭出网守卫；生产环境建议保持默认 `true`。
 
 ### 3.3 Neo4j 配置
 

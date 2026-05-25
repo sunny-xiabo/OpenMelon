@@ -54,10 +54,14 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "openmelon"
     POSTGRES_USER: str = "openmelon"
     DATABASE_URL: str = ""
+    POSTGRES_POOL_MIN_SIZE: int = 1
+    POSTGRES_POOL_MAX_SIZE: int = 10
+    POSTGRES_POOL_TIMEOUT_S: float = 30.0
 
     API_EXECUTION_MAX_CONCURRENT_RUNS: int = 2
     API_EXECUTION_QUEUE_WAIT_TIMEOUT_S: int = 60
     API_EXECUTION_SSE_QUEUE_SIZE: int = 100
+    API_EXECUTION_EGRESS_GUARD_ENABLED: bool = True
 
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_DEPTH: int = 2

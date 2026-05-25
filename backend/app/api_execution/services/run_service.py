@@ -146,6 +146,7 @@ def assert_policy_allowed(
             step_ids=step_ids,
             project_id=request.project_id,
             environment_id=request.environment_id,
+            base_url=request.base_url,
             project_policy_snapshot=request.project_policy_snapshot,
             environment_snapshot=request.environment_snapshot,
         )

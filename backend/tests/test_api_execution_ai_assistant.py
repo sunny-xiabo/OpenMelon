@@ -18,7 +18,7 @@ def test_enhance_dsl_adds_response_time_assertion_and_token_extraction():
     script = APITestCaseDsl(
         case_id="case_ai",
         name="AI DSL",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -42,7 +42,7 @@ def test_enhance_dsl_completes_basic_orchestration_chain():
     script = APITestCaseDsl(
         case_id="case_ai_chain",
         name="AI DSL chain",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -87,7 +87,7 @@ def test_enhance_dsl_does_not_blindly_chain_independent_reads():
     script = APITestCaseDsl(
         case_id="case_ai_parallel_reads",
         name="AI DSL parallel reads",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -121,7 +121,7 @@ async def test_enhance_dsl_llm_uses_short_timeout_without_retries(monkeypatch):
     script = APITestCaseDsl(
         case_id="case_ai_timeout",
         name="AI DSL timeout",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -191,7 +191,7 @@ async def test_enhance_dsl_llm_marks_unsafe_field_changes_for_manual_review(monk
     script = APITestCaseDsl(
         case_id="case_ai_unsafe",
         name="AI DSL unsafe",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -353,7 +353,7 @@ async def test_configured_repair_patch_uses_heuristic_when_llm_disabled(monkeypa
     script = APITestCaseDsl(
         case_id="case_configured_repair",
         name="AI repair configured",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -388,7 +388,7 @@ def test_repair_patch_expands_success_status_codes():
     script = APITestCaseDsl(
         case_id="case_repair",
         name="AI repair",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -430,7 +430,7 @@ def test_repair_patch_does_not_relax_non_success_status():
     script = APITestCaseDsl(
         case_id="case_no_repair",
         name="AI no repair",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -468,7 +468,7 @@ def test_repair_patch_groups_review_required_operations():
     script = APITestCaseDsl(
         case_id="case_sla",
         name="AI repair SLA",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",
@@ -517,7 +517,7 @@ def test_repair_patch_surfaces_historical_verified_solutions():
     script = APITestCaseDsl(
         case_id="case_history",
         name="AI repair history",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": "s1",

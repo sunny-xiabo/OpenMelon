@@ -78,6 +78,7 @@ def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
             "default_environment_id": "env-1",
             "spec_id": "spec-1",
             "operation_allowlist": ["GET /health"],
+            "egress_allowlist": ["example.test"],
         }
     )
     store.save_environment(

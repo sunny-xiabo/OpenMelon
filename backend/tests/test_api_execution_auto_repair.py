@@ -106,6 +106,7 @@ def _failed_run() -> dict:
                 "allow_ai_execution": True,
                 "allow_ai_repair": True,
                 "allow_overwrite_history": True,
+                "egress_allowlist": ["example.test"],
             },
             "base_url": "http://example.test",
             "timeout_ms": 30000,

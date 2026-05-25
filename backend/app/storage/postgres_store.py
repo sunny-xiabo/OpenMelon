@@ -8,8 +8,14 @@ from __future__ import annotations
 
 import json
 import re
-from threading import Lock
+from threading import Lock, RLock
 from typing import Any
+
+from app.config import settings
+
+
+_POOL_LOCK = RLock()
+_POOLS: dict[str, Any] = {}
 
 
 class PostgresRow(dict):
@@ -29,56 +35,101 @@ class PostgresRow(dict):
 
 
 class PostgresCursor:
-    def __init__(self, cursor: Any) -> None:
-        self._cursor = cursor
+    def __init__(self, rows: list[Any] | None = None, rowcount: int = 0) -> None:
+        self._rows = list(rows or [])
+        self._rowcount = rowcount
+        self._position = 0
 
     @property
     def rowcount(self) -> int:
-        return int(self._cursor.rowcount or 0)
+        return int(self._rowcount or 0)
 
     def fetchone(self) -> PostgresRow | None:
-        row = self._cursor.fetchone()
+        if self._position >= len(self._rows):
+            return None
+        row = self._rows[self._position]
+        self._position += 1
         return PostgresRow(row) if row is not None else None
 
     def fetchall(self) -> list[PostgresRow]:
-        return [PostgresRow(row) for row in self._cursor.fetchall()]
+        rows = self._rows[self._position :]
+        self._position = len(self._rows)
+        return [PostgresRow(row) for row in rows]
 
 
 class PostgresConnection:
     def __init__(self, database_url: str) -> None:
-        try:
-            import psycopg
-            from psycopg.rows import dict_row
-        except Exception as exc:  # pragma: no cover - import guarded by optional extra
-            raise RuntimeError(
-                "Install PostgreSQL runtime dependencies with: uv sync --extra postgres"
-            ) from exc
-        self._conn = psycopg.connect(database_url, row_factory=dict_row, autocommit=True)
+        self._database_url = database_url
+        self._pool = get_postgres_pool(database_url)
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> PostgresCursor:
-        cursor = self._conn.execute(
-            translate_sql(sql),
-            tuple(adapt_param(item) for item in params),
-        )
-        return PostgresCursor(cursor)
+        with self._pool.connection() as conn:
+            cursor = conn.execute(
+                translate_sql(sql),
+                tuple(adapt_param(item) for item in params),
+            )
+            return materialize_cursor(cursor)
 
     def executemany(self, sql: str, params_seq: list[tuple[Any, ...]] | tuple[tuple[Any, ...], ...]) -> None:
         translated = translate_sql(sql)
-        with self._conn.cursor() as cursor:
-            cursor.executemany(
-                translated,
-                [tuple(adapt_param(item) for item in params) for params in params_seq],
-            )
+        with self._pool.connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    translated,
+                    [tuple(adapt_param(item) for item in params) for params in params_seq],
+                )
 
     def executescript(self, script: str) -> None:
         for statement in split_sql_script(script):
             self.execute(statement)
 
     def commit(self) -> None:
-        self._conn.commit()
+        return None
 
     def close(self) -> None:
-        self._conn.close()
+        return None
+
+
+def get_postgres_pool(database_url: str) -> Any:
+    if not database_url:
+        raise ValueError("DATABASE_URL is required for PostgreSQL runtime")
+    with _POOL_LOCK:
+        pool = _POOLS.get(database_url)
+        if pool is not None:
+            return pool
+        try:
+            from psycopg.rows import dict_row
+            from psycopg_pool import ConnectionPool
+        except Exception as exc:  # pragma: no cover - import guarded by optional extra
+            raise RuntimeError(
+                "Install PostgreSQL runtime dependencies with: uv sync --extra postgres"
+            ) from exc
+        pool = ConnectionPool(
+            conninfo=database_url,
+            min_size=max(0, int(settings.POSTGRES_POOL_MIN_SIZE or 0)),
+            max_size=max(1, int(settings.POSTGRES_POOL_MAX_SIZE or 1)),
+            timeout=max(1.0, float(settings.POSTGRES_POOL_TIMEOUT_S or 30.0)),
+            kwargs={"row_factory": dict_row, "autocommit": True},
+            open=True,
+        )
+        _POOLS[database_url] = pool
+        return pool
+
+
+def close_postgres_pools() -> None:
+    with _POOL_LOCK:
+        pools = list(_POOLS.values())
+        _POOLS.clear()
+    for pool in pools:
+        pool.close()
+
+
+def materialize_cursor(cursor: Any) -> PostgresCursor:
+    rowcount = int(cursor.rowcount or 0)
+    rows: list[Any] = []
+    if getattr(cursor, "description", None):
+        rows = cursor.fetchall()
+    return PostgresCursor(rows=rows, rowcount=rowcount)
 
 
 class BasePostgresStore:

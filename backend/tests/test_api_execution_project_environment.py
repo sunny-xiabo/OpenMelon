@@ -788,11 +788,11 @@ def test_run_service_merges_environment_variables_server_side(tmp_path, monkeypa
 
     report = asyncio.run(
         run_service.run_all_steps_service(
-            RunScriptRequest(
-                script=script,
-                base_url="http://example.test",
-                environment_snapshot={"variables": {"username": "demo-user"}},
-            )
+                RunScriptRequest(
+                    script=script,
+                    base_url="http://127.0.0.1:8000",
+                    environment_snapshot={"variables": {"username": "demo-user"}},
+                )
         )
     )
 

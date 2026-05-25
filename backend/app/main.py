@@ -134,6 +134,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("恢复残留执行任务失败: %s", exc)
 
+    try:
+        from app.index_governance.tasks import task_manager
+
+        recovered_task_ids = task_manager.recover_stale_tasks()
+        if recovered_task_ids:
+            logger.info("已标记 %d 个残留索引治理任务为失败: %s", len(recovered_task_ids), recovered_task_ids)
+    except Exception as exc:
+        logger.warning("恢复索引治理任务状态失败: %s", exc)
+
     logger.info("OpenMelon 服务启动完成")
 
     yield
@@ -144,6 +153,12 @@ async def lifespan(app: FastAPI):
             await asyncio.wait_for(knowledge_rag.neo4j_client.close(), timeout=5.0)
     except asyncio.TimeoutError:
         logger.warning("Neo4j 关闭超时，强制退出")
+    try:
+        from app.storage.postgres_store import close_postgres_pools
+
+        close_postgres_pools()
+    except Exception as exc:
+        logger.warning("PostgreSQL 连接池关闭失败: %s", exc)
     logger.info("OpenMelon 服务已关闭")
 
 

@@ -36,6 +36,7 @@ _PG_TABLES = (
     "prompt_skill_categories",
     "prompt_skills",
     "graph_node_types",
+    "index_governance_tasks",
 )
 
 

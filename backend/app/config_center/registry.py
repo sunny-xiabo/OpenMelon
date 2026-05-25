@@ -79,6 +79,7 @@ CONFIG_FIELD_REGISTRY: dict[str, ConfigFieldMeta] = {
     "API_EXECUTION_MAX_CONCURRENT_RUNS": ConfigFieldMeta("API_EXECUTION_MAX_CONCURRENT_RUNS", value_type="int"),
     "API_EXECUTION_QUEUE_WAIT_TIMEOUT_S": ConfigFieldMeta("API_EXECUTION_QUEUE_WAIT_TIMEOUT_S", value_type="int"),
     "API_EXECUTION_SSE_QUEUE_SIZE": ConfigFieldMeta("API_EXECUTION_SSE_QUEUE_SIZE", value_type="int"),
+    "API_EXECUTION_EGRESS_GUARD_ENABLED": ConfigFieldMeta("API_EXECUTION_EGRESS_GUARD_ENABLED", value_type="bool"),
     "AGENTIC_MAX_STEPS": ConfigFieldMeta("AGENTIC_MAX_STEPS", value_type="int"),
     "AGENTIC_CONFIDENCE_THRESHOLD": ConfigFieldMeta("AGENTIC_CONFIDENCE_THRESHOLD", value_type="float"),
     "INTENT_CONFIDENCE_THRESHOLD": ConfigFieldMeta("INTENT_CONFIDENCE_THRESHOLD", value_type="float"),

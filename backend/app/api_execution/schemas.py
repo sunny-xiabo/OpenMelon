@@ -67,6 +67,7 @@ class APIProjectConfig(BaseModel):
     risk_overrides: dict[str, str] = {}
     operation_allowlist: list[str] = []
     operation_blocklist: list[str] = []
+    egress_allowlist: list[str] = []
     auth_config: dict[str, Any] = {}
     setup_steps: list[dict[str, Any]] = []
     cleanup_steps: list[dict[str, Any]] = []
@@ -97,6 +98,7 @@ class APIProjectUpsertRequest(BaseModel):
     risk_overrides: dict[str, str] = {}
     operation_allowlist: list[str] = []
     operation_blocklist: list[str] = []
+    egress_allowlist: list[str] = []
     auth_config: dict[str, Any] = {}
     setup_steps: list[dict[str, Any]] = []
     cleanup_steps: list[dict[str, Any]] = []

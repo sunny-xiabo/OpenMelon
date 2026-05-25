@@ -53,3 +53,32 @@ def test_run_rebuild_qdrant_task_marks_task_succeeded(monkeypatch):
     assert updated.status == "succeeded"
     assert updated.processed == 42
     assert updated.result["rebuilt"] == 42
+
+
+def test_index_governance_task_manager_persists_between_instances():
+    manager = IndexGovernanceTaskManager()
+    task = manager.create(asset_key="api_knowledge", operation="rebuild_qdrant")
+    manager.update(task.task_id, status="running", processed=3)
+
+    restored = IndexGovernanceTaskManager().get(task.task_id)
+
+    assert restored is not None
+    assert restored.task_id == task.task_id
+    assert restored.status == "running"
+    assert restored.processed == 3
+
+
+def test_index_governance_task_manager_recovers_stale_tasks():
+    manager = IndexGovernanceTaskManager()
+    queued = manager.create(asset_key="api_knowledge", operation="rebuild_qdrant")
+    running = manager.create(asset_key="documents", operation="rebuild_qdrant")
+    manager.update(running.task_id, status="running")
+    done = manager.create(asset_key="test_cases", operation="rebuild_qdrant")
+    manager.update(done.task_id, status="succeeded")
+
+    recovered = IndexGovernanceTaskManager().recover_stale_tasks()
+
+    assert set(recovered) == {queued.task_id, running.task_id}
+    assert IndexGovernanceTaskManager().get(queued.task_id).status == "failed"
+    assert IndexGovernanceTaskManager().get(running.task_id).message == "服务重启后未自动恢复，请手动重试"
+    assert IndexGovernanceTaskManager().get(done.task_id).status == "succeeded"

@@ -27,6 +27,10 @@ EMBEDDING_DIM=1024
 # 3. 运行时路径
 # 数据目录
 OPENMELON_DATA_DIR=
+
+# 4. API 自动化
+# API 自动化出网守卫
+API_EXECUTION_EGRESS_GUARD_ENABLED=true
 """
 
 
@@ -56,7 +60,7 @@ def test_build_schema_groups_and_masks_sensitive_values(env_files):
     groups = service.build_schema(env_path=env_path, example_path=example_path)
     fields = {field.key: field for group in groups for field in group.fields}
 
-    assert [group.title for group in groups] == ["1. 基础运行配置", "Provider 管理", "2. 模型配置", "3. 运行时路径"]
+    assert [group.title for group in groups] == ["1. 基础运行配置", "Provider 管理", "4. API 自动化", "2. 模型配置", "3. 运行时路径"]
     assert fields["NEO4J_URI"].value == "bolt://db:7687"
     assert fields["API_KEY"].value == ""
     assert fields["API_KEY"].configured is True
@@ -67,6 +71,8 @@ def test_build_schema_groups_and_masks_sensitive_values(env_files):
     assert fields["OPENMELON_DATA_DIR"].value == "backend/runtime"
     assert fields["OPENMELON_DATA_DIR"].configured is False
     assert fields["API_BASE_URL"].apply_mode == "hot"
+    assert fields["API_EXECUTION_EGRESS_GUARD_ENABLED"].value_type == "bool"
+    assert fields["API_EXECUTION_EGRESS_GUARD_ENABLED"].apply_mode == "hot"
     assert fields["NEO4J_URI"].apply_mode == "restart"
 
 
@@ -174,17 +180,23 @@ def test_save_values_refreshes_hot_runtime_settings(env_files, monkeypatch):
     env_path, example_path = env_files
     monkeypatch.setattr(service, "_log_config_event", lambda *args, **kwargs: None)
     old_base_url = settings.API_BASE_URL
+    old_guard = settings.API_EXECUTION_EGRESS_GUARD_ENABLED
 
     try:
         result = service.save_values(
-            {"API_BASE_URL": "https://hot-reload.test/v1"},
+            {
+                "API_BASE_URL": "https://hot-reload.test/v1",
+                "API_EXECUTION_EGRESS_GUARD_ENABLED": "false",
+            },
             env_path=env_path,
             example_path=example_path,
         )
         assert result["restart_required"] is False
         assert settings.API_BASE_URL == "https://hot-reload.test/v1"
+        assert settings.API_EXECUTION_EGRESS_GUARD_ENABLED is False
     finally:
         settings.API_BASE_URL = old_base_url
+        settings.API_EXECUTION_EGRESS_GUARD_ENABLED = old_guard
 
 
 def test_save_values_persists_performance_configuration(env_files, monkeypatch):

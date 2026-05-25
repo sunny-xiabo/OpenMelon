@@ -23,7 +23,7 @@ def test_background_run_finishes_and_persists_report(monkeypatch, tmp_path):
             }
 
         monkeypatch.setattr(run_queue, "run_all_steps", fake_run_all_steps)
-        queued = await run_queue.enqueue_run(_request(), {"base_url": "http://example.test"})
+        queued = await run_queue.enqueue_run(_request(), {"base_url": "http://127.0.0.1:8000"})
 
         assert queued["status"] == "queued"
         saved = await _wait_for_status(store, queued["run_id"], {"passed", "failed", "cancelled"})
@@ -45,7 +45,7 @@ def test_background_run_updates_step_progress(monkeypatch, tmp_path):
                 "step_id": "s1",
                 "name": "Step 1",
                 "method": "GET",
-                "url": "http://example.test/one",
+                "url": "http://127.0.0.1:8000/one",
                 "status": "passed",
                 "status_code": 200,
                 "duration_ms": 3,
@@ -56,7 +56,7 @@ def test_background_run_updates_step_progress(monkeypatch, tmp_path):
                 "error": None,
                 "diagnostics": [],
             }
-            second_result = {**first_result, "step_id": "s2", "name": "Step 2", "url": "http://example.test/two"}
+            second_result = {**first_result, "step_id": "s2", "name": "Step 2", "url": "http://127.0.0.1:8000/two"}
             await progress_callback(
                 {
                     "progress_total": 2,
@@ -104,7 +104,7 @@ def test_background_run_updates_step_progress(monkeypatch, tmp_path):
             }
 
         monkeypatch.setattr(run_queue, "run_all_steps", fake_run_all_steps)
-        queued = await run_queue.enqueue_run(_request(step_count=2), {"base_url": "http://example.test"})
+        queued = await run_queue.enqueue_run(_request(step_count=2), {"base_url": "http://127.0.0.1:8000"})
         saved = await _wait_for_status(store, queued["run_id"], {"passed", "failed", "cancelled"})
 
         assert saved["status"] == "passed"
@@ -124,7 +124,7 @@ def test_background_run_can_be_cancelled(monkeypatch, tmp_path):
             await asyncio.sleep(10)
 
         monkeypatch.setattr(run_queue, "run_all_steps", slow_run_all_steps)
-        queued = await run_queue.enqueue_run(_request(), {"base_url": "http://example.test"})
+        queued = await run_queue.enqueue_run(_request(), {"base_url": "http://127.0.0.1:8000"})
         await asyncio.sleep(0)
 
         cancelled = await run_queue.cancel_run(queued["run_id"])
@@ -206,9 +206,9 @@ def test_background_run_uses_configured_queue_timeout(monkeypatch, tmp_path):
 
         monkeypatch.setattr(run_queue, "run_all_steps", fake_run_all_steps)
         with override_api_execution_store(store):
-            first = await run_queue.enqueue_run(_request(case_id="case_slow"), {"base_url": "http://example.test"})
+            first = await run_queue.enqueue_run(_request(case_id="case_slow"), {"base_url": "http://127.0.0.1:8000"})
             await started.wait()
-            second = await run_queue.enqueue_run(_request(case_id="case_waiting"), {"base_url": "http://example.test"})
+            second = await run_queue.enqueue_run(_request(case_id="case_waiting"), {"base_url": "http://127.0.0.1:8000"})
             saved = await _wait_for_status(store, second["run_id"], {"failed"})
             await run_queue.cancel_run(first["run_id"])
             monkeypatch.setattr(settings, "API_EXECUTION_MAX_CONCURRENT_RUNS", 2)
@@ -233,7 +233,7 @@ def _request(step_count=1, case_id="case_queue"):
     script = APITestCaseDsl(
         case_id=case_id,
         name="后台执行 smoke",
-        base_url="http://example.test",
+        base_url="http://127.0.0.1:8000",
         steps=[
             {
                 "id": f"s{index}",
@@ -245,4 +245,4 @@ def _request(step_count=1, case_id="case_queue"):
             for index in range(1, step_count + 1)
         ],
     )
-    return RunScriptRequest(script=script, base_url="http://example.test")
+    return RunScriptRequest(script=script, base_url="http://127.0.0.1:8000")
