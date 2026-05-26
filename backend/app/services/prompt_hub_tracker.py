@@ -361,7 +361,14 @@ class PromptHubTracker(BasePostgresStore):
     def _repair_runtime_data_no_lock(self, data: dict[str, Any]) -> dict[str, Any]:
         candidate = self._upgrade_legacy_data(copy.deepcopy(data))
         repaired = False
+        
+        # Repair empty templates
         templates = candidate.get("templates") or []
+        if not templates:
+            candidate["templates"] = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA["templates"])
+            templates = candidate["templates"]
+            repaired = True
+
         enabled_templates = [item for item in templates if item.get("enabled", True)]
         if templates and not enabled_templates:
             fallback = next((item for item in templates if item.get("id") == DEFAULT_TEMPLATE_ID), templates[0])
@@ -374,10 +381,22 @@ class PromptHubTracker(BasePostgresStore):
             candidate["templates"] = self._normalize_default_template(templates, preferred_id)
             repaired = True
 
+        # Repair empty categories
         categories = candidate.get("skill_categories") or []
+        if not categories:
+            candidate["skill_categories"] = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA["skill_categories"])
+            categories = candidate["skill_categories"]
+            repaired = True
+
         if categories and not any(item.get("is_default") for item in categories):
             categories[0]["is_default"] = True
             candidate["skill_categories"] = categories
+            repaired = True
+
+        # Repair empty skills
+        skills = candidate.get("skills") or []
+        if not skills:
+            candidate["skills"] = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA["skills"])
             repaired = True
 
         if repaired:
@@ -412,11 +431,9 @@ class PromptHubTracker(BasePostgresStore):
         )
         return bool(
             row
-            and (
-                row["template_count"] > 0
-                or row["category_count"] > 0
-                or row["skill_count"] > 0
-            )
+            and row["template_count"] > 0
+            and row["category_count"] > 0
+            and row["skill_count"] > 0
         )
 
     def _get_meta_no_lock(self, key: str) -> str | None:

@@ -169,6 +169,7 @@ export default function ConfigCenter() {
             onSelect={(title) => { setActiveGroup(title); setSearchQuery(''); }} 
             onSearch={setSearchQuery}
             searchQuery={searchQuery}
+            status={status}
           />
 
           <Box sx={{ minWidth: 0 }}>
