@@ -63,7 +63,7 @@ export const ProjectEnvProvider = ({ children }) => {
   const [cleanupStepsText, setCleanupStepsText] = useState('[]');
 
   // 使用 TanStack Query
-  const { data: projects = [] } = useExecProjects();
+  const { data: projects = [], isFetched: projectsFetched } = useExecProjects();
   const { data: environments = [] } = useExecEnvironments(selectedProjectId);
   
   const saveProjectMutation = useSaveProjectMutation();
@@ -322,7 +322,7 @@ export const ProjectEnvProvider = ({ children }) => {
   }, [applyEnvironmentValues]);
 
   const value = useMemo(() => ({
-    projects, environments,
+    projects, projectsFetched, environments,
     selectedProjectId, setSelectedProjectId,
     selectedEnvironmentId, setSelectedEnvironmentId,
     projectName, setProjectName,
@@ -358,7 +358,7 @@ export const ProjectEnvProvider = ({ children }) => {
     buildRunOptions,
     saveCurrentEnvironment,
     buildProjectPolicySnapshot,
-  }), [projects, environments, selectedProjectId, selectedEnvironmentId, projectName, environmentName, environmentType, environmentVariablesText, environmentTimeoutMs, baseUrl, bearerToken, globalHeadersText, allowAiExecution, allowAiRepair, allowScheduledExecution, allowAiGenerateDsl, allowOverwriteHistory, maxAutoRepairs, maxReruns, maxRequestsPerRun, riskOverridesText, operationAllowlistText, operationBlocklistText, authConfigText, setupStepsText, cleanupStepsText]);
+  }), [projects, projectsFetched, environments, selectedProjectId, selectedEnvironmentId, projectName, environmentName, environmentType, environmentVariablesText, environmentTimeoutMs, baseUrl, bearerToken, globalHeadersText, allowAiExecution, allowAiRepair, allowScheduledExecution, allowAiGenerateDsl, allowOverwriteHistory, maxAutoRepairs, maxReruns, maxRequestsPerRun, riskOverridesText, operationAllowlistText, operationBlocklistText, authConfigText, setupStepsText, cleanupStepsText]);
 
   return (
     <ProjectEnvContext.Provider value={value}>

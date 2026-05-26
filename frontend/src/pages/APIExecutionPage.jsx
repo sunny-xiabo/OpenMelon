@@ -146,6 +146,8 @@ function APIExecutionContent() {
     environmentName,
     baseUrl,
     selectedProjectId,
+    projects,
+    projectsFetched,
     spec,
     parsedScript,
     backgroundRunStatus,
@@ -154,11 +156,12 @@ function APIExecutionContent() {
     if (typeof window === 'undefined') return 'simple';
     return window.localStorage.getItem(WORKSPACE_MODE_STORAGE_KEY) || 'simple';
   });
-  const [activeSection, setActiveSection] = React.useState('agent');
+  const [activeSection, setActiveSection] = React.useState(() => SECTION_BY_STEP[activeStep] || 'config');
   const ignoredStepSyncRef = React.useRef(null);
   const previousActiveStepRef = React.useRef(activeStep);
   const manualSectionRef = React.useRef(false);
-  const { data: projectAssets } = useProjectAssets(selectedProjectId);
+  const defaultLandingResolvedRef = React.useRef(false);
+  const { data: projectAssets, isFetched: projectAssetsFetched } = useProjectAssets(selectedProjectId);
   const modules = projectAssets?.modules || [];
   const interfaces = projectAssets?.interfaces || [];
   const activeInterfaceCount = interfaces.filter(isExecutableInterface).length;
@@ -170,6 +173,8 @@ function APIExecutionContent() {
   const hasDsl = Boolean(dslText);
   const scriptStepCount = parsedScript?.steps?.length || 0;
   const hasRunFailure = runReport?.status === 'failed';
+  const safeProjects = Array.isArray(projects) ? projects : [];
+  const hasStoredApiAutomationData = safeProjects.length > 0;
 
   React.useEffect(() => {
     if (previousActiveStepRef.current === activeStep) {
@@ -189,6 +194,23 @@ function APIExecutionContent() {
       window.localStorage.setItem(WORKSPACE_MODE_STORAGE_KEY, workspaceMode);
     }
   }, [workspaceMode]);
+
+  React.useEffect(() => {
+    if (activeStep !== 0 || defaultLandingResolvedRef.current || manualSectionRef.current || !projectsFetched) return;
+    if (!hasStoredApiAutomationData) {
+      defaultLandingResolvedRef.current = true;
+      setActiveSection('config');
+      if (activeStep !== 0) {
+        ignoredStepSyncRef.current = 0;
+        setActiveStep(0);
+      }
+      return;
+    }
+    if (!selectedProjectId || !projectAssetsFetched) return;
+    defaultLandingResolvedRef.current = true;
+    setWorkspaceMode('advanced');
+    setActiveSection('assets');
+  }, [activeStep, hasStoredApiAutomationData, projectAssetsFetched, projectsFetched, selectedProjectId, setActiveStep]);
 
   const visibleSections = workspaceMode === 'simple' ? SIMPLE_WORKBENCH_SECTIONS : WORKBENCH_SECTIONS;
 
@@ -232,14 +254,20 @@ function APIExecutionContent() {
   });
 
   React.useEffect(() => {
-    if (!isSimpleMode || manualSectionRef.current || activeSection === suggestedSimpleSection) return;
+    if (
+      !defaultLandingResolvedRef.current ||
+      (activeStep === 0 && hasStoredApiAutomationData) ||
+      !isSimpleMode ||
+      manualSectionRef.current ||
+      activeSection === suggestedSimpleSection
+    ) return;
     const section = WORKBENCH_SECTIONS.find((item) => item.id === suggestedSimpleSection);
     setActiveSection(suggestedSimpleSection);
     if (section?.step !== null && section?.step !== undefined && section.step !== activeStep) {
       ignoredStepSyncRef.current = section.step;
       setActiveStep(section.step);
     }
-  }, [activeSection, activeStep, isSimpleMode, setActiveStep, suggestedSimpleSection]);
+  }, [activeSection, activeStep, hasStoredApiAutomationData, isSimpleMode, setActiveStep, suggestedSimpleSection]);
 
   const workflowSteps = React.useMemo(() => {
     const baseSteps = isSimpleMode
@@ -333,86 +361,217 @@ function APIExecutionContent() {
   }, [activeInterfaceCount, activeSection, hasDsl, hasExecutionResult, hasProjectConfig, hasRunFailure, isRunActive, isSimpleMode, modules.length, runStatus, scriptStepCount]);
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', bgcolor: '#f7f9fc', color: 'text.primary' }}>
+    <Box sx={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', bgcolor: '#f8fafc', color: 'text.primary' }}>
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Box
           component="header"
           sx={{
             px: { xs: 2, md: 3 },
-            py: 2,
-            bgcolor: '#ffffff',
+            py: 2.2,
+            bgcolor: 'rgba(255, 255, 255, 0.45)',
+            backdropFilter: 'blur(20px)',
             borderBottom: '1px solid',
-            borderColor: 'rgba(15, 23, 42, 0.08)',
+            borderColor: 'rgba(255, 255, 255, 0.45)',
+            boxShadow: '0 8px 32px rgba(15, 23, 42, 0.03), inset 0 1px 0 rgba(255,255,255,0.7)',
+            position: 'relative',
+            overflow: 'hidden',
+            animation: 'rainbowBorder 10s infinite ease-in-out',
           }}
         >
-          <Stack spacing={1.5}>
+          {/* Subtle decorative glowing background dots */}
+          <Box sx={{ position: 'absolute', top: -30, right: 60, width: 120, height: 120, background: 'radial-gradient(circle, rgba(79, 70, 229, 0.08) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
+          <Box sx={{ position: 'absolute', bottom: -30, left: 120, width: 100, height: 100, background: 'radial-gradient(circle, rgba(6, 182, 212, 0.06) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 0 }} />
+          
+          <style>{`
+            @keyframes radarPulse {
+              0% { transform: scale(0.9); opacity: 0.4; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+              50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 8px 3px rgba(16, 185, 129, 0.35); }
+              100% { transform: scale(0.9); opacity: 0.4; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+            }
+            @keyframes rainbowBorder {
+              0% { border-color: rgba(99, 102, 241, 0.2); }
+              50% { border-color: rgba(6, 182, 212, 0.3); }
+              100% { border-color: rgba(99, 102, 241, 0.2); }
+            }
+          `}</style>
+
+          <Stack spacing={2} sx={{ position: 'relative', zIndex: 1 }}>
             <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} justifyContent="space-between" alignItems={{ xs: 'stretch', lg: 'center' }}>
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="h5" fontWeight={850} sx={{ lineHeight: 1.2 }}>
-                  {isSimpleMode ? 'API Agent 测试工作台' : 'API 自动化工作台'}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <Typography variant="h5" fontWeight={900} sx={{ lineHeight: 1.25, letterSpacing: '-0.025em', color: 'text.primary' }}>
+                    {isSimpleMode ? 'API Agent 测试工作台' : 'API 自动化工作台'}
+                  </Typography>
+                  <Chip
+                    size="small"
+                    icon={
+                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#10b981', display: 'inline-block', animation: 'radarPulse 2s infinite ease-in-out', mr: -0.5, ml: 1 }} />
+                    }
+                    label="极客遥测舱"
+                    sx={{
+                      fontSize: '10px',
+                      fontWeight: 800,
+                      bgcolor: 'rgba(16, 185, 129, 0.05)',
+                      color: '#10b981',
+                      border: '1px solid rgba(16, 185, 129, 0.15)',
+                      borderRadius: '6px',
+                      height: 20,
+                      '& .MuiChip-icon': {
+                        display: 'flex',
+                        alignItems: 'center'
+                      }
+                    }}
+                  />
+                </Stack>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mt: 0.5 }}>
                   {isSimpleMode ? '跟着 Agent 完成准备、选范围、执行和看结果；高级模式保留完整治理与编排能力。' : activeSectionMeta.description}
                 </Typography>
               </Box>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
                 {isSimpleMode ? (
                   <>
-                    <Chip size="small" label={selectedProjectId ? `项目：${projectName || '已选择'}` : '项目待选择'} color={selectedProjectId ? 'primary' : 'default'} variant="outlined" />
-                    <Chip size="small" label={baseUrl ? `环境：${environmentName || '已配置'}` : '环境待配置'} color={baseUrl ? 'success' : 'default'} variant="outlined" />
+                    <Chip 
+                      size="small" 
+                      label={selectedProjectId ? `项目：${projectName || '已选择'}` : '项目待选择'} 
+                      sx={{ 
+                        fontSize: '11px', 
+                        fontWeight: 800, 
+                        bgcolor: selectedProjectId ? 'rgba(79, 70, 229, 0.05)' : 'rgba(0,0,0,0.03)', 
+                        color: selectedProjectId ? '#4f46e5' : 'text.secondary', 
+                        border: selectedProjectId ? '1px solid rgba(79, 70, 229, 0.15)' : '1px solid rgba(0,0,0,0.06)',
+                        borderRadius: '6px'
+                      }} 
+                    />
+                    <Chip 
+                      size="small" 
+                      label={baseUrl ? `环境：${environmentName || '已配置'}` : '环境待配置'} 
+                      sx={{ 
+                        fontSize: '11px', 
+                        fontWeight: 800, 
+                        bgcolor: baseUrl ? 'rgba(16, 185, 129, 0.05)' : 'rgba(0,0,0,0.03)', 
+                        color: baseUrl ? '#10b981' : 'text.secondary', 
+                        border: baseUrl ? '1px solid rgba(16, 185, 129, 0.15)' : '1px solid rgba(0,0,0,0.06)',
+                        borderRadius: '6px'
+                      }} 
+                    />
                   </>
                 ) : (
                   <>
-                    <Chip size="small" label={`项目：${projectName || '未选择'}`} color={selectedProjectId ? 'primary' : 'default'} variant="outlined" />
-                    <Chip size="small" label={`环境：${environmentName || '未选择'}`} variant="outlined" />
-                    <Chip size="small" label={`Base URL：${baseUrl || '未配置'}`} variant="outlined" />
+                    <Chip 
+                      size="small" 
+                      label={`项目：${projectName || '未选择'}`} 
+                      sx={{ 
+                        fontSize: '11px', 
+                        fontWeight: 800, 
+                        bgcolor: selectedProjectId ? 'rgba(79, 70, 229, 0.05)' : 'rgba(0,0,0,0.03)', 
+                        color: selectedProjectId ? '#4f46e5' : 'text.secondary', 
+                        border: selectedProjectId ? '1px solid rgba(79, 70, 229, 0.15)' : '1px solid rgba(0,0,0,0.06)',
+                        borderRadius: '6px'
+                      }} 
+                    />
+                    <Chip 
+                      size="small" 
+                      label={`环境：${environmentName || '未选择'}`} 
+                      sx={{ 
+                        fontSize: '11px', 
+                        fontWeight: 800, 
+                        bgcolor: environmentName ? 'rgba(2, 132, 199, 0.05)' : 'rgba(0,0,0,0.03)', 
+                        color: environmentName ? '#0284c7' : 'text.secondary', 
+                        border: environmentName ? '1px solid rgba(2, 132, 199, 0.15)' : '1px solid rgba(0,0,0,0.06)',
+                        borderRadius: '6px'
+                      }} 
+                    />
+                    <Chip 
+                      size="small" 
+                      label={`Base URL：${baseUrl || '未配置'}`} 
+                      sx={{ 
+                        fontSize: '11px', 
+                        fontWeight: 800, 
+                        bgcolor: baseUrl ? 'rgba(16, 185, 129, 0.05)' : 'rgba(0,0,0,0.03)', 
+                        color: baseUrl ? '#10b981' : 'text.secondary', 
+                        border: baseUrl ? '1px solid rgba(16, 185, 129, 0.15)' : '1px solid rgba(0,0,0,0.06)',
+                        borderRadius: '6px'
+                      }} 
+                    />
                   </>
                 )}
-                <Button
-                  size="small"
-                  variant={workspaceMode === 'simple' ? 'contained' : 'outlined'}
-                  onClick={() => {
-                    manualSectionRef.current = false;
-                    setWorkspaceMode('simple');
-                    handleSectionChange(null, suggestedSimpleSection, { userInitiated: false });
-                  }}
-                >
-                  简洁模式
-                </Button>
-                <Button
-                  size="small"
-                  variant={workspaceMode === 'advanced' ? 'contained' : 'outlined'}
-                  onClick={() => {
-                    manualSectionRef.current = true;
-                    setWorkspaceMode('advanced');
-                  }}
-                >
-                  高级模式
-                </Button>
+                <Box sx={{ display: 'inline-flex', bgcolor: 'rgba(0,0,0,0.03)', p: '3px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.04)' }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      manualSectionRef.current = false;
+                      setWorkspaceMode('simple');
+                      handleSectionChange(null, suggestedSimpleSection, { userInitiated: false });
+                    }}
+                    sx={{
+                      py: 0.5,
+                      px: 1.5,
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      borderRadius: '6px',
+                      textTransform: 'none',
+                      color: workspaceMode === 'simple' ? '#4f46e5' : 'text.secondary',
+                      bgcolor: workspaceMode === 'simple' ? '#ffffff' : 'transparent',
+                      boxShadow: workspaceMode === 'simple' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      '&:hover': {
+                        bgcolor: workspaceMode === 'simple' ? '#ffffff' : 'rgba(0,0,0,0.02)',
+                      },
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    简洁模式
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      manualSectionRef.current = true;
+                      setWorkspaceMode('advanced');
+                    }}
+                    sx={{
+                      py: 0.5,
+                      px: 1.5,
+                      fontSize: '11px',
+                      fontWeight: 800,
+                      borderRadius: '6px',
+                      textTransform: 'none',
+                      color: workspaceMode === 'advanced' ? '#4f46e5' : 'text.secondary',
+                      bgcolor: workspaceMode === 'advanced' ? '#ffffff' : 'transparent',
+                      boxShadow: workspaceMode === 'advanced' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      '&:hover': {
+                        bgcolor: workspaceMode === 'advanced' ? '#ffffff' : 'rgba(0,0,0,0.02)',
+                      },
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    高级模式
+                  </Button>
+                </Box>
               </Stack>
             </Stack>
 
             {isSimpleMode ? (
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} color={activeInterfaceCount ? 'success' : 'default'} variant="outlined" />
-                <Chip size="small" label={`${changedInterfaceCount} 个变更`} color={changedInterfaceCount ? 'warning' : 'default'} variant="outlined" />
-                <Chip size="small" label={dslText ? '计划已生成' : '计划未生成'} color={dslText ? 'success' : 'default'} variant="outlined" />
-                <Chip size="small" label={hasExecutionResult ? '已有结果' : '暂无结果'} color={hasExecutionResult ? 'info' : 'default'} variant="outlined" />
+                <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: activeInterfaceCount ? 'rgba(16, 185, 129, 0.04)' : 'rgba(0,0,0,0.02)', color: activeInterfaceCount ? '#10b981' : 'text.secondary', border: activeInterfaceCount ? '1px solid rgba(16, 185, 129, 0.12)' : 'none', borderRadius: '5px' }} />
+                <Chip size="small" label={`${changedInterfaceCount} 个变更`} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: changedInterfaceCount ? 'rgba(245, 158, 11, 0.04)' : 'rgba(0,0,0,0.02)', color: changedInterfaceCount ? '#f59e0b' : 'text.secondary', border: changedInterfaceCount ? '1px solid rgba(245, 158, 11, 0.12)' : 'none', borderRadius: '5px' }} />
+                <Chip size="small" label={dslText ? '计划已生成' : '计划未生成'} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: dslText ? 'rgba(79, 70, 229, 0.04)' : 'rgba(0,0,0,0.02)', color: dslText ? '#4f46e5' : 'text.secondary', border: dslText ? '1px solid rgba(79, 70, 229, 0.12)' : 'none', borderRadius: '5px' }} />
+                <Chip size="small" label={hasExecutionResult ? '已有结果' : '暂无结果'} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: hasExecutionResult ? 'rgba(2, 132, 199, 0.04)' : 'rgba(0,0,0,0.02)', color: hasExecutionResult ? '#0284c7' : 'text.secondary', border: hasExecutionResult ? '1px solid rgba(2, 132, 199, 0.12)' : 'none', borderRadius: '5px' }} />
               </Stack>
             ) : (
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Chip size="small" label={`${modules.length} 个模块`} />
-                <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} color={activeInterfaceCount ? 'success' : 'default'} variant="outlined" />
-                <Chip size="small" label={`${changedInterfaceCount} 个变更接口`} color={changedInterfaceCount ? 'warning' : 'default'} variant="outlined" />
-                <Chip size="small" label={spec?.spec_id ? `OpenAPI：${spec.operation_count || spec.operations?.length || 0} 个接口` : 'OpenAPI：未加载'} variant="outlined" />
-                <Chip size="small" label={dslText ? 'DSL：已生成' : 'DSL：未生成'} color={dslText ? 'success' : 'default'} variant="outlined" />
-                <Chip size="small" label={hasExecutionResult ? '报告：已有结果' : '报告：暂无结果'} color={hasExecutionResult ? 'info' : 'default'} variant="outlined" />
+                <Chip size="small" label={`${modules.length} 个模块`} sx={{ fontSize: '10px', fontWeight: 700, borderRadius: '5px' }} />
+                <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: activeInterfaceCount ? 'rgba(16, 185, 129, 0.04)' : 'rgba(0,0,0,0.02)', color: activeInterfaceCount ? '#10b981' : 'text.secondary', border: activeInterfaceCount ? '1px solid rgba(16, 185, 129, 0.12)' : 'none', borderRadius: '5px' }} />
+                <Chip size="small" label={`${changedInterfaceCount} 个变更接口`} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: changedInterfaceCount ? 'rgba(245, 158, 11, 0.04)' : 'rgba(0,0,0,0.02)', color: changedInterfaceCount ? '#f59e0b' : 'text.secondary', border: changedInterfaceCount ? '1px solid rgba(245, 158, 11, 0.12)' : 'none', borderRadius: '5px' }} />
+                <Chip size="small" label={spec?.spec_id ? `OpenAPI：${spec.operation_count || spec.operations?.length || 0} 个接口` : 'OpenAPI：未加载'} sx={{ fontSize: '10px', fontWeight: 700, borderRadius: '5px' }} />
+                <Chip size="small" label={dslText ? 'DSL：已生成' : 'DSL：未生成'} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: dslText ? 'rgba(79, 70, 229, 0.04)' : 'rgba(0,0,0,0.02)', color: dslText ? '#4f46e5' : 'text.secondary', border: dslText ? '1px solid rgba(79, 70, 229, 0.12)' : 'none', borderRadius: '5px' }} />
+                <Chip size="small" label={hasExecutionResult ? '报告：已有结果' : '报告：暂无结果'} sx={{ fontSize: '10px', fontWeight: 800, bgcolor: hasExecutionResult ? 'rgba(2, 132, 199, 0.04)' : 'rgba(0,0,0,0.02)', color: hasExecutionResult ? '#0284c7' : 'text.secondary', border: hasExecutionResult ? '1px solid rgba(2, 132, 199, 0.12)' : 'none', borderRadius: '5px' }} />
               </Stack>
             )}
           </Stack>
         </Box>
 
-        <Box sx={{ px: { xs: 1, md: 3 }, bgcolor: '#ffffff', borderBottom: '1px solid', borderColor: 'rgba(15, 23, 42, 0.08)' }}>
+        <Box sx={{ px: { xs: 1, md: 3 }, bgcolor: 'rgba(255, 255, 255, 0.35)', backdropFilter: 'blur(10px)', borderBottom: '1px solid', borderColor: 'rgba(15, 23, 42, 0.06)' }}>
           <Tabs
             value={activeSection}
             onChange={handleSectionChange}
@@ -420,12 +579,26 @@ function APIExecutionContent() {
             scrollButtons="auto"
             aria-label="API 自动化工作区"
             sx={{
-              minHeight: 52,
+              minHeight: 48,
+              '& .MuiTabs-indicator': {
+                height: 3,
+                borderRadius: '3px 3px 0 0',
+                background: 'linear-gradient(90deg, #4f46e5 0%, #8b5cf6 100%)',
+              },
               '& .MuiTab-root': {
-                minHeight: 52,
+                minHeight: 48,
                 px: { xs: 1.5, md: 2.25 },
-                fontWeight: 750,
+                fontWeight: 800,
+                fontSize: '12px',
                 textTransform: 'none',
+                color: 'text.secondary',
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                '&.Mui-selected': {
+                  color: '#4f46e5',
+                },
+                '&:hover': {
+                  color: 'text.primary',
+                },
               },
             }}
           >
@@ -445,10 +618,10 @@ function APIExecutionContent() {
           <Box
             sx={{
               width: '100%',
-              maxWidth: { xs: 1320, xl: 1600 },
+              maxWidth: '100%',
               mx: 'auto',
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) 220px', xl: 'minmax(0, 1320px) 260px' },
+              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 240px', xl: 'minmax(0, 1fr) 260px' },
               gap: 2.5,
               alignItems: 'start',
             }}

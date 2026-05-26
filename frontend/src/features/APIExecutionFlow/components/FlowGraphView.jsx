@@ -64,20 +64,24 @@ function ApiStepNode({ data, selected }) {
           <Typography variant="caption" color="text.secondary">#{index + 1}</Typography>
         </Stack>
         <Typography variant="body2" fontWeight={800} noWrap>{step.name || step.id}</Typography>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{
-            fontFamily: 'monospace',
-            wordBreak: 'break-all',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-          }}
-        >
-          {step.path}
-        </Typography>
+        <Tooltip title={step.path || ''} arrow enterDelay={300} disableHoverListener={!step.path}>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            style={{ WebkitBoxOrient: 'vertical' }}
+            sx={{
+              fontFamily: 'monospace',
+              wordBreak: 'break-all',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              cursor: step.path ? 'help' : 'default',
+            }}
+          >
+            {step.path}
+          </Typography>
+        </Tooltip>
         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
           {!!step.parallel_group && <Chip size="small" label={step.parallel_group} color="info" variant="outlined" />}
           {!!step.assertions?.length && <Chip size="small" label={`${step.assertions.length} 断言`} variant="outlined" />}

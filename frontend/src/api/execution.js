@@ -1,5 +1,7 @@
 import { API_BASE, fetchJSON, fetchJSONWithTimeout, fetchBlob, OPENAPI_PARSE_TIMEOUT_MS } from './client';
 
+export const CANCEL_RUN_TIMEOUT_MS = 8000;
+
 export const apiExecutionAPI = {
   listProjects: () =>
     fetchJSON(`${API_BASE}/api-execution/projects`),
@@ -459,19 +461,28 @@ export const apiExecutionAPI = {
       method: 'POST',
     }, 30000),
 
-  runSingleStep: (script, options = {}) =>
-    fetchJSON(`${API_BASE}/api-execution/runs/single-step`, {
+  runSingleStep: (script, options = {}) => {
+    const { signal, ...runOptions } = options;
+    return fetchJSON(`${API_BASE}/api-execution/runs/single-step`, {
       method: 'POST',
-      body: JSON.stringify({ script, ...options }),
-    }),
+      signal,
+      body: JSON.stringify({ script, ...runOptions }),
+    });
+  },
 
   runAllSteps: (script, options = {}) => {
-    const { requestTimeoutMs = 90000, ...runOptions } = options;
+    const { requestTimeoutMs = 90000, signal, ...runOptions } = options;
     return fetchJSONWithTimeout(`${API_BASE}/api-execution/runs`, {
       method: 'POST',
+      signal,
       body: JSON.stringify({ script, ...runOptions }),
     }, requestTimeoutMs);
   },
+
+  cancelDirectRun: (executionId) =>
+    fetchJSONWithTimeout(`${API_BASE}/api-execution/runs/direct/${encodeURIComponent(executionId)}/cancel`, {
+      method: 'POST',
+    }, CANCEL_RUN_TIMEOUT_MS),
 
   createBackgroundRun: (script, options = {}) =>
     fetchJSON(`${API_BASE}/api-execution/runs/async`, {
@@ -489,9 +500,9 @@ export const apiExecutionAPI = {
     fetchJSON(`${API_BASE}/api-execution/cases/${encodeURIComponent(caseId)}/runs?limit=${limit}&offset=${offset}`),
 
   cancelRun: (runId) =>
-    fetchJSON(`${API_BASE}/api-execution/runs/${encodeURIComponent(runId)}/cancel`, {
+    fetchJSONWithTimeout(`${API_BASE}/api-execution/runs/${encodeURIComponent(runId)}/cancel`, {
       method: 'POST',
-    }),
+    }, CANCEL_RUN_TIMEOUT_MS),
 
   listRuns: ({ limit = 10, offset = 0, status = '', keyword = '', projectId = '' } = {}) => {
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });

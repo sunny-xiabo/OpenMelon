@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Button, Collapse, Paper, Stack, Typography } from '@mui/material';
-import { CodeOutlined } from '@mui/icons-material';
 
 export default function FlowAdvancedJsonEditor({
   open,
@@ -45,50 +44,54 @@ export default function FlowAdvancedJsonEditor({
   const editorConfig = useMemo(() => {
     if (!editorModules) return null;
     const { EditorView, HighlightStyle, syntaxHighlighting, tags } = editorModules;
+    
+    // Sleek macOS Hacker Dark Theme for CodeMirror
     const editorTheme = EditorView.theme({
       '&': {
-        backgroundColor: '#ffffff',
-        color: '#202124',
+        backgroundColor: '#0f172a',
+        color: '#cbd5e1',
       },
       '.cm-content': {
-        caretColor: '#1a73e8',
+        caretColor: '#38bdf8',
       },
       '.cm-gutters': {
-        backgroundColor: '#f8f9fa',
-        color: '#9aa0a6',
-        borderRight: '1px solid #e8eaed',
+        backgroundColor: '#1e293b',
+        color: '#64748b',
+        borderRight: '1px solid #334155',
       },
       '.cm-activeLine': {
-        backgroundColor: '#e8f0fe66',
+        backgroundColor: 'rgba(30, 41, 59, 0.5)',
       },
       '.cm-activeLineGutter': {
-        backgroundColor: '#e8f0fe',
-        color: '#1a73e8',
+        backgroundColor: '#1e293b',
+        color: '#38bdf8',
       },
       '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-        backgroundColor: '#d2e3fc',
+        backgroundColor: 'rgba(56, 189, 248, 0.25)',
       },
       '&.cm-focused': {
         outline: 'none',
       },
       '.cm-tooltip': {
-        border: '1px solid #e8eaed',
+        border: '1px solid #334155',
         borderRadius: '6px',
-        boxShadow: '0 8px 24px rgba(60,64,67,0.16)',
+        backgroundColor: '#1e293b',
+        color: '#cbd5e1',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
       },
       '.cm-tooltip-autocomplete ul li[aria-selected]': {
-        backgroundColor: '#e8f0fe',
-        color: '#202124',
+        backgroundColor: 'rgba(56, 189, 248, 0.15)',
+        color: '#38bdf8',
       },
     });
 
     const apiJsonHighlightStyle = HighlightStyle.define([
-      { tag: tags.propertyName, color: '#1a73e8', fontWeight: '600' },
-      { tag: tags.string, color: '#188038' },
-      { tag: tags.number, color: '#b06000' },
-      { tag: tags.bool, color: '#9334e6' },
-      { tag: tags.null, color: '#5f6368', fontStyle: 'italic' },
-      { tag: tags.punctuation, color: '#5f6368' },
+      { tag: tags.propertyName, color: '#38bdf8', fontWeight: '600' }, // bright cyan keys
+      { tag: tags.string, color: '#34d399' }, // emerald strings
+      { tag: tags.number, color: '#fbbf24' }, // amber numbers
+      { tag: tags.bool, color: '#a78bfa' }, // purple booleans
+      { tag: tags.null, color: '#94a3b8', fontStyle: 'italic' },
+      { tag: tags.punctuation, color: '#cbd5e1' },
     ]);
 
     return {
@@ -98,21 +101,46 @@ export default function FlowAdvancedJsonEditor({
   }, [editorModules]);
 
   return (
-    <Paper sx={{ borderRadius: 3, border: '1px solid rgba(255,255,255,0.65)', bgcolor: 'rgba(255,255,255,0.52)', overflow: 'hidden' }}>
-      <Box sx={{ px: 2, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <Paper sx={{
+      borderRadius: 3.5,
+      border: '1px solid rgba(0,0,0,0.08)',
+      overflow: 'hidden',
+      boxShadow: '0 12px 30px rgba(0,0,0,0.04)',
+      bgcolor: '#0f172a',
+    }}>
+      {/* macOS Title Bar */}
+      <Box sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        px: 2,
+        py: 1.25,
+        bgcolor: '#e2e8f0',
+        borderBottom: '1px solid rgba(0,0,0,0.05)',
+      }}>
         <Stack direction="row" spacing={1} alignItems="center">
-          <CodeOutlined color="primary" fontSize="small" />
-          <Box>
-            <Typography variant="subtitle2" fontWeight={800}>高级 DSL JSON</Typography>
-            <Typography variant="caption" color="text.secondary">可直接编辑，工作台会按最新 JSON 重新渲染。</Typography>
-          </Box>
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444' }} />
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b' }} />
+          <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981' }} />
+          <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: 'text.secondary', fontFamily: 'monospace', fontSize: '10px' }}>terminal - flow_dsl.json</Typography>
         </Stack>
-        <Button size="small" variant="outlined" onClick={onToggle}>
+        <Button
+          size="small"
+          variant="text"
+          onClick={onToggle}
+          sx={{
+            color: '#4f46e5',
+            fontWeight: 800,
+            textTransform: 'none',
+            fontSize: '11px',
+            '&:hover': { bgcolor: 'rgba(79, 70, 229, 0.08)' }
+          }}
+        >
           {open ? '收起 JSON' : '展开 JSON'}
         </Button>
       </Box>
       <Collapse in={open} unmountOnExit>
-        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.65)' }}>
+        <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
           {editorModules && editorConfig ? (
             <editorModules.CodeMirror
               value={dslText}
@@ -135,7 +163,7 @@ export default function FlowAdvancedJsonEditor({
               onChange={(value) => setDslText(value)}
             />
           ) : (
-            <Box sx={{ height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
+            <Box sx={{ height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', bgcolor: '#0f172a', fontFamily: 'monospace' }}>
               编辑器准备中...
             </Box>
           )}

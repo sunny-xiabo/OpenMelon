@@ -140,38 +140,42 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
     <Paper
       elevation={0}
       sx={{
-        p: 2,
-        borderRadius: 2,
-        border: '1px solid rgba(15, 23, 42, 0.08)',
-        bgcolor: '#ffffff',
+        p: 2.5,
+        borderRadius: 4.5,
+        border: '1px solid rgba(255, 255, 255, 0.45)',
+        bgcolor: 'rgba(255, 255, 255, 0.45)',
+        backdropFilter: 'blur(20px)',
+        boxShadow: '0 8px 32px rgba(15, 23, 42, 0.02), inset 0 1px 0 rgba(255,255,255,0.7)',
       }}
     >
-      <Stack spacing={1.5}>
+      <Stack spacing={2}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between">
-          <Stack direction="row" spacing={1} alignItems="center">
-            <AccountTreeOutlined color="primary" fontSize="small" />
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: 'rgba(79, 70, 229, 0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5' }}>
+              <AccountTreeOutlined fontSize="small" />
+            </Box>
             <Box>
               <Typography variant="subtitle2" fontWeight={850}>依赖图确认</Typography>
               <Typography variant="caption" color="text.secondary">运行前确认步骤顺序、前置依赖和禁用影响</Typography>
             </Box>
           </Stack>
           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-            <Chip size="small" label={`${graph.steps.length} 个步骤`} variant="outlined" />
-            <Chip size="small" label={`${graph.edges.length} 条依赖`} color={graph.edges.length ? 'primary' : 'default'} variant="outlined" />
-            <Chip size="small" label={`${graph.rootSteps.length} 个起点`} variant="outlined" />
-            <Chip size="small" label={`${graph.disabled.size} 个禁用`} color={graph.disabled.size ? 'warning' : 'default'} variant="outlined" />
+            <Chip size="small" label={`${graph.steps.length} 个步骤`} variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }} />
+            <Chip size="small" label={`${graph.edges.length} 条依赖`} color={graph.edges.length ? 'primary' : 'default'} variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }} />
+            <Chip size="small" label={`${graph.rootSteps.length} 个起点`} variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }} />
+            <Chip size="small" label={`${graph.disabled.size} 个禁用`} color={graph.disabled.size ? 'warning' : 'default'} variant="outlined" sx={{ borderRadius: 2, fontWeight: 700 }} />
           </Stack>
         </Stack>
 
         {hasWarnings && (
-          <Alert severity="warning">
+          <Alert severity="warning" sx={{ borderRadius: 3.5 }}>
             {!!graph.missingEdges.length && `存在 ${graph.missingEdges.length} 条依赖指向不存在的步骤。`}
             {!!graph.disabledDependencyEdges.length && ` 存在 ${graph.disabledDependencyEdges.length} 条依赖的前置步骤已禁用。`}
           </Alert>
         )}
 
         {!hasWarnings && (
-          <Alert severity="success">
+          <Alert severity="success" sx={{ borderRadius: 3.5 }}>
             当前依赖图可解析，执行时会按 `depends_on` 关系串联步骤。
           </Alert>
         )}
@@ -179,10 +183,13 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
         <Box
           sx={{
             border: '1px solid rgba(15, 23, 42, 0.08)',
-            borderRadius: 1,
-            bgcolor: '#f8fafc',
+            borderRadius: 3.5,
+            background: 'radial-gradient(circle at 50% 50%, rgba(248, 250, 252, 0.6) 0%, rgba(241, 245, 249, 0.6) 100%)',
+            backdropFilter: 'blur(8px)',
+            boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.03)',
             overflowX: 'auto',
             overflowY: 'hidden',
+            position: 'relative',
           }}
         >
           <Box sx={{ minWidth: Math.max(canvas.width, 760), p: 1 }}>
@@ -195,13 +202,51 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
               style={{ display: 'block' }}
             >
               <defs>
+                <style>{`
+                  .node-group {
+                    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), filter 0.25s ease;
+                  }
+                  .node-group:hover {
+                    transform: translateY(-4px);
+                    filter: drop-shadow(0 12px 28px rgba(99, 102, 241, 0.35));
+                  }
+                  .node-group-selected {
+                    filter: drop-shadow(0 8px 24px rgba(79, 70, 229, 0.25));
+                  }
+                  .laser-line {
+                    stroke-dasharray: 8 6;
+                    animation: laserFlow 1.5s linear infinite;
+                  }
+                  @keyframes laserFlow {
+                    from { stroke-dashoffset: 28; }
+                    to { stroke-dashoffset: 0; }
+                  }
+                `}</style>
+                <pattern id="cyber-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                  <rect width="40" height="40" fill="none" />
+                  <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(99, 102, 241, 0.05)" strokeWidth="1" />
+                  <path d="M 20 0 L 20 20 L 0 20" fill="none" stroke="rgba(99, 102, 241, 0.02)" strokeWidth="0.5" />
+                </pattern>
+                <linearGradient id="selected-node-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#ffffff" />
+                  <stop offset="100%" stopColor="#eef2ff" />
+                </linearGradient>
+                <linearGradient id="laser-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#818cf8" />
+                  <stop offset="100%" stopColor="#4f46e5" />
+                </linearGradient>
+                <linearGradient id="laser-gradient-warning" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#fbbf24" />
+                  <stop offset="100%" stopColor="#d97706" />
+                </linearGradient>
                 <marker id="dependency-arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#4f46e5" />
                 </marker>
                 <marker id="dependency-arrow-warning" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#d97706" />
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#d97706" />
                 </marker>
               </defs>
+              <rect width="100%" height="100%" fill="url(#cyber-grid)" />
               {graph.edges.map((edge) => {
                 const from = canvas.positions[edge.from];
                 const to = canvas.positions[edge.to];
@@ -213,15 +258,25 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
                 const toY = to.y + CANVAS_NODE_HEIGHT / 2;
                 const curve = Math.max((toX - fromX) / 2, 48);
                 return (
-                  <path
-                    key={`${edge.from}-${edge.to}`}
-                    d={`M ${fromX} ${fromY} C ${fromX + curve} ${fromY}, ${toX - curve} ${toY}, ${toX - 8} ${toY}`}
-                    fill="none"
-                    stroke={warning ? '#d97706' : '#64748b'}
-                    strokeWidth={warning ? 2.5 : 2}
-                    strokeDasharray={warning ? '7 5' : 'none'}
-                    markerEnd={`url(#${warning ? 'dependency-arrow-warning' : 'dependency-arrow'})`}
-                  />
+                  <g key={`${edge.from}-${edge.to}`}>
+                    {/* Glowing background line */}
+                    <path
+                      d={`M ${fromX} ${fromY} C ${fromX + curve} ${fromY}, ${toX - curve} ${toY}, ${toX - 8} ${toY}`}
+                      fill="none"
+                      stroke={warning ? 'rgba(245, 158, 11, 0.2)' : 'rgba(79, 70, 229, 0.2)'}
+                      strokeWidth={4}
+                      filter="blur(2px)"
+                    />
+                    {/* Moving laser dashed line */}
+                    <path
+                      className="laser-line"
+                      d={`M ${fromX} ${fromY} C ${fromX + curve} ${fromY}, ${toX - curve} ${toY}, ${toX - 8} ${toY}`}
+                      fill="none"
+                      stroke={warning ? 'url(#laser-gradient-warning)' : 'url(#laser-gradient)'}
+                      strokeWidth={2}
+                      markerEnd={`url(#${warning ? 'dependency-arrow-warning' : 'dependency-arrow'})`}
+                    />
+                  </g>
                 );
               })}
               {graph.steps.map((step, index) => {
@@ -236,6 +291,7 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
                 return (
                   <g
                     key={step.id || index}
+                    className={`node-group ${selected ? 'node-group-selected' : ''}`}
                     role="button"
                     tabIndex={0}
                     onClick={() => setRunStepId(step.id)}
@@ -250,9 +306,9 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
                       y={position.y}
                       width={CANVAS_NODE_WIDTH}
                       height={CANVAS_NODE_HEIGHT}
-                      rx="8"
-                      fill={disabled ? '#f1f5f9' : selected ? '#eff6ff' : '#ffffff'}
-                      stroke={missingDependencyCount ? '#ef4444' : selected ? '#2563eb' : '#cbd5e1'}
+                      rx="10"
+                      fill={disabled ? 'rgba(248, 250, 252, 0.6)' : selected ? 'url(#selected-node-grad)' : '#ffffff'}
+                      stroke={missingDependencyCount ? '#ef4444' : selected ? '#4f46e5' : 'rgba(15, 23, 42, 0.08)'}
                       strokeWidth={selected ? 2.5 : 1.5}
                     />
                     <rect
@@ -301,7 +357,7 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
           </Box>
         </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' }, gap: 1 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' }, gap: 2 }}>
           {graph.steps.map((step, index) => {
             const disabled = graph.disabled.has(step.id);
             const selected = runStepId === step.id;
@@ -315,22 +371,31 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
                   if (event.key === 'Enter' || event.key === ' ') setRunStepId(step.id);
                 }}
                 sx={{
-                  p: 1.25,
-                  borderRadius: 1,
+                  p: 2,
+                  borderRadius: 3.5,
                   border: '1px solid',
-                  borderColor: selected ? 'primary.main' : 'rgba(15, 23, 42, 0.08)',
-                  bgcolor: disabled ? '#f1f5f9' : selected ? '#eff6ff' : '#f8fafc',
+                  borderColor: selected ? 'rgba(79, 70, 229, 0.5)' : 'rgba(15, 23, 42, 0.06)',
+                  bgcolor: disabled ? 'rgba(241, 245, 249, 0.5)' : selected ? 'rgba(238, 242, 255, 0.8)' : 'rgba(255, 255, 255, 0.6)',
+                  backdropFilter: 'blur(10px)',
+                  boxShadow: selected ? '0 8px 24px rgba(79, 70, 229, 0.08)' : '0 2px 8px rgba(0,0,0,0.01)',
                   cursor: 'pointer',
                   opacity: disabled ? 0.72 : 1,
                   outline: 'none',
-                  '&:focus-visible': { boxShadow: '0 0 0 2px rgba(37, 99, 235, 0.25)' },
+                  transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                  '&:hover': {
+                    borderColor: selected ? 'rgba(79, 70, 229, 0.7)' : 'rgba(79, 70, 229, 0.3)',
+                    bgcolor: selected ? 'rgba(238, 242, 255, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                    transform: 'translateY(-2px)',
+                    boxShadow: selected ? '0 12px 28px rgba(79, 70, 229, 0.12)' : '0 6px 16px rgba(0,0,0,0.04)',
+                  },
+                  '&:focus-visible': { boxShadow: '0 0 0 2px rgba(79, 70, 229, 0.25)' },
                 }}
               >
-                <Stack spacing={0.75}>
+                <Stack spacing={1}>
                   <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Chip size="small" label={step.method || 'STEP'} color={METHOD_COLORS[step.method] || 'default'} />
+                    <Chip size="small" label={step.method || 'STEP'} color={METHOD_COLORS[step.method] || 'default'} sx={{ borderRadius: 1.5, fontWeight: 700 }} />
                     <Typography variant="caption" fontWeight={850}>{step.id || `s${index + 1}`}</Typography>
-                    {disabled && <Chip size="small" label="已禁用" color="warning" variant="outlined" />}
+                    {disabled && <Chip size="small" label="已禁用" color="warning" variant="outlined" sx={{ borderRadius: 1.5 }} />}
                   </Stack>
                   <Typography variant="body2" fontWeight={800} noWrap>{step.name || step.operation_id || step.path}</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }} noWrap>{step.path || step.operation_id}</Typography>
@@ -338,13 +403,13 @@ function DependencyGraphPanel({ script, runStepId, setRunStepId, disabledStepIds
                   <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
                     {(step.depends_on || []).length ? (
                       (step.depends_on || []).map((dependency) => (
-                        <Chip key={dependency} size="small" label={`依赖 ${dependency}`} variant="outlined" color={graph.missingEdges.some((edge) => edge.from === dependency && edge.to === step.id) ? 'error' : 'default'} />
+                        <Chip key={dependency} size="small" label={`依赖 ${dependency}`} variant="outlined" color={graph.missingEdges.some((edge) => edge.from === dependency && edge.to === step.id) ? 'error' : 'default'} sx={{ borderRadius: 1.5 }} />
                       ))
                     ) : (
-                      <Chip size="small" label="起点步骤" variant="outlined" />
+                      <Chip size="small" label="起点步骤" variant="outlined" sx={{ borderRadius: 1.5 }} />
                     )}
                     {!!(graph.dependentsByStep[step.id] || []).length && (
-                      <Chip size="small" label={`后续 ${graph.dependentsByStep[step.id].length}`} variant="outlined" color="primary" />
+                      <Chip size="small" label={`后续 ${graph.dependentsByStep[step.id].length}`} variant="outlined" color="primary" sx={{ borderRadius: 1.5 }} />
                     )}
                   </Stack>
                 </Stack>
@@ -401,9 +466,9 @@ const dslCompletionSource = (context) => {
 export default function StepOrchestrate() {
   const {
     dslText, setDslText, enhanceDslWithAi, globalHeadersText, setGlobalHeadersText,
-    bearerToken, setBearerToken, parsedScript, runStepId, setRunStepId, runSelectedStep, runAllSteps, loading,
+    bearerToken, setBearerToken, parsedScript, runStepId, setRunStepId, runSelectedStep, runAllSteps, forceStopActiveExecution, loading,
     baseUrl, setBaseUrl, exportPytestScript, exportPostmanCollection, aiPatch, applyAiPatch,
-    backgroundRunStatus, aiEnhancing, runReport, disabledFlowStepIds, setDisabledFlowStepIds, requestConfirm,
+    backgroundRunStatus, activeExecutionMode, aiEnhancing, runReport, disabledFlowStepIds, setDisabledFlowStepIds, requestConfirm,
     generateAiRepairPatch,
     selectedProjectId, projectName
   } = useAPIExecution();
@@ -499,30 +564,32 @@ export default function StepOrchestrate() {
                   action={(
                     <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                       <Button 
-                        variant="outlined" 
+                        variant={activeExecutionMode === 'single' ? 'contained' : 'outlined'} 
+                        color={activeExecutionMode === 'single' ? 'warning' : 'primary'}
                         startIcon={<PlayCircleOutlineOutlined />} 
-                        disabled={!dslText || executionDisabled} 
-                        onClick={handleRunSelectedStep}
-                        sx={{ borderRadius: 2, fontWeight: 700, px: 3, bgcolor: '#ffffff' }}
+                        disabled={!dslText || (executionDisabled && activeExecutionMode !== 'single')} 
+                        onClick={activeExecutionMode === 'single' ? forceStopActiveExecution : handleRunSelectedStep}
+                        sx={{ borderRadius: 2, fontWeight: 700, px: 3, bgcolor: activeExecutionMode === 'single' ? undefined : '#ffffff' }}
                       >
-                        单步执行选中步骤
+                        {activeExecutionMode === 'single' ? '强制结束单步' : '单步执行选中步骤'}
                       </Button>
                       <Button 
                         variant="contained" 
-                        disabled={!dslText || executionDisabled} 
-                        onClick={handleRunAllSteps}
+                        color={activeExecutionMode === 'all' ? 'warning' : 'primary'}
+                        disabled={!dslText || (executionDisabled && activeExecutionMode !== 'all')} 
+                        onClick={activeExecutionMode === 'all' ? forceStopActiveExecution : handleRunAllSteps}
                         sx={{ 
                           borderRadius: 2, 
                           fontWeight: 800, 
                           px: 4,
-                          background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                          boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)',
+                          background: activeExecutionMode === 'all' ? 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                          boxShadow: activeExecutionMode === 'all' ? '0 4px 14px rgba(245, 158, 11, 0.28)' : '0 4px 14px rgba(16, 185, 129, 0.3)',
                           '&:hover': {
-                            background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                            background: activeExecutionMode === 'all' ? 'linear-gradient(135deg, #d97706 0%, #b45309 100%)' : 'linear-gradient(135deg, #059669 0%, #047857 100%)',
                           }
                         }}
                       >
-                        全量链路执行
+                        {activeExecutionMode === 'all' ? '强制结束执行' : '全量链路执行'}
                       </Button>
                     </Stack>
                   )}
@@ -536,17 +603,18 @@ export default function StepOrchestrate() {
                 />
 
                 <Paper sx={{ 
-                  borderRadius: 4, 
-                  border: '1px solid', 
-                  borderColor: 'rgba(0,0,0,0.08)',
-                  boxShadow: '0 12px 40px -12px rgba(0,0,0,0.06)',
+                  borderRadius: 4.5, 
+                  border: '1px solid rgba(255, 255, 255, 0.45)', 
+                  bgcolor: 'rgba(255, 255, 255, 0.45)',
+                  backdropFilter: 'blur(20px)',
+                  boxShadow: '0 8px 32px rgba(15, 23, 42, 0.02), inset 0 1px 0 rgba(255,255,255,0.7)',
                   overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column'
                 }}>
                   <Box sx={{ 
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap',
-                    p: 2, borderBottom: '1px solid rgba(0,0,0,0.08)', bgcolor: '#ffffff'
+                    p: 2.5, borderBottom: '1px solid rgba(0, 0, 0, 0.06)', bgcolor: 'rgba(255, 255, 255, 0.25)'
                   }}>
                   <Stack direction="row" spacing={2} alignItems="center">
                     <Box sx={{ width: 44, height: 44, borderRadius: '12px', bgcolor: '#e0e7ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', boxShadow: '0 2px 8px rgba(79, 70, 229, 0.15)' }}>

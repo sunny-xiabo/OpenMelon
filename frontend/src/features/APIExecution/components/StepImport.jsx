@@ -107,18 +107,20 @@ const CONFIG_SECTION_META = [
 ];
 
 const PANEL_SX = {
-  p: { xs: 2, md: 2.5 },
-  borderRadius: 1,
-  border: '1px solid rgba(15, 23, 42, 0.08)',
-  bgcolor: '#ffffff',
-  boxShadow: 'none',
+  p: { xs: 2.5, md: 3 },
+  borderRadius: 4.5,
+  border: '1px solid rgba(255, 255, 255, 0.45)',
+  bgcolor: 'rgba(255, 255, 255, 0.45)',
+  backdropFilter: 'blur(20px)',
+  boxShadow: '0 8px 32px rgba(15, 23, 42, 0.02), inset 0 1px 0 rgba(255,255,255,0.7)',
 };
 
 const OUTLINED_BLOCK_SX = {
-  p: 2,
-  borderRadius: 1,
-  border: '1px solid rgba(15, 23, 42, 0.08)',
-  bgcolor: '#f8fafc',
+  p: 2.5,
+  borderRadius: 3.5,
+  border: '1px solid rgba(0, 0, 0, 0.03)',
+  bgcolor: 'rgba(255, 255, 255, 0.45)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
 };
 
 const CODE_FIELD_SX = { '& .MuiInputBase-input': { fontFamily: 'monospace' } };
@@ -251,7 +253,7 @@ export default function StepImport() {
     riskOverridesText, setRiskOverridesText, authConfigText, setAuthConfigText,
     setupStepsText, setSetupStepsText, cleanupStepsText, setCleanupStepsText,
     saveCurrentEnvironment,
-    setLoading, setLoadingMessage,
+    setLoading, setLoadingMessage, requestConfirm,
   } = useAPIExecution();
   const showSnackbar = useSnackbar();
   const queryClient = useQueryClient();
@@ -363,6 +365,12 @@ export default function StepImport() {
   }, [loadProjectSpec, projects, selectedProjectId, spec?.spec_id]);
 
   const bootstrapDemoProject = async () => {
+    const confirmed = await requestConfirm([
+      '初始化/重置演示项目会写入固定 Demo 项目、Demo 环境和 3 条执行样例。',
+      '系统只会生成待确认知识候选，不会自动沉淀到知识库。',
+      '如果 Demo 项目已存在，项目和环境配置会按演示模板更新。是否继续？',
+    ].join('\n\n'));
+    if (!confirmed) return;
     setLoadingMessage('正在初始化 Demo 项目...');
     setLoading(true);
     try {
@@ -376,7 +384,7 @@ export default function StepImport() {
       applyProjectValues(data.project);
       applyEnvironmentValues(data.environment);
       showSnackbar(
-        `Demo 项目已初始化：${data.seeded_run_ids?.length || 0} 条执行样例，${data.knowledge_item_count || 0} 条知识`,
+        `Demo 项目已初始化：${data.seeded_run_ids?.length || 0} 条执行样例，${data.knowledge_candidate_count || 0} 条知识候选待确认`,
         'success',
       );
     } catch (error) {
@@ -553,12 +561,26 @@ export default function StepImport() {
             scrollButtons="auto"
             aria-label="项目配置分区"
             sx={{
-              minHeight: 44,
+              minHeight: 40,
+              '& .MuiTabs-indicator': {
+                height: 3,
+                borderRadius: '3px 3px 0 0',
+                background: 'linear-gradient(90deg, #4f46e5 0%, #8b5cf6 100%)',
+              },
               '& .MuiTab-root': {
-                minHeight: 44,
-                px: { xs: 1.25, md: 2 },
-                fontWeight: 750,
+                minHeight: 40,
+                px: { xs: 1.25, md: 2.25 },
+                fontWeight: 800,
+                fontSize: '12px',
                 textTransform: 'none',
+                color: 'text.secondary',
+                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                '&.Mui-selected': {
+                  color: '#4f46e5',
+                },
+                '&:hover': {
+                  color: 'text.primary',
+                },
               },
             }}
           >
@@ -579,12 +601,14 @@ export default function StepImport() {
         <Paper sx={PANEL_SX}>
           <Stack spacing={2}>
             <Typography variant="subtitle1" fontWeight={800}>项目环境</Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-              <FormControl size="small">
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2, minWidth: 0 }}>
+              <FormControl size="small" sx={{ minWidth: 0 }}>
                 <InputLabel>选择项目</InputLabel>
                 <Select
                   label="选择项目"
-                  value={selectedProjectId || NEW_PROJECT_VALUE}
+                  value={selectedProjectId || ''}
+                  displayEmpty
+                  sx={{ minWidth: 0, '& .MuiSelect-select': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
                   onChange={(event) => {
                     const projectId = event.target.value;
                     if (projectId === NEW_PROJECT_VALUE) {
@@ -598,17 +622,20 @@ export default function StepImport() {
                     }
                   }}
                 >
+                  <MenuItem value="" disabled>请选择项目</MenuItem>
                   <MenuItem value={NEW_PROJECT_VALUE}>新建项目...</MenuItem>
                   {projects.map((project) => (
                     <MenuItem key={project.project_id} value={project.project_id}>{project.name}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
-              <FormControl size="small" disabled={!selectedProjectId}>
+              <FormControl size="small" disabled={!selectedProjectId} sx={{ minWidth: 0 }}>
                 <InputLabel>选择环境</InputLabel>
                 <Select
                   label="选择环境"
-                  value={selectedEnvironmentId || NEW_ENVIRONMENT_VALUE}
+                  value={selectedEnvironmentId || ''}
+                  displayEmpty
+                  sx={{ minWidth: 0, '& .MuiSelect-select': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
                   onChange={(event) => {
                     const environmentId = event.target.value;
                     if (environmentId === NEW_ENVIRONMENT_VALUE) {
@@ -619,6 +646,7 @@ export default function StepImport() {
                     if (environment) applyEnvironmentValues(environment);
                   }}
                 >
+                  <MenuItem value="" disabled>请选择环境</MenuItem>
                   <MenuItem value={NEW_ENVIRONMENT_VALUE}>新建环境...</MenuItem>
                   {environments.map((environment) => (
                     <MenuItem key={environment.environment_id} value={environment.environment_id}>{environment.name}</MenuItem>
@@ -644,23 +672,67 @@ export default function StepImport() {
             )}
             <Divider />
             <TextField size="small" label="Base URL" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="http://localhost:8000" helperText="执行时会和步骤 path 拼成完整请求地址。" />
-            <TextField
-              size="small"
-              label="环境变量 JSON"
-              multiline
-              minRows={6}
-              value={environmentVariablesText}
-              onChange={e => setEnvironmentVariablesText(e.target.value)}
-              placeholder={ENVIRONMENT_VARIABLES_EXAMPLE}
-              helperText="可在脚本中用 {{user_id}}、{{access_token}} 引用；敏感字段在报告中会自动掩码。"
-              sx={CODE_FIELD_SX}
-            />
+            <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mt: 1 }}>环境变量配置</Typography>
+            <Box sx={{
+              borderRadius: 3.5,
+              border: '1px solid #1e293b',
+              overflow: 'hidden',
+              boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
+              mt: 0.5
+            }}>
+              {/* macOS Title Bar */}
+              <Box sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 2,
+                py: 1.25,
+                bgcolor: '#1e293b',
+                borderBottom: '1px solid #0f172a',
+              }}>
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
+                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
+                <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - env_vars.json</Typography>
+              </Box>
+              <TextField
+                fullWidth
+                multiline
+                minRows={6}
+                value={environmentVariablesText}
+                onChange={e => setEnvironmentVariablesText(e.target.value)}
+                placeholder={ENVIRONMENT_VARIABLES_EXAMPLE}
+                helperText=""
+                sx={{
+                  '& .MuiInputBase-root': {
+                    borderRadius: 0,
+                    bgcolor: '#090d16',
+                    color: '#34d399',
+                    fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                    fontSize: '12.5px',
+                    p: 2,
+                    boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
+                    '& fieldset': { border: 'none' },
+                    '&:hover fieldset': { border: 'none' },
+                    '&.Mui-focused fieldset': { border: 'none' },
+                  },
+                  '& .MuiInputBase-input': {
+                    color: '#34d399',
+                    fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                    lineHeight: 1.6,
+                  }
+                }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, fontWeight: 500 }}>
+              可在脚本中用 {'{{user_id}}'}、{'{{access_token}}'} 引用；敏感字段在报告中会自动掩码。
+            </Typography>
             <Button
               size="small"
               variant="text"
               startIcon={<ContentPasteOutlined fontSize="small" />}
               onClick={() => setEnvironmentVariablesText(ENVIRONMENT_VARIABLES_EXAMPLE)}
-              sx={{ alignSelf: 'flex-start' }}
+              sx={{ alignSelf: 'flex-start', mt: 1, textTransform: 'none', fontWeight: 800, fontSize: '12px', color: '#4f46e5', '&:hover': { bgcolor: 'rgba(79, 70, 229, 0.04)' } }}
             >
               填入环境变量示例
             </Button>
@@ -686,16 +758,29 @@ export default function StepImport() {
 
             <Box
               sx={{
-                ...OUTLINED_BLOCK_SX,
-                minHeight: 160,
+                p: 4,
+                borderRadius: 4.5,
+                border: '2.5px dashed rgba(99, 102, 241, 0.35)',
+                bgcolor: 'rgba(255, 255, 255, 0.45)',
+                backdropFilter: 'blur(20px)',
+                boxShadow: '0 8px 32px rgba(15, 23, 42, 0.02), inset 0 1px 0 rgba(255,255,255,0.7)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 textAlign: 'center',
-                borderStyle: 'dashed',
-                borderColor: 'rgba(99, 102, 241, 0.35)',
                 cursor: 'pointer',
-                '&:hover': { borderColor: 'primary.main', bgcolor: '#eef2ff' },
+                transition: 'all 0.3s ease-in-out',
+                position: 'relative',
+                overflow: 'hidden',
+                '&:hover': {
+                  borderColor: 'transparent',
+                  bgcolor: 'rgba(99, 102, 241, 0.04)',
+                  transform: 'translateY(-1.5px)',
+                  boxShadow: '0 12px 40px rgba(99, 102, 241, 0.08), inset 0 1px 0 rgba(255,255,255,0.8)',
+                  '& .dash-border-svg': {
+                    opacity: 1,
+                  }
+                },
               }}
               onClick={() => fileInputRef.current?.click()}
               onDragOver={(event) => event.preventDefault()}
@@ -704,10 +789,26 @@ export default function StepImport() {
                 setSelectedFile(event.dataTransfer.files?.[0] || null);
               }}
             >
-              <Stack spacing={1} alignItems="center">
-                <CloudUploadOutlined color="primary" sx={{ fontSize: 38 }} />
-                <Typography variant="subtitle1" fontWeight={800}>拖拽规范文件或点击选择</Typography>
-                <Typography variant="caption" color="text.secondary">JSON / YAML / HAR / Markdown / Office 文档</Typography>
+              <svg className="dash-border-svg" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', opacity: 0, transition: 'opacity 0.3s' }}>
+                <rect x="2" y="2" width="calc(100% - 4px)" height="calc(100% - 4px)" rx="18" fill="transparent" stroke="url(#blue-gradient)" strokeWidth="3" strokeDasharray="10 8" style={{ animation: 'borderDashMove 20s linear infinite' }} />
+                <defs>
+                  <linearGradient id="blue-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#4f46e5" />
+                    <stop offset="50%" stopColor="#06b6d4" />
+                    <stop offset="100%" stopColor="#8b5cf6" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <style>{`
+                @keyframes borderDashMove {
+                  from { stroke-dashoffset: 0; }
+                  to { stroke-dashoffset: 1000; }
+                }
+              `}</style>
+              <Stack spacing={1.5} alignItems="center" sx={{ position: 'relative', zIndex: 1 }}>
+                <CloudUploadOutlined color="primary" sx={{ fontSize: 44, color: '#4f46e5', filter: 'drop-shadow(0 2px 8px rgba(79,70,229,0.15))' }} />
+                <Typography variant="subtitle1" fontWeight={900} sx={{ color: 'text.primary', letterSpacing: '-0.01em' }}>拖拽规范文件或点击选择</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>JSON / YAML / HAR / Markdown / Office 文档</Typography>
                 <input ref={fileInputRef} type="file" accept=".json,.yaml,.yml,.har,.md,.txt,.csv,.html,.htm,.docx,.xlsx,.xls" hidden onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} />
               </Stack>
             </Box>
@@ -715,18 +816,36 @@ export default function StepImport() {
             {selectedFile && (
               <Alert
                 severity="success"
-                action={<Button variant="contained" color="success" size="small" onClick={parseFile}>解析文件</Button>}
+                sx={{ borderRadius: 3.5 }}
+                action={<Button variant="contained" color="success" size="small" onClick={parseFile} sx={{ borderRadius: 2, fontWeight: 800 }}>解析文件</Button>}
               >
                 {selectedFile.name}
               </Alert>
             )}
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
               <Button
                 variant="outlined"
                 startIcon={<AutoAwesome fontSize="small" />}
                 onClick={loadDemoOpenApi}
-                sx={{ justifyContent: 'flex-start', textAlign: 'left', borderRadius: 1, p: 2 }}
+                sx={{
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  borderRadius: 3.5,
+                  p: 2.2,
+                  borderColor: 'rgba(0,0,0,0.06)',
+                  bgcolor: '#ffffff',
+                  color: 'text.primary',
+                  fontWeight: 800,
+                  fontSize: '12.5px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.01)',
+                  '&:hover': {
+                    borderColor: '#4f46e5',
+                    bgcolor: 'rgba(79, 70, 229, 0.02)',
+                    transform: 'translateY(-1px)',
+                  },
+                  transition: 'all 0.2s'
+                }}
               >
                 仅加载演示接口资产
               </Button>
@@ -735,9 +854,26 @@ export default function StepImport() {
                 color="secondary"
                 startIcon={<RocketLaunch fontSize="small" />}
                 onClick={bootstrapDemoProject}
-                sx={{ justifyContent: 'flex-start', textAlign: 'left', borderRadius: 1, p: 2 }}
+                sx={{
+                  justifyContent: 'flex-start',
+                  textAlign: 'left',
+                  borderRadius: 3.5,
+                  p: 2.2,
+                  borderColor: 'rgba(0,0,0,0.06)',
+                  bgcolor: '#ffffff',
+                  color: 'secondary.main',
+                  fontWeight: 800,
+                  fontSize: '12.5px',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.01)',
+                  '&:hover': {
+                    borderColor: 'secondary.main',
+                    bgcolor: 'rgba(156, 39, 176, 0.02)',
+                    transform: 'translateY(-1px)',
+                  },
+                  transition: 'all 0.2s'
+                }}
               >
-                初始化完整演示项目
+                初始化/重置演示项目
               </Button>
             </Box>
 
@@ -791,16 +927,52 @@ export default function StepImport() {
             <Alert severity="info">
               推荐默认：允许生成 DSL、允许修复；自动执行和定时执行按项目风险再开启。
             </Alert>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 1.25 }}>
-              {AI_BOUNDARY_OPTIONS.map((item) => (
-                <Box key={item.checkedKey} sx={{ display: 'flex', alignItems: 'flex-start', p: 1.5, border: '1px solid rgba(15, 23, 42, 0.08)', borderRadius: 1, bgcolor: '#f8fafc' }}>
-                  <Checkbox size="small" checked={Boolean(aiBoundaryValues[item.checkedKey])} onChange={e => aiBoundarySetters[item.checkedKey](e.target.checked)} sx={{ mt: -0.5 }} />
-                  <Box>
-                    <Typography variant="body2" fontWeight={700}>{item.label}</Typography>
-                    <Typography variant="caption" color="text.secondary">{item.description}</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
+              {AI_BOUNDARY_OPTIONS.map((item) => {
+                const isChecked = Boolean(aiBoundaryValues[item.checkedKey]);
+                return (
+                  <Box
+                    key={item.checkedKey}
+                    onClick={() => aiBoundarySetters[item.checkedKey](!isChecked)}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      p: 2,
+                      border: isChecked ? '1px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(15, 23, 42, 0.08)',
+                      borderRadius: 3.5,
+                      bgcolor: isChecked ? 'rgba(16, 185, 129, 0.04)' : 'rgba(255, 255, 255, 0.45)',
+                      backdropFilter: 'blur(10px)',
+                      boxShadow: isChecked ? '0 6px 20px rgba(16, 185, 129, 0.06)' : 'none',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      cursor: 'pointer',
+                      '&:hover': {
+                        border: isChecked ? '1px solid rgba(16, 185, 129, 0.6)' : '1px solid rgba(79, 70, 229, 0.3)',
+                        bgcolor: isChecked ? 'rgba(16, 185, 129, 0.08)' : 'rgba(79, 70, 229, 0.03)',
+                        transform: 'translateY(-2px)',
+                        boxShadow: isChecked ? '0 8px 24px rgba(16, 185, 129, 0.1)' : '0 6px 16px rgba(79, 70, 229, 0.04)',
+                      }
+                    }}
+                  >
+                    <Checkbox
+                      size="small"
+                      checked={isChecked}
+                      onChange={e => {
+                        e.stopPropagation();
+                        aiBoundarySetters[item.checkedKey](e.target.checked);
+                      }}
+                      sx={{
+                        mt: -0.5,
+                        color: 'rgba(0,0,0,0.15)',
+                        '&.Mui-checked': { color: '#10b981' }
+                      }}
+                    />
+                    <Box>
+                      <Typography variant="body2" fontWeight={800} sx={{ color: isChecked ? '#065f46' : 'text.primary', transition: 'color 0.2s' }}>{item.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">{item.description}</Typography>
+                    </Box>
                   </Box>
-                </Box>
-              ))}
+                );
+              })}
             </Box>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
               <TextField size="small" label="最大自动修复次数" type="number" value={maxAutoRepairs} onChange={e => setMaxAutoRepairs(e.target.value)} helperText="建议 1-3；0 表示不限。" />
@@ -811,17 +983,61 @@ export default function StepImport() {
               <TextField size="small" label="接口白名单" multiline minRows={3} value={operationAllowlistText} onChange={e => setOperationAllowlistText(e.target.value)} placeholder={'GET /health\nGET /users'} helperText="每行一个 METHOD path。" />
               <TextField size="small" label="接口黑名单" multiline minRows={3} value={operationBlocklistText} onChange={e => setOperationBlocklistText(e.target.value)} placeholder={'DELETE /users/{id}\nPOST /payments'} helperText="每行一个 METHOD path。" />
             </Box>
-            <TextField
-              size="small"
-              label="接口风险覆盖 JSON"
-              multiline
-              minRows={5}
-              value={riskOverridesText}
-              onChange={e => setRiskOverridesText(e.target.value)}
-              placeholder={RISK_OVERRIDES_EXAMPLE}
-              helperText="用于人工指定接口风险等级：low / medium / high / blocked。"
-              sx={CODE_FIELD_SX}
-            />
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mb: 0.5 }}>接口风险覆盖配置</Typography>
+              <Box sx={{
+                borderRadius: 3.5,
+                border: '1px solid #1e293b',
+                overflow: 'hidden',
+                boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
+              }}>
+                {/* macOS Title Bar */}
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 1.25,
+                  bgcolor: '#1e293b',
+                  borderBottom: '1px solid #0f172a',
+                }}>
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
+                  <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - risk_overrides.json</Typography>
+                </Box>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={5}
+                  value={riskOverridesText}
+                  onChange={e => setRiskOverridesText(e.target.value)}
+                  placeholder={RISK_OVERRIDES_EXAMPLE}
+                  sx={{
+                    '& .MuiInputBase-root': {
+                      borderRadius: 0,
+                      bgcolor: '#090d16',
+                      color: '#fb7185',
+                      fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                      fontSize: '12.5px',
+                      p: 2,
+                      boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
+                      '& fieldset': { border: 'none' },
+                      '&:hover fieldset': { border: 'none' },
+                      '&.Mui-focused fieldset': { border: 'none' },
+                    },
+                    '& .MuiInputBase-input': {
+                      color: '#fb7185',
+                      fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                      lineHeight: 1.6,
+                    }
+                  }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, mt: 0.5 }}>
+                用于人工指定接口风险等级：low / medium / high / blocked。
+              </Typography>
+            </Box>
             <Button
               size="small"
               variant="text"
@@ -937,40 +1153,174 @@ export default function StepImport() {
               </Box>
             </Box>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-              <TextField
-                size="small"
-                label="认证配置 JSON"
-                multiline
-                minRows={10}
-                value={authConfigText}
-                onChange={e => setAuthConfigText(e.target.value)}
-                placeholder={AUTH_CONFIG_EXAMPLE}
-                helperText="支持 none / bearer / api_key / basic。"
-                sx={CODE_FIELD_SX}
-              />
-              <TextField
-                size="small"
-                label="前置步骤 JSON"
-                multiline
-                minRows={10}
-                value={setupStepsText}
-                onChange={e => setSetupStepsText(e.target.value)}
-                placeholder={SETUP_STEPS_EXAMPLE}
-                helperText="用于登录、初始化数据、变量提取。"
-                sx={CODE_FIELD_SX}
-              />
+              <Box>
+                <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mb: 0.5 }}>认证配置 JSON</Typography>
+                <Box sx={{
+                  borderRadius: 3.5,
+                  border: '1px solid #1e293b',
+                  overflow: 'hidden',
+                  boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
+                }}>
+                  {/* macOS Title Bar */}
+                  <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    px: 2,
+                    py: 1.25,
+                    bgcolor: '#1e293b',
+                    borderBottom: '1px solid #0f172a',
+                  }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
+                    <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - auth_config.json</Typography>
+                  </Box>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={10}
+                    value={authConfigText}
+                    onChange={e => setAuthConfigText(e.target.value)}
+                    placeholder={AUTH_CONFIG_EXAMPLE}
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        borderRadius: 0,
+                        bgcolor: '#090d16',
+                        color: '#fbbf24',
+                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                        fontSize: '12.5px',
+                        p: 2,
+                        boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
+                        '& fieldset': { border: 'none' },
+                        '&:hover fieldset': { border: 'none' },
+                        '&.Mui-focused fieldset': { border: 'none' },
+                      },
+                      '& .MuiInputBase-input': {
+                        color: '#fbbf24',
+                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                        lineHeight: 1.6,
+                      }
+                    }}
+                  />
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, mt: 0.5 }}>
+                  支持 none / bearer / api_key / basic。
+                </Typography>
+              </Box>
+
+              <Box>
+                <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mb: 0.5 }}>前置步骤 JSON</Typography>
+                <Box sx={{
+                  borderRadius: 3.5,
+                  border: '1px solid #1e293b',
+                  overflow: 'hidden',
+                  boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
+                }}>
+                  {/* macOS Title Bar */}
+                  <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    px: 2,
+                    py: 1.25,
+                    bgcolor: '#1e293b',
+                    borderBottom: '1px solid #0f172a',
+                  }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
+                    <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - setup_steps.json</Typography>
+                  </Box>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={10}
+                    value={setupStepsText}
+                    onChange={e => setSetupStepsText(e.target.value)}
+                    placeholder={SETUP_STEPS_EXAMPLE}
+                    sx={{
+                      '& .MuiInputBase-root': {
+                        borderRadius: 0,
+                        bgcolor: '#090d16',
+                        color: '#34d399',
+                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                        fontSize: '12.5px',
+                        p: 2,
+                        boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
+                        '& fieldset': { border: 'none' },
+                        '&:hover fieldset': { border: 'none' },
+                        '&.Mui-focused fieldset': { border: 'none' },
+                      },
+                      '& .MuiInputBase-input': {
+                        color: '#34d399',
+                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                        lineHeight: 1.6,
+                      }
+                    }}
+                  />
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, mt: 0.5 }}>
+                  用于登录、初始化数据、变量提取。
+                </Typography>
+              </Box>
             </Box>
-            <TextField
-              size="small"
-              label="清理步骤 JSON"
-              multiline
-              minRows={7}
-              value={cleanupStepsText}
-              onChange={e => setCleanupStepsText(e.target.value)}
-              placeholder={CLEANUP_STEPS_EXAMPLE}
-              helperText="用于测试后清理数据；主流程失败时仍会尽量执行。"
-              sx={CODE_FIELD_SX}
-            />
+
+            <Box>
+              <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mb: 0.5 }}>清理步骤 JSON</Typography>
+              <Box sx={{
+                borderRadius: 3.5,
+                border: '1px solid #1e293b',
+                overflow: 'hidden',
+                boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
+              }}>
+                {/* macOS Title Bar */}
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 1.25,
+                  bgcolor: '#1e293b',
+                  borderBottom: '1px solid #0f172a',
+                }}>
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
+                  <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - cleanup_steps.json</Typography>
+                </Box>
+                <TextField
+                  fullWidth
+                  multiline
+                  minRows={7}
+                  value={cleanupStepsText}
+                  onChange={e => setCleanupStepsText(e.target.value)}
+                  placeholder={CLEANUP_STEPS_EXAMPLE}
+                  sx={{
+                    '& .MuiInputBase-root': {
+                      borderRadius: 0,
+                      bgcolor: '#090d16',
+                      color: '#22d3ee',
+                      fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                      fontSize: '12.5px',
+                      p: 2,
+                      boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
+                      '& fieldset': { border: 'none' },
+                      '&:hover fieldset': { border: 'none' },
+                      '&.Mui-focused fieldset': { border: 'none' },
+                    },
+                    '& .MuiInputBase-input': {
+                      color: '#22d3ee',
+                      fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
+                      lineHeight: 1.6,
+                    }
+                  }}
+                />
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, mt: 0.5 }}>
+                用于测试后清理数据；主流程失败时仍会尽量执行。
+              </Typography>
+            </Box>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Button
                 size="small"
