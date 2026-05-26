@@ -5,6 +5,21 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.8.8] - 2026-05-26
+
+### 变更 (Changed)
+- **API 自动化执行边界收口**：页面手动单步执行和全量链路执行改为直接执行，并通过 `execution_id` 支持强制结束；后台异步队列保留给定时任务、CI、批量回归和自动触发。
+- **后台异步队列可靠性增强**：`/runs/async` 创建后立即保存 queued，worker 写入 running，执行进度持续落库；取消会同时标记 cancelled 和取消内存 task，晚到结果不会覆盖 cancelled，整体 run timeout 会稳定收尾为 failed。
+- **API 自动化前端体验优化**：编排执行、结果诊断、历史记录、简洁工作台和工作流进度展示更新；单步执行 loading 时可直接点击「强制结束单步」，全量执行 loading 时可点击「强制结束执行」。
+- **配置、治理和观测页面优化**：配置中心、项目与环境、Prompt Hub、节点类型、治理中心、日志中心、系统健康、AI/RAG 观测和索引治理页面完成布局与交互优化，并补充关键页面回归测试。
+- **本机开发文档代理**：Vite dev server 新增 `/docs`、`/openapi.json`、`/redoc` 到后端 `8000` 的代理，支持通过 `http://localhost:3000/docs` 查看 FastAPI 文档。
+- **演示项目改为当前服务只读冒烟**：内置 API 自动化演示项目改为调用当前 OpenMelon 服务的只读运行接口，避免依赖外部订单示例服务；执行经验默认进入待确认候选，不自动沉淀。
+
+### 验证 (Verified)
+- **API 执行回归**：`pytest backend/tests/test_api_execution_runner.py backend/tests/test_api_execution_run_queue.py` 通过，合计 21 个用例。
+- **前端执行回归**：`vitest run src/features/APIExecution/components/StepOrchestrate.test.jsx src/features/APIExecution/components/StepResult.test.jsx src/features/APIExecution/components/APIExecutionPage.test.jsx` 通过，合计 6 个用例。
+- **前端构建**：`vite build` 通过。
+
 ## [0.2.8.7] - 2026-05-20
 
 ### PostgreSQL 运行时迁移与观察期

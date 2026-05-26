@@ -74,11 +74,12 @@ npm install
 npm run dev
 ```
 
-本机模式默认前端地址为 `http://localhost:3000`；Docker 一键启动默认前端地址为 `http://localhost`。
+本机模式默认前端地址为 `http://localhost:3000`；Docker 一键启动默认前端地址为 `http://localhost`。本机 Vite 开发服务会代理 `/api`、`/docs`、`/openapi.json` 和 `/redoc` 到后端 `8000`，因此 `http://localhost:3000/docs` 也可查看 FastAPI 文档；如果访问失败，先确认 `http://localhost:8000/docs` 是否正常。
 
 ### 3. 访问系统
 - **前端页面**: [http://localhost:3000](http://localhost:3000)
 - **API 文档**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **API 文档（前端代理）**: [http://localhost:3000/docs](http://localhost:3000/docs)
 - **Neo4j 数据库**: [http://localhost:7474](http://localhost:7474)
 
 ---

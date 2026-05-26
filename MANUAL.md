@@ -162,7 +162,7 @@ docker compose logs -f app
 | 没有文档能不能问答？ | 可以打开页面，但几乎没有知识可查，建议先上传文档 |
 | `.env` 至少要填什么？ | 最少填 `LLM_PROVIDER` 和 `API_KEY` |
 | 一定要用 Qdrant 吗？ | 不一定。默认不开启外部向量库；开启后才会使用 Qdrant |
-| 启动后先看哪里确认正常？ | 先看 `http://localhost:8000/docs` 和 `http://localhost:3000` 能不能打开 |
+| 启动后先看哪里确认正常？ | 先看 `http://localhost:8000/docs` 和 `http://localhost:3000` 能不能打开；本机 Vite 模式下 `http://localhost:3000/docs` 会代理到后端文档 |
 | 高频改后端时该用什么？ | 优先用 `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` 或本机 `uvicorn --reload` |
 
 ### 0.7 启动成功检查清单
@@ -171,6 +171,7 @@ docker compose logs -f app
 |------|------|
 | 后端 | 日志出现 `OpenMelon 服务启动完成` |
 | 前端 | 浏览器能打开 `http://localhost:3000` |
+| API 文档 | `http://localhost:8000/docs` 返回 Swagger UI；本机前端代理下 `http://localhost:3000/docs` 也可打开 |
 | Neo4j | `http://localhost:7474` 能登录 |
 | 索引能力 | 上传文件后状态能变成 `completed` 或页面显示“已索引” |
 | 问答能力 | 在「问答」页面输入问题后能返回答案 |
@@ -1401,6 +1402,15 @@ flowchart TD
 
 #### 后台执行队列
 
+API 自动化现在区分两类执行入口：
+
+| 入口 | 执行方式 | 适用场景 |
+|------|------|------|
+| 页面手动单步执行 / 全量链路执行 | 直接调用同步执行接口，并携带 `execution_id` 支持强制结束 | 手动调试、即时验证、需要马上看到结果的链路 |
+| 定时任务 / CI / 批量回归 / 自动触发 | 进入 `/api/api-execution/runs/async` 后台队列 | 长任务、批量任务、后台自动化 |
+
+手动执行时，按钮会在运行中切换为「强制结束单步」或「强制结束执行」。点击后前端会调用直接执行取消接口并中断当前等待；后端会保存 `cancelled` 执行记录。后台执行则继续通过 run id、SSE 和轮询跟踪状态。
+
 后台执行采用单节点 asyncio 队列，默认最多同时运行 2 个 API 自动化任务，等待并发槽位超过 60 秒会标记为失败。可通过运行配置调整：
 
 | 配置项 | 默认值 | 说明 |
@@ -1409,7 +1419,9 @@ flowchart TD
 | `API_EXECUTION_QUEUE_WAIT_TIMEOUT_S` | `60` | 等待并发槽位的超时时间（秒） |
 | `API_EXECUTION_SSE_QUEUE_SIZE` | `100` | 单个 SSE 进度订阅的缓冲上限 |
 
-可调用 `GET /api/api-execution/runs/queue/status` 查看当前单进程队列状态、SSE 订阅数以及存储中的 queued/running 记录数量。`parallel_group` 已作为真实执行语义启用：显式设置并行组后，同一拓扑层内同组步骤并行执行；并行步骤提取同名变量且值不同会失败并给出 `variable_conflict` 诊断。
+可调用 `GET /api/api-execution/runs/queue/status` 查看当前单进程队列状态、SSE 订阅数以及存储中的 queued/running 记录数量。后台队列会在创建任务时立即保存 `queued`，worker 获取并发槽后写入 `running`，每一步开始/结束都会更新 `progress_total`、`progress_completed`、`current_step_id`、`current_step_name` 和 `results`。取消接口会同时标记 `cancelled` 并取消内存 task，后续晚到的 passed/failed 不会覆盖 cancelled；服务启动时会把残留的 queued/running 标记为 failed。
+
+`parallel_group` 已作为真实执行语义启用：显式设置并行组后，同一拓扑层内同组步骤并行执行；并行步骤提取同名变量且值不同会失败并给出 `variable_conflict` 诊断。
 
 #### 项目测试任务复用
 
@@ -1636,6 +1648,9 @@ flowchart TD
 
 | 问题 | 排查方向 |
 |------|------|
+| `http://localhost:3000/docs` 访问失败 | 先确认后端 `http://localhost:8000/docs` 正常。本机 Vite 代理配置需要重启前端 dev server 后生效；如果 8000 被异常进程占用但请求 reset，先释放端口再重启后端。 |
+| 单步或全量链路一直 loading | 先打开 `http://localhost:8000/docs` 或 `http://localhost:8000/openapi.json` 确认后端真实可用；如果页面按钮已变成「强制结束单步」或「强制结束执行」，可直接点击取消当前直接执行。 |
+| 后台任务一直 queued/running | 查看 `GET /api/api-execution/runs/queue/status`，确认并发槽位、active task 数和存储中的 queued/running 数；必要时取消任务或重启后端触发 stale run 恢复。 |
 | URL 解析失败 | 确认接口文档地址可访问，Swagger UI 页面优先确认 `/openapi.json` 是否存在 |
 | 执行报 DNS 错误 | 检查 Base URL 是否拼写错误，例如 `localhost` 是否写成了 `locahost` |
 | Agent 没有选中某个接口 | 检查接口是否被隐藏、废弃、移除、阻断，或是否属于高风险但未确认 |
