@@ -154,6 +154,7 @@ ADMIN_JWT_SECRET=replace-with-long-random-secret
 - **设置 - 节点类型配置**：![节点类型配置](docs/screenshots/node-page.png)
 - **设置 - 项目与环境**：![项目与环境](docs/screenshots/project-env-page.png)
 - **设置 - 运行配置**：![运行配置](docs/screenshots/runtime-config-page.png)
+- **设置 - 健康检查**：![健康检查](docs/screenshots/system-health-page.png)
 - **设置 - Prompt Hub**：![Prompt Hub 页面](docs/screenshots/prompt-hub-page.png)
 - **设置 - 治理中心**：![治理中心](docs/screenshots/governance-center-page.png)
 - **设置 - 日志中心**：![日志中心](docs/screenshots/log-center-page.png)
