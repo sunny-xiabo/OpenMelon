@@ -13,7 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.errors import InvalidRequestError, NotFoundError
 from app.api_execution.dsl_generator import generate_api_dsl
-from app.api_execution.knowledge import build_run_knowledge_items
+from app.api_execution.services.knowledge_service import save_knowledge_ingest_candidate
 from app.api_execution.schemas import (
     APIEnvironmentUpsertRequest,
     APIOperationAsset,
@@ -89,8 +89,8 @@ def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
     project = api_execution_store.save_project(
         {
             "project_id": DEMO_PROJECT_ID,
-            "name": "OpenMelon Demo API Flow",
-            "description": "内置 API Flow Orchestration 演示项目，包含订单流程、失败样例和修复知识。",
+            "name": "OpenMelon Runtime Smoke Demo",
+            "description": "内置 API 自动化演示项目，基于当前 OpenMelon 服务只读接口验证真实执行链路。",
             "default_environment_id": DEMO_ENVIRONMENT_ID,
             "spec_id": spec.get("spec_id"),
             "enabled": True,
@@ -102,8 +102,8 @@ def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
             "max_auto_repairs": 2,
             "max_reruns": 2,
             "max_requests_per_run": 10,
-            "risk_overrides": {"POST /orders": "medium"},
-            "operation_allowlist": ["POST /auth/login", "POST /orders", "GET /orders/{order_id}"],
+            "risk_overrides": {},
+            "operation_allowlist": ["GET /api/ping", "GET /api/system/health", "GET /api/metrics"],
             "operation_blocklist": [],
             "created_at": (api_execution_store.get_project(DEMO_PROJECT_ID) or {}).get("created_at") or now,
             "updated_at": now,
@@ -135,18 +135,21 @@ def _seed_demo_project(spec: dict[str, Any]) -> dict[str, Any]:
         save_run_report(_demo_run_report(script, "demo-run-failed", "failed")),
         save_run_report(_demo_run_report(script, "demo-run-repaired", "repaired")),
     ]
-    knowledge_ids: set[str] = set()
     for run in seeded_runs:
-        for item in build_run_knowledge_items(run):
-            api_execution_store.save_knowledge_item(item)
-            knowledge_ids.add(item.get("knowledge_id", ""))
+        if run.get("status") != "passed":
+            save_knowledge_ingest_candidate(run, trigger_source="demo_bootstrap")
     pending_tasks = api_execution_store.list_automation_tasks(status="pending", project_id=DEMO_PROJECT_ID)
+    knowledge_candidates = [
+        task for task in pending_tasks
+        if task.get("task_type") == "knowledge_ingest_candidate"
+    ]
     return {
         "spec": spec,
         "project": project,
         "environment": environment,
         "seeded_run_ids": [run.get("run_id", "") for run in seeded_runs],
-        "knowledge_item_count": len([item for item in knowledge_ids if item]),
+        "knowledge_item_count": 0,
+        "knowledge_candidate_count": len(knowledge_candidates),
         "pending_task_count": len(pending_tasks),
     }
 
@@ -157,13 +160,13 @@ def _demo_script(spec: dict[str, Any], base_url: str) -> dict[str, Any]:
     script.update(
         {
             "case_id": "demo-order-flow",
-            "name": "Demo 登录创建订单并查询",
-            "target_project": "OpenMelon Demo API Flow",
+            "name": "Demo 当前服务健康检查",
+            "target_project": "OpenMelon Runtime Smoke Demo",
             "environment": "Demo 本地环境",
             "base_url": base_url,
-            "flow_template_id": "demo-order-template",
-            "flow_template_name": "Demo 订单流程模板",
-            "flow_template_tags": ["demo", "order", "smoke"],
+            "flow_template_id": "demo-runtime-smoke-template",
+            "flow_template_name": "Demo 当前服务冒烟模板",
+            "flow_template_tags": ["demo", "runtime", "smoke"],
         }
     )
     return script
@@ -256,7 +259,7 @@ def _demo_execution_options(script: dict[str, Any]) -> dict[str, Any]:
         },
         "project_policy_snapshot": {
             "project_id": DEMO_PROJECT_ID,
-            "name": "OpenMelon Demo API Flow",
+            "name": "OpenMelon Runtime Smoke Demo",
             "allow_ai_execution": True,
             "allow_ai_repair": True,
             "allow_scheduled_execution": False,
@@ -265,8 +268,8 @@ def _demo_execution_options(script: dict[str, Any]) -> dict[str, Any]:
             "max_auto_repairs": 2,
             "max_reruns": 2,
             "max_requests_per_run": 10,
-            "risk_overrides": {"POST /orders": "medium"},
-            "operation_allowlist": ["POST /auth/login", "POST /orders", "GET /orders/{order_id}"],
+            "risk_overrides": {},
+            "operation_allowlist": ["GET /api/ping", "GET /api/system/health", "GET /api/metrics"],
             "operation_blocklist": [],
         },
         "flow_template_id": script.get("flow_template_id", ""),

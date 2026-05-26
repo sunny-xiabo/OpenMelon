@@ -25,6 +25,16 @@ from app.api_execution.schemas import (
 
 VARIABLE_PATTERN = re.compile(r"\{\{\s*([\w.-]+)\s*\}\}")
 ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
+CancelCheck = Callable[[], bool]
+
+
+class ExecutionCancelledError(asyncio.CancelledError):
+    pass
+
+
+def _raise_if_cancelled(cancel_check: CancelCheck | None) -> None:
+    if cancel_check and cancel_check():
+        raise ExecutionCancelledError("用户强制结束执行")
 
 
 def _build_step_levels(steps: list[APITestStep]) -> list[list[APITestStep]]:
@@ -154,7 +164,9 @@ async def _run_step_with_retry(
     body: dict[str, Any] | list[Any] | str | None,
     request_summary: dict[str, Any],
     variables: dict[str, Any],
+    cancel_check: CancelCheck | None = None,
 ) -> APIStepRunResult:
+    _raise_if_cancelled(cancel_check)
     retry = step.retry
     if not retry or retry.max_attempts < 1:
         return await _run_step(client, step, url, headers, query, body, request_summary, variables)
@@ -162,6 +174,7 @@ async def _run_step_with_retry(
     delay = retry.delay_ms / 1000
     last_result = None
     for attempt in range(retry.max_attempts):
+        _raise_if_cancelled(cancel_check)
         result = await _run_step(client, step, url, headers, query, body, request_summary, variables)
         if result.status == "passed" or attempt == retry.max_attempts - 1:
             return result
@@ -170,6 +183,7 @@ async def _run_step_with_retry(
             return result
         last_result = result
         await asyncio.sleep(delay)
+        _raise_if_cancelled(cancel_check)
         delay *= retry.backoff_factor
     return last_result
 
@@ -180,9 +194,11 @@ async def run_single_step(
     base_url: str | None = None,
     global_headers: dict[str, Any] | None = None,
     timeout_ms: int = 30000,
+    cancel_check: CancelCheck | None = None,
 ) -> dict[str, Any]:
     if not script.steps:
         raise ValueError("测试脚本没有可执行步骤")
+    _raise_if_cancelled(cancel_check)
 
     step = _select_step(script.steps, step_id)
     resolved_base_url = (base_url or script.base_url or "").strip()
@@ -200,7 +216,7 @@ async def run_single_step(
         "body": _body_preview(body),
     }
     async with httpx.AsyncClient(timeout=timeout_ms / 1000) as client:
-        return (await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables)).model_dump()
+        return (await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables, cancel_check)).model_dump()
 
 
 async def run_all_steps(
@@ -212,9 +228,11 @@ async def run_all_steps(
     continue_on_failure: bool = True,
     step_ids: list[str] | None = None,
     progress_callback: ProgressCallback | None = None,
+    cancel_check: CancelCheck | None = None,
 ) -> dict[str, Any]:
     if not script.steps:
         raise ValueError("测试脚本没有可执行步骤")
+    _raise_if_cancelled(cancel_check)
 
     resolved_base_url = (base_url or script.base_url or "").strip()
     if not resolved_base_url:
@@ -240,24 +258,24 @@ async def run_all_steps(
         if use_dag:
             results = await _run_dag(
                 client, runnable_steps, resolved_base_url, global_headers,
-                variables, progress_total, results, continue_on_failure, progress_callback,
+                variables, progress_total, results, continue_on_failure, progress_callback, cancel_check,
             )
         else:
             results = await _run_sequential(
                 client, runnable_steps, resolved_base_url, global_headers,
-                variables, progress_total, results, continue_on_failure, progress_callback,
+                variables, progress_total, results, continue_on_failure, progress_callback, cancel_check,
             )
         if cleanup_steps:
             cleanup_dag = _needs_dag_execution(cleanup_steps)
             if cleanup_dag:
                 results = await _run_dag(
                     client, cleanup_steps, resolved_base_url, global_headers,
-                    variables, progress_total, results, True, progress_callback, phase="cleanup",
+                    variables, progress_total, results, True, progress_callback, cancel_check, phase="cleanup",
                 )
             else:
                 results = await _run_sequential(
                     client, cleanup_steps, resolved_base_url, global_headers,
-                    variables, progress_total, results, True, progress_callback, phase="cleanup",
+                    variables, progress_total, results, True, progress_callback, cancel_check, phase="cleanup",
                 )
 
     passed = sum(1 for result in results if result.status == "passed")
@@ -290,9 +308,11 @@ async def _run_sequential(
     results: list[APIStepRunResult],
     continue_on_failure: bool,
     progress_callback: ProgressCallback | None,
+    cancel_check: CancelCheck | None = None,
     phase: str = "main",
 ) -> list[APIStepRunResult]:
     for step in runnable_steps:
+        _raise_if_cancelled(cancel_check)
         if progress_callback:
             await progress_callback(
                 {
@@ -313,7 +333,8 @@ async def _run_sequential(
             "query": query,
             "body": _body_preview(body),
         }
-        result = await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables)
+        result = await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables, cancel_check)
+        _raise_if_cancelled(cancel_check)
         result.phase = phase
         results.append(result)
         if progress_callback:
@@ -342,17 +363,20 @@ async def _run_dag(
     results: list[APIStepRunResult],
     continue_on_failure: bool,
     progress_callback: ProgressCallback | None,
+    cancel_check: CancelCheck | None = None,
     phase: str = "main",
 ) -> list[APIStepRunResult]:
     levels = _build_step_levels(runnable_steps)
     use_parallel_groups = _uses_parallel_groups(runnable_steps)
 
     for level in levels:
+        _raise_if_cancelled(cancel_check)
         for batch in _parallel_batches(level, use_parallel_groups):
+            _raise_if_cancelled(cancel_check)
             if len(batch) == 1:
                 result = await _execute_one_step(
                     client, batch[0], base_url, global_headers, variables, progress_callback,
-                    progress_total, results, phase=phase,
+                    progress_total, results, cancel_check=cancel_check, phase=phase,
                 )
                 results.append(result)
                 if result.status != "passed" and not continue_on_failure:
@@ -368,6 +392,7 @@ async def _run_dag(
                 progress_callback,
                 progress_total,
                 results,
+                cancel_check=cancel_check,
                 phase=phase,
             )
             results.extend(batch_results)
@@ -387,8 +412,10 @@ async def _run_parallel_batch(
     progress_callback: ProgressCallback | None,
     progress_total: int,
     results: list[APIStepRunResult],
+    cancel_check: CancelCheck | None = None,
     phase: str = "main",
 ) -> list[APIStepRunResult]:
+    _raise_if_cancelled(cancel_check)
     if progress_callback:
         for step in batch:
             await progress_callback(
@@ -405,11 +432,12 @@ async def _run_parallel_batch(
     tasks = [
         _execute_one_step(
             client, step, base_url, global_headers, dict(variables), None,
-            progress_total, results, phase=phase,
+            progress_total, results, cancel_check=cancel_check, phase=phase,
         )
         for step in batch
     ]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+    _raise_if_cancelled(cancel_check)
 
     batch_results: list[APIStepRunResult] = []
     for step, step_result in zip(batch, raw_results):
@@ -505,8 +533,10 @@ async def _execute_one_step(
     progress_callback: ProgressCallback | None,
     progress_total: int,
     results: list[APIStepRunResult],
+    cancel_check: CancelCheck | None = None,
     phase: str = "main",
 ) -> APIStepRunResult:
+    _raise_if_cancelled(cancel_check)
     url = _build_url(base_url, step, variables)
     headers = _substitute_data(_merge_headers(global_headers, step.headers), variables)
     query = _substitute_data(step.query, variables)
@@ -516,7 +546,8 @@ async def _execute_one_step(
         "query": query,
         "body": _body_preview(body),
     }
-    result = await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables)
+    result = await _run_step_with_retry(client, step, url, headers, query, body, request_summary, variables, cancel_check)
+    _raise_if_cancelled(cancel_check)
     result.phase = phase
     return result
 

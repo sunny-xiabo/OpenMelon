@@ -104,7 +104,7 @@ async def cancel_run(run_id: str) -> dict[str, Any] | None:
     if task and not task.done():
         task.cancel()
 
-    return await _mark_finished(
+    return await _mark_cancelled(
         run_id,
         {
             "status": "cancelled",
@@ -117,10 +117,12 @@ async def cancel_run(run_id: str) -> dict[str, Any] | None:
 
 async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: dict[str, Any] | None = None) -> None:
     started = time.perf_counter()
+    acquired_slot = False
     try:
         try:
             queue_wait_timeout_s = _queue_wait_timeout_s()
             await asyncio.wait_for(_semaphore.acquire(), timeout=queue_wait_timeout_s)
+            acquired_slot = True
         except asyncio.TimeoutError:
             await _mark_finished(
                 run_id,
@@ -163,6 +165,7 @@ async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: 
                     continue_on_failure=request.continue_on_failure,
                     step_ids=request.step_ids,
                     progress_callback=lambda progress: _update_progress(run_id, progress),
+                    cancel_check=lambda: _is_cancelled_sync(run_id),
                 ),
                 timeout=timeout_seconds,
             )
@@ -181,7 +184,8 @@ async def _execute_run(run_id: str, request: RunScriptRequest, policy_decision: 
             if report.get("status") == "failed":
                 await _maybe_auto_rerun(run_id, request, policy_decision)
         finally:
-            _semaphore.release()
+            if acquired_slot:
+                _semaphore.release()
     except asyncio.CancelledError:
         await _mark_finished(
             run_id,
@@ -308,6 +312,8 @@ async def _mark_finished(run_id: str, patch: dict[str, Any]) -> dict[str, Any] |
     from app.api_execution.services.asset_service import update_interface_test_results
 
     def _updater(existing: dict[str, Any]) -> dict[str, Any] | None:
+        if existing.get("status") == "cancelled":
+            return existing
         finished_at = _now()
         duration_ms = patch.get("duration_ms", existing.get("duration_ms", 0))
         merged = dict(patch)
@@ -331,6 +337,33 @@ async def _mark_finished(run_id: str, patch: dict[str, Any]) -> dict[str, Any] |
     return result
 
 
+async def _mark_cancelled(run_id: str, patch: dict[str, Any]) -> dict[str, Any] | None:
+    def _updater(existing: dict[str, Any]) -> dict[str, Any] | None:
+        if existing.get("status") in TERMINAL_STATUSES:
+            return existing
+        finished_at = _now()
+        duration_ms = patch.get("duration_ms", existing.get("duration_ms", 0))
+        return {
+            **existing,
+            **patch,
+            "run_id": run_id,
+            "run_at": existing.get("run_at") or existing.get("queued_at") or finished_at,
+            "finished_at": finished_at,
+            "duration_ms": duration_ms,
+            "failure_diagnostics": existing.get("failure_diagnostics", []),
+            "repair_suggestions": existing.get("repair_suggestions", []),
+        }
+
+    result = await _store().async_update_run_atomic(run_id, _updater)
+    if result:
+        await _broadcast_sse(run_id, "finished", {
+            "status": result.get("status", "unknown"),
+            "run_id": run_id,
+        })
+        _close_sse_channels(run_id)
+    return result
+
+
 def _close_sse_channels(run_id: str) -> None:
     channels = _sse_channels.pop(run_id, [])
     for queue in channels:
@@ -339,6 +372,11 @@ def _close_sse_channels(run_id: str) -> None:
 
 async def _is_cancelled(run_id: str) -> bool:
     run = await _store().async_get_run(run_id)
+    return bool(run and run.get("status") == "cancelled")
+
+
+def _is_cancelled_sync(run_id: str) -> bool:
+    run = _store().get_run(run_id)
     return bool(run and run.get("status") == "cancelled")
 
 

@@ -7,6 +7,7 @@ from app.api_execution.router_support import (
     auto_repair_and_rerun_service, run_single_step_service, run_all_steps_service,
     create_background_run_service, list_run_history_service, list_case_runs_service,
     get_run_report_service, get_queue_status_service, stream_run_progress_service, cancel_background_run_service,
+    cancel_direct_run_service,
     clear_all_runs_service, delete_run_history_service, batch_delete_run_history_service,
 )
 
@@ -47,6 +48,14 @@ async def run_all_steps_endpoint(request: RunScriptRequest):
 )
 async def create_background_run(request: RunScriptRequest):
     return await create_background_run_service(request)
+
+
+@router.post(
+    "/runs/direct/{execution_id}/cancel",
+    dependencies=[Depends(require_production_auth)],
+)
+async def cancel_direct_run(execution_id: str):
+    return await cancel_direct_run_service(execution_id)
 
 
 @router.get("/runs", response_model=APIRunHistoryResponse)

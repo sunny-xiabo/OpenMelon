@@ -151,6 +151,7 @@ class DemoBootstrapResponse(BaseModel):
     asset_diff_summary: dict[str, int] = {}
     seeded_run_ids: list[str] = []
     knowledge_item_count: int = 0
+    knowledge_candidate_count: int = 0
     pending_task_count: int = 0
 
 
@@ -770,6 +771,7 @@ class KnowledgeStatusUpdateRequest(BaseModel):
 
 class RunScriptRequest(BaseModel):
     script: APITestCaseDsl
+    execution_id: str = ""
     step_id: Optional[str] = None
     step_ids: list[str] = []
     project_id: Optional[str] = None

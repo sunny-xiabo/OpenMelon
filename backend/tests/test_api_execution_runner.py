@@ -1,6 +1,7 @@
 import asyncio
 
 import httpx
+import pytest
 
 from app.api_execution.runner import run_all_steps, run_single_step
 from app.api_execution.schemas import APITestCaseDsl
@@ -199,6 +200,32 @@ def test_run_all_steps_can_stop_after_failure(monkeypatch):
     assert report["failed"] == 1
     assert report["skipped"] == 1
     assert len(FakeAsyncClient.requests) == 1
+
+
+def test_run_all_steps_stops_when_cancelled_between_steps(monkeypatch):
+    class CancellingClient(FakeAsyncClient):
+        async def request(self, method, url, **kwargs):
+            self.requests.append({"method": method, "url": url, **kwargs})
+            return httpx.Response(200, text="ok")
+
+    CancellingClient.requests = []
+    monkeypatch.setattr("app.api_execution.runner.httpx.AsyncClient", CancellingClient)
+    script = APITestCaseDsl(
+        case_id="case_cancel",
+        name="取消执行 smoke",
+        base_url="http://example.test",
+        steps=[
+            {"id": "step_1", "name": "第一步", "method": "GET", "path": "/one", "operation_id": "one"},
+            {"id": "step_2", "name": "第二步", "method": "GET", "path": "/two", "operation_id": "two"},
+        ],
+    )
+    def cancel_after_first_step():
+        return len(CancellingClient.requests) >= 1
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(run_all_steps(script, cancel_check=cancel_after_first_step))
+
+    assert [request["url"] for request in CancellingClient.requests] == ["http://example.test/one"]
 
 
 def test_run_all_steps_runs_cleanup_after_failure(monkeypatch):

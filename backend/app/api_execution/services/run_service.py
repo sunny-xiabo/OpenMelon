@@ -1,4 +1,6 @@
 import json
+import asyncio
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -8,10 +10,11 @@ from fastapi.responses import StreamingResponse
 from app.api.errors import InvalidRequestError, NotFoundError
 from app.api.logging_service import log_event
 from app.api_execution.ai_assistant import build_repair_patch
+from app.api_execution.direct_execution import cancel_direct_execution, is_direct_execution_cancelled, register_direct_execution, unregister_direct_execution
 from app.api_execution.diagnostics import enrich_run_report
 from app.api_execution.policy import assert_execution_allowed
 from app.api_execution.run_queue import cancel_run, enqueue_run, get_queue_status, subscribe_sse, unsubscribe_sse
-from app.api_execution.runner import run_all_steps, run_single_step
+from app.api_execution.runner import ExecutionCancelledError, run_all_steps, run_single_step
 from app.api_execution.schemas import APITestCaseDsl, RunScriptRequest
 from app.api_execution.storage import api_execution_store as _default_api_execution_store
 from app.api_execution.storage import get_api_execution_store
@@ -592,6 +595,11 @@ async def auto_repair_and_rerun_service(run_id: str) -> dict[str, Any]:
 
 
 async def run_single_step_service(request: RunScriptRequest) -> dict[str, Any]:
+    started = time.perf_counter()
+    execution_id = (request.execution_id or "").strip()
+    current_task = asyncio.current_task()
+    if execution_id and current_task:
+        register_direct_execution(execution_id, current_task, request)
     try:
         policy_decision = assert_policy_allowed(request, step_id=request.step_id)
         result = await run_single_step(
@@ -600,14 +608,40 @@ async def run_single_step_service(request: RunScriptRequest) -> dict[str, Any]:
             base_url=request.base_url,
             global_headers=request.global_headers,
             timeout_ms=request.timeout_ms,
+            cancel_check=lambda: is_direct_execution_cancelled(execution_id),
         )
         saved_report = save_run_report(_single_step_report(request.script, result, _execution_options(request, policy_decision)))
         return (saved_report.get("results") or [result])[0]
+    except (ExecutionCancelledError, asyncio.CancelledError):
+        result = {
+            "step_id": request.step_id or (request.script.steps[0].id if request.script.steps else ""),
+            "name": "用户强制结束执行",
+            "method": "",
+            "url": "",
+            "status": "cancelled",
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "assertions": [],
+            "extracted": {},
+            "request": {},
+            "response": {},
+            "error": "用户强制结束执行",
+            "diagnostics": [],
+        }
+        save_run_report(_single_step_report(request.script, result, _execution_options(request, {})))
+        return result
     except ValueError as exc:
         raise InvalidRequestError(message=str(exc)) from exc
+    finally:
+        if execution_id:
+            unregister_direct_execution(execution_id)
 
 
 async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
+    started = time.perf_counter()
+    execution_id = (request.execution_id or "").strip()
+    current_task = asyncio.current_task()
+    if execution_id and current_task:
+        register_direct_execution(execution_id, current_task, request)
     try:
         if request.replace_run_id and not _store().get_run(request.replace_run_id):
             raise NotFoundError(message=str("要更新的执行历史不存在"))
@@ -622,6 +656,7 @@ async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
             max_steps=request.max_steps,
             continue_on_failure=request.continue_on_failure,
             step_ids=request.step_ids,
+            cancel_check=lambda: is_direct_execution_cancelled(execution_id),
         )
         report["case_name"] = request.script.name
         report["mode"] = "batch"
@@ -635,8 +670,40 @@ async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
             if request.script.ai_repair_source:
                 report = _append_applied_repair_summary(existing, report, request.script, request.step_ids, policy_decision)
         return save_run_report(report)
+    except (ExecutionCancelledError, asyncio.CancelledError):
+        report = {
+            "case_id": request.script.case_id,
+            "target_project": request.script.target_project,
+            "case_name": request.script.name,
+            "mode": "batch",
+            "script": request.script.model_dump(),
+            "execution_options": _execution_options(request, {}),
+            "status": "cancelled",
+            "failure_reason": "用户强制结束执行",
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": len(request.step_ids or request.script.steps or []),
+            "progress_total": len(request.step_ids or request.script.steps or []),
+            "progress_completed": 0,
+            "current_step_id": None,
+            "current_step_name": None,
+            "results": [],
+        }
+        return save_run_report(report)
     except ValueError as exc:
         raise InvalidRequestError(message=str(exc)) from exc
+    finally:
+        if execution_id:
+            unregister_direct_execution(execution_id)
+
+
+async def cancel_direct_run_service(execution_id: str) -> dict[str, Any]:
+    cancelled = cancel_direct_execution(execution_id)
+    if not cancelled:
+        raise NotFoundError(message=str("直接执行任务不存在"))
+    return cancelled
 
 
 async def create_background_run_service(request: RunScriptRequest) -> dict[str, Any]:

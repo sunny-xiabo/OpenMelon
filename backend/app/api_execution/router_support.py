@@ -82,6 +82,7 @@ from app.api_execution.services.run_service import (
     get_queue_status_service,
     stream_run_progress_service,
     cancel_background_run_service,
+    cancel_direct_run_service,
     clear_all_runs_service,
     delete_run_history_service,
     batch_delete_run_history_service,
