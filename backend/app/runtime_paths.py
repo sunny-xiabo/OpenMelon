@@ -25,7 +25,7 @@ RUNTIME_ROOT: Path = Path(
 
 # ---- sub-directories -------------------------------------------------------
 
-#: SQLite database directory  (contains openmelon.db)
+#: Runtime data directory for app-local artifacts and legacy compatibility files
 DB_DIR: Path = RUNTIME_ROOT / "data"
 
 #: Log files (openmelon.log, openmelon_error.log)

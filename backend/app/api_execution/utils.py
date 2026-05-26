@@ -20,6 +20,7 @@ def execution_options(request: RunScriptRequest, policy_decision: dict[str, Any]
         "max_steps": request.max_steps,
         "step_ids": request.step_ids,
         "continue_on_failure": request.continue_on_failure,
+        "approved_high_risk": request.approved_high_risk,
         "has_global_headers": bool(request.global_headers),
         "policy_decision": policy_decision or {},
         "flow_template_id": request.flow_template_id or "",

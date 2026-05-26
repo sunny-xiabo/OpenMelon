@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.config import settings
+from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_text
 from app.testcase_gen.services.prompt_hub_defaults import (
     DEFAULT_PROMPT_HUB_DATA,
     DEFAULT_SKILL_CATEGORIES,
@@ -16,20 +17,21 @@ from app.testcase_gen.services.prompt_hub_defaults import (
 MAX_PROMPT_HUB_SKILLS = 20
 
 
-class PromptHubTracker(BaseSQLiteStore):
+class PromptHubTracker(BasePostgresStore):
     def __init__(
         self,
         data_file: Path | None = None,
         db_path: Path | None = None,
+        database_url: str | None = None,
     ) -> None:
         from app.runtime_paths import LEGACY_JSON_DIR
         self._data_file = data_file or (LEGACY_JSON_DIR / "prompt_hub.json")
-        super().__init__(db_path)
+        _ = db_path
+        super().__init__(database_url or settings.DATABASE_URL)
 
     def _init_schema(self) -> None:
+        self._enable_foreign_keys()
         self._conn.executescript("""
-            PRAGMA foreign_keys = ON;
-
             CREATE TABLE IF NOT EXISTS prompt_hub_meta (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -76,6 +78,7 @@ class PromptHubTracker(BaseSQLiteStore):
     def load_data(self) -> dict[str, Any]:
         with self._lock:
             data = self._read_data_no_lock()
+            data = self._repair_runtime_data_no_lock(data)
             self._validate_data(data)
             return data
 
@@ -355,6 +358,52 @@ class PromptHubTracker(BaseSQLiteStore):
         self._replace_data_no_lock(candidate)
         return candidate
 
+    def _repair_runtime_data_no_lock(self, data: dict[str, Any]) -> dict[str, Any]:
+        candidate = self._upgrade_legacy_data(copy.deepcopy(data))
+        repaired = False
+        
+        # Repair empty templates
+        templates = candidate.get("templates") or []
+        if not templates:
+            candidate["templates"] = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA["templates"])
+            templates = candidate["templates"]
+            repaired = True
+
+        enabled_templates = [item for item in templates if item.get("enabled", True)]
+        if templates and not enabled_templates:
+            fallback = next((item for item in templates if item.get("id") == DEFAULT_TEMPLATE_ID), templates[0])
+            fallback["enabled"] = True
+            enabled_templates = [fallback]
+            repaired = True
+        enabled_defaults = [item for item in enabled_templates if item.get("is_default")]
+        if enabled_templates and len(enabled_defaults) != 1:
+            preferred_id = DEFAULT_TEMPLATE_ID if any(item.get("id") == DEFAULT_TEMPLATE_ID and item.get("enabled", True) for item in templates) else None
+            candidate["templates"] = self._normalize_default_template(templates, preferred_id)
+            repaired = True
+
+        # Repair empty categories
+        categories = candidate.get("skill_categories") or []
+        if not categories:
+            candidate["skill_categories"] = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA["skill_categories"])
+            categories = candidate["skill_categories"]
+            repaired = True
+
+        if categories and not any(item.get("is_default") for item in categories):
+            categories[0]["is_default"] = True
+            candidate["skill_categories"] = categories
+            repaired = True
+
+        # Repair empty skills
+        skills = candidate.get("skills") or []
+        if not skills:
+            candidate["skills"] = copy.deepcopy(DEFAULT_PROMPT_HUB_DATA["skills"])
+            repaired = True
+
+        if repaired:
+            candidate["updated_at"] = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            self._replace_data_no_lock(candidate)
+        return candidate
+
     def _initialize_from_json_or_defaults(self) -> None:
         with self._lock:
             if self._has_prompt_hub_data_no_lock():
@@ -382,11 +431,9 @@ class PromptHubTracker(BaseSQLiteStore):
         )
         return bool(
             row
-            and (
-                row["template_count"] > 0
-                or row["category_count"] > 0
-                or row["skill_count"] > 0
-            )
+            and row["template_count"] > 0
+            and row["category_count"] > 0
+            and row["skill_count"] > 0
         )
 
     def _get_meta_no_lock(self, key: str) -> str | None:
@@ -606,4 +653,70 @@ class PromptHubTracker(BaseSQLiteStore):
                 raise ValueError(f"duplicate {kind[:-1]} name: {name}")
 
 
-prompt_hub_tracker = PromptHubTracker()
+class PostgresPromptHubTracker(PromptHubTracker):
+    def __init__(
+        self,
+        data_file: Path | None = None,
+        database_url: str | None = None,
+    ) -> None:
+        from app.runtime_paths import LEGACY_JSON_DIR
+
+        self._data_file = data_file or (LEGACY_JSON_DIR / "prompt_hub.json")
+        BasePostgresStore.__init__(self, database_url or settings.DATABASE_URL)
+
+    def _init_schema(self) -> None:
+        self._enable_foreign_keys()
+        self._conn.executescript(
+            postgres_schema_from_text(
+                """
+                CREATE TABLE IF NOT EXISTS prompt_hub_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS prompt_templates (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    content TEXT NOT NULL,
+                    review_summary TEXT DEFAULT '',
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    is_default INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    data TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_prompt_templates_enabled ON prompt_templates(enabled);
+
+                CREATE TABLE IF NOT EXISTS prompt_skill_categories (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    is_default INTEGER NOT NULL DEFAULT 0,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    data TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS prompt_skills (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    content TEXT NOT NULL,
+                    review_summary TEXT DEFAULT '',
+                    category TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    data TEXT NOT NULL,
+                    FOREIGN KEY(category) REFERENCES prompt_skill_categories(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_prompt_skills_enabled ON prompt_skills(enabled);
+                CREATE INDEX IF NOT EXISTS idx_prompt_skills_category ON prompt_skills(category);
+                """
+            )
+        )
+        self._initialize_from_json_or_defaults()
+
+
+def _create_default_tracker() -> PromptHubTracker:
+    return PostgresPromptHubTracker(database_url=settings.DATABASE_URL)
+
+
+prompt_hub_tracker = _create_default_tracker()

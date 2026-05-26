@@ -5,6 +5,98 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.8.8] - 2026-05-26
+
+### 变更 (Changed)
+- **API 自动化执行边界收口**：页面手动单步执行和全量链路执行改为直接执行，并通过 `execution_id` 支持强制结束；后台异步队列保留给定时任务、CI、批量回归和自动触发。
+- **后台异步队列可靠性增强**：`/runs/async` 创建后立即保存 queued，worker 写入 running，执行进度持续落库；取消会同时标记 cancelled 和取消内存 task，晚到结果不会覆盖 cancelled，整体 run timeout 会稳定收尾为 failed。
+- **API 自动化前端体验优化**：编排执行、结果诊断、历史记录、简洁工作台和工作流进度展示更新；单步执行 loading 时可直接点击「强制结束单步」，全量执行 loading 时可点击「强制结束执行」。
+- **配置、治理和观测页面优化**：配置中心、项目与环境、Prompt Hub、节点类型、治理中心、日志中心、系统健康、AI/RAG 观测和索引治理页面完成布局与交互优化，并补充关键页面回归测试。
+- **本机开发文档代理**：Vite dev server 新增 `/docs`、`/openapi.json`、`/redoc` 到后端 `8000` 的代理，支持通过 `http://localhost:3000/docs` 查看 FastAPI 文档。
+- **演示项目改为当前服务只读冒烟**：内置 API 自动化演示项目改为调用当前 OpenMelon 服务的只读运行接口，避免依赖外部订单示例服务；执行经验默认进入待确认候选，不自动沉淀。
+
+### 验证 (Verified)
+- **API 执行回归**：`pytest backend/tests/test_api_execution_runner.py backend/tests/test_api_execution_run_queue.py` 通过，合计 21 个用例。
+- **前端执行回归**：`vitest run src/features/APIExecution/components/StepOrchestrate.test.jsx src/features/APIExecution/components/StepResult.test.jsx src/features/APIExecution/components/APIExecutionPage.test.jsx` 通过，合计 6 个用例。
+- **前端构建**：`vite build` 通过。
+
+## [0.2.8.7] - 2026-05-20
+
+### PostgreSQL 运行时迁移与观察期
+
+#### 新增 (Added)
+- **可选 PostgreSQL 运行时**：新增 `STORAGE_BACKEND=sqlite|postgres` 运行时开关，默认仍保留 SQLite；显式设置 `STORAGE_BACKEND=postgres` 与 `DATABASE_URL` 后，API execution、FileTracker、Prompt Hub 和 NodeTypeStore 可使用 PostgreSQL 作为共享元数据库。
+- **PostgreSQL 迁移演练工具**：固化 SQLite 到 PostgreSQL 的 `plan`、`schema`、`copy`、`verify`、`compare` 流程，支持迁移前规划、JSONB schema 生成、数据复制、一致性校验和只读双跑对比。
+- **PostgreSQL 健康检查卡片**：系统健康接口和设置页健康面板新增 PostgreSQL 组件；默认不启用 PG healthcheck，显式配置后展示 PG 连接状态。
+- **PG 运行时 smoke 脚本**：新增 `backend/scripts/postgres_runtime_smoke.py`，覆盖系统健康、API execution、FileTracker、Prompt Hub、NodeTypeStore、事件日志和 AI 调用日志的真实运行路径。
+- **PG 观察期 runbook**：新增 `docs/Knowledge/postgres-runtime-observation-smoke.md`，记录 smoke 顺序、只读 verify/compare 原则、观察清单、回滚原则和暂不重构表结构的判断标准。
+
+#### 变更 (Changed)
+- **SQLite 进入 legacy 角色**：在 `STORAGE_BACKEND=postgres` 模式下，SQLite 健康状态标记为 `legacy`，作为回滚备份和历史参考，不再作为主运行库。
+- **PG schema 延续迁移期模型**：继续采用普通索引列 + `data JSONB` 的结构，不在迁移阶段拆分业务表；后续仅在观察到明确慢查询、增长压力或 JSONB 兼容问题后再做针对性优化。
+- **PostgreSQL 连接改为 autocommit**：共享 PG 连接使用 autocommit，贴合当前 store 的单语句同步写入模式，降低开发期中断进程留下 idle transaction 后影响 schema 初始化和索引创建的风险。
+
+#### 验证 (Verified)
+- **PG runtime smoke**：`uv run --extra postgres python scripts/postgres_runtime_smoke.py --pretty` 通过，输出 `ok: true`，并确认临时 smoke 数据已清理。
+- **后端回归**：`uv run --group dev pytest tests/test_system_health.py tests/test_postgres_store.py tests/test_postgres_migration.py tests/test_file_tracker_sqlite.py tests/test_prompt_hub_tracker.py tests/test_graph_node_type_sqlite.py tests/test_event_logs.py tests/test_api_execution_dashboard.py tests/test_api_execution_run_queue.py` 通过，合计 48 个用例。
+- **迁移一致性**：`sqlite_to_postgres.py verify` 与 `sqlite_to_postgres.py compare --sample-size 5` 均返回 `ok: true`。
+- **前端构建**：`npm --prefix frontend run build` 通过。
+
+## [0.2.8.6] - 2026-05-18
+
+### API 自动化资产化与 Agent MVP
+
+#### 新增 (Added)
+- **项目接口资产台账**：API 自动化新增项目-模块-接口资产模型，支持将 OpenAPI 规范拆解为可长期维护的项目资产，而不是每次执行前重复导入一次性接口列表。
+- **OpenAPI 差异预览与确认同步**：新增规范版本记录、资产预览和确认同步流程，可在写入前查看新增、变更、移除接口，降低接口文档变化带来的误同步风险。
+- **API Agent 冒烟测试 MVP**：新增基于模块或选中接口生成 smoke DSL 的 Agent 工作台，生成步骤携带 `module_id`、`interface_id` 和 `interface_key`，便于执行后关联回接口资产。
+- **接口执行结果回写**：API 执行完成后回写接口资产的最近测试时间、通过/失败状态、状态码和失败摘要，接口台账可直接反映最近自动化健康状态。
+- **接口资产维护首批能力**：支持编辑接口摘要、描述、模块归属、风险等级、状态和隐藏标记；支持隐藏、标记废弃和恢复 active。
+- **手工资产维护**：支持在项目接口资产台账中新增手工模块和手工接口，手工接口允许编辑 method/path/operationId/tags，并支持物理删除。
+- **项目级认证配置**：项目配置新增 `auth_config`，支持 bearer、api_key、basic 等认证方式，Agent 生成 DSL 时可自动注入 Header 或 Query。
+- **项目级前置依赖配置**：项目配置新增 `setup_steps`，支持登录、初始化数据、变量提取等前置步骤；Agent 冒烟 DSL 会先执行前置步骤，再执行业务接口。
+- **项目级清理流程配置**：项目配置新增 `cleanup_steps`，支持测试后删除数据、回滚状态或调用 cleanup 接口；主流程失败中断后仍会尽量执行清理步骤。
+- **项目级配置向导**：API 自动化项目配置页新增认证向导、登录前置模板、清理步骤模板和变量引用检查，减少手写 JSON 配置成本。
+- **Agent 失败诊断摘要**：执行结果页新增 Agent 诊断摘要，按失败类别、风险等级、影响步骤和修复建议聚合展示，并可直接生成 AI 修复草稿或返回编排定位。
+- **参数负向测试生成**：API Agent 支持根据 OpenAPI 参数和 JSON Body schema 生成 negative DSL，覆盖缺少必填参数、非法枚举、错误类型和缺少必填 Body 字段等代表性校验场景。
+- **变更影响测试推荐**：新增项目资产影响分析接口，基于 OpenAPI diff 和接口 `change_state` 推荐新增/变更后需要重测的接口，并在工作台提供一键生成变更影响测试计划入口。
+- **项目测试任务沉淀**：Agent 生成或编排后的 DSL 可保存为项目级测试任务，后续在同项目中直接载入、复用或删除，减少重复选择模块/接口和重复生成脚本。
+- **项目测试任务治理**：项目测试任务面板支持名称/说明/步骤/标签搜索、标签筛选、任务复制、版本说明和最近执行摘要展示。
+- **Agent 工作台推荐**：Agent 测试页新增推荐解释区，展示当前测试范围、风险提示、缺失配置、认证提醒和可串联依赖候选。
+- **业务链路自动编排**：Agent 冒烟 DSL 按登录/鉴权、创建、详情/更新、查询、删除的启发式顺序组织步骤，降低手工调整顺序成本。
+- **依赖发现**：Agent 生成 DSL 时会识别登录 token、创建资源 ID 和路径参数引用，自动补充变量提取、`depends_on` 和必要的认证 Header 占位。
+- **画布式依赖图确认**：编排执行页新增轻量 SVG 依赖图画布，展示步骤节点、依赖箭头、起点、后续步骤和禁用/缺失依赖风险，运行前可快速确认链路。
+- **调度 / CI 入口**：执行历史区新增手动触发定时执行、规格同步 DSL 生成和 CI `curl` 命令入口，便于外部流水线或调度系统调用。
+- **SQLite / PG 迁移准备检查**：新增 `GET /api/api-execution/storage/migration-readiness`，返回 SQLite 表规模、JSON 字段风险、PG JSONB 映射建议和执行历史归档策略。
+- **资产相关后端接口**：新增项目资产列表、资产同步预览、确认同步、Agent 测试计划生成和接口资产更新接口。
+
+#### 变更 (Changed)
+- **Agent 执行边界收口**：Agent 默认跳过 `hidden`、`deprecated`、`removed`、`blocked` 接口，并继续遵守项目级 allowlist、blocklist、最大请求数和高风险人工确认策略。
+- **OpenAPI 资产编辑边界明确**：OpenAPI 同步接口可维护摘要、描述、模块、风险等级、状态和隐藏标记，但不允许直接编辑 method/path，避免和规范源冲突；手工接口预留 method/path/operationId/tags 编辑能力。
+- **API 自动化前端流程调整**：在导入与编排之间加入项目资产视角，支持按模块/接口筛选、查看资产摘要、预览同步差异、生成 Agent 冒烟 DSL 并进入现有编排执行链路。
+- **编排模板语义统一**：原编排页“流程模板”文案收敛为“测试任务”，与 Agent 测试页的项目任务复用入口保持一致。
+- **测试任务性能快照增强**：模板/任务性能快照补充最近一次执行状态、run id、用例名和耗时，方便前端判断任务可复用性。
+- **Agent 计划响应增强**：资产测试计划响应新增推荐说明、依赖图和编排摘要字段，前端可直接展示计划依据。
+- **执行快照补齐**：前端执行请求补齐项目策略快照和环境快照，后端执行服务也会合并环境变量，运行报告可追踪项目认证、前置依赖和环境配置来源。
+- **策略边界覆盖 cleanup**：清理步骤纳入项目白名单/黑名单、请求数上限和高风险判断，避免清理接口绕过项目安全边界。
+- **文档同步更新**：README 与 MANUAL 已补齐 API Agent v1 MVP、接口资产台账、项目测试任务复用与治理、差异同步、接口维护、执行回写、当前边界和后续 TODO。
+- **P4 收口与 P5 顺延**：P4 范围收口为配置体验、依赖图确认、失败诊断、调度/CI 入口和迁移准备；React Flow / vis-network 可视化编排、语义依赖学习和跨系统链路编排顺延到 P5。
+
+#### 当前边界 / TODO
+- **OpenAPI 资产删除边界**：OpenAPI 同步接口仍不支持物理删除，删除类需求优先通过隐藏、废弃、阻断或规范同步移除处理。
+- **项目级测试配置待继续增强**：OAuth 细分向导、复杂依赖编排和更深的跨环境配置治理仍需继续推进。
+- **Agent 深度能力待推进**：React Flow / vis-network 可视化编排、语义级依赖学习、跨系统链路编排和更系统的参数组合策略仍在 P5 计划中。
+
+### 验证 (Verified)
+- **API 自动化回归**：`uv run pytest tests/test_api_execution_*.py` 通过，合计 136 个用例。
+- **API Agent P3 回归**：`uv run pytest backend/tests/test_api_execution_project_environment.py backend/tests/test_api_execution_dashboard.py -q` 通过，合计 33 个用例。
+- **API Agent P4 完整回归**：`uv run pytest backend/tests/test_api_execution_automation_triggers.py backend/tests/test_api_execution_diagnostics.py backend/tests/test_api_execution_project_environment.py -q` 通过，合计 34 个用例；项目配置、依赖图、诊断摘要、调度/CI 入口和迁移检查完成浏览器验证。
+- **迁移准备接口验证**：`curl http://127.0.0.1:8000/api/api-execution/storage/migration-readiness` 返回 SQLite 表规模、JSONB 映射状态、JSON 风险和归档建议。
+- **后端编译检查**：`uv run python -m compileall -q app/api_execution` 通过。
+- **前端检查**：API Execution 相关 ESLint 检查通过，`vite build` 通过。
+- **浏览器验证**：API 自动化「Agent 测试」页已显示项目测试任务面板和 Agent 推荐解释区，空态、搜索、标签筛选、复制按钮、未生成 DSL 时的保存禁用状态正常。
+- **文档检查**：README、MANUAL 和 CHANGELOG 已同步当前 API Agent / 接口资产 / 项目测试任务范围。
+
 ## [0.2.8.5] - 2026-05-14
 
 ### 全系统架构现代化重构 (Full-stack Modernization)

@@ -6,8 +6,11 @@ from fastapi.testclient import TestClient
 
 from app.api_execution import routers
 from app.api_execution.routes import knowledge as knowledge_routes
+from app.api_execution.services import knowledge_service
+from app.api_execution.services import run_service
 from app.api_execution.knowledge import build_run_knowledge_items, write_run_to_graph
 from app.api_execution.storage import APIExecutionStore
+from app.api_execution.schemas import KnowledgeStatusUpdateRequest
 
 
 class FakeGraphOps:
@@ -37,17 +40,19 @@ def test_write_run_to_graph_creates_coverage_relationships():
 
     assert written > 0
     cypher_text = "\n".join(query for query, _params in graph_ops.queries)
+    assert "UNWIND $steps AS step" in cypher_text
     assert "MERGE (tc)-[:COVERS]->(f)" in cypher_text
     assert "FAILED_AT" in cypher_text
 
 
 def test_ingest_runs_to_knowledge_saves_unified_records(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     store.save_run(_run(status="passed"))
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(graph_ops=FakeGraphOps())))
 
-    response = asyncio.run(routers.ingest_runs_to_knowledge(request, limit=10))
+    response = asyncio.run(knowledge_service.ingest_runs_to_knowledge_service(request, limit=10))
 
     assert response["run_count"] == 1
     assert response["knowledge_count"] >= 1
@@ -58,7 +63,8 @@ def test_ingest_runs_to_knowledge_saves_unified_records(tmp_path, monkeypatch):
 
 def test_search_repair_knowledge_falls_back_to_local_store(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     store.save_knowledge_item(
         {
             "knowledge_id": "repair-1",
@@ -72,15 +78,16 @@ def test_search_repair_knowledge_falls_back_to_local_store(tmp_path, monkeypatch
     )
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(vector_ops=None, llm_client=None)))
 
-    response = asyncio.run(routers.search_repair_knowledge(request, query="health 201", project_id="project-1"))
+    response = asyncio.run(knowledge_service.search_repair_knowledge_service(request, query="health 201", project_id="project-1"))
 
     assert response["items"][0]["knowledge_id"] == "repair-1"
 
 
 def test_search_repair_knowledge_ignores_invalid_items(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
-    routers._invalidate_knowledge_index()
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
+    knowledge_service._invalidate_knowledge_index()
     store.save_knowledge_item(
         {
             "knowledge_id": "repair-invalid",
@@ -107,14 +114,15 @@ def test_search_repair_knowledge_ignores_invalid_items(tmp_path, monkeypatch):
     )
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(vector_ops=None, llm_client=None)))
 
-    response = asyncio.run(routers.search_repair_knowledge(request, query="health 201", project_id="project-1"))
+    response = asyncio.run(knowledge_service.search_repair_knowledge_service(request, query="health 201", project_id="project-1"))
 
     assert [item["knowledge_id"] for item in response["items"]] == ["repair-active"]
 
 
 def test_knowledge_review_and_status_update(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     store.save_knowledge_item(
         {
             "knowledge_id": "repair-1",
@@ -127,15 +135,13 @@ def test_knowledge_review_and_status_update(tmp_path, monkeypatch):
         }
     )
 
-    review = asyncio.run(routers.list_knowledge_review_items(project_id="project-1", status="active"))
+    review = knowledge_service.list_knowledge_review_items_service(project_id="project-1", status="active")
     assert review["items"][0]["status"] == "active"
 
-    response = asyncio.run(
-        routers.update_knowledge_item_status(
+    response = knowledge_service.update_knowledge_item_status_service(
             "repair-1",
-            routers.KnowledgeStatusUpdateRequest(status="invalid", note="接口已下线"),
+            KnowledgeStatusUpdateRequest(status="invalid", note="接口已下线"),
         )
-    )
 
     assert response["status"] == "invalid"
     assert response["governance_note"] == "接口已下线"
@@ -144,7 +150,8 @@ def test_knowledge_review_and_status_update(tmp_path, monkeypatch):
 
 def test_knowledge_review_route_accepts_governance_asset_limit(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     app = FastAPI()
     app.include_router(knowledge_routes.router, prefix="/api/api-execution")
     client = TestClient(app)
@@ -157,7 +164,8 @@ def test_knowledge_review_route_accepts_governance_asset_limit(tmp_path, monkeyp
 
 def test_delete_knowledge_item_requires_non_active_status(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     store.save_knowledge_item(
         {
             "knowledge_id": "repair-1",
@@ -172,19 +180,17 @@ def test_delete_knowledge_item_requires_non_active_status(tmp_path, monkeypatch)
     )
 
     try:
-        asyncio.run(routers.delete_knowledge_item("repair-1"))
+        knowledge_service.delete_knowledge_item_service("repair-1")
     except Exception as exc:
         assert "先标记失效或撤回使用" in str(exc)
     else:
         raise AssertionError("active knowledge item should not be deleted directly")
 
-    asyncio.run(
-        routers.update_knowledge_item_status(
+    knowledge_service.update_knowledge_item_status_service(
             "repair-1",
-            routers.KnowledgeStatusUpdateRequest(status="invalid"),
+            KnowledgeStatusUpdateRequest(status="invalid"),
         )
-    )
-    response = asyncio.run(routers.delete_knowledge_item("repair-1"))
+    response = knowledge_service.delete_knowledge_item_service("repair-1")
 
     assert response == {"deleted": True}
     assert store.list_knowledge_items() == []
@@ -207,12 +213,13 @@ def test_ingest_runs_indexes_knowledge_when_vector_available(tmp_path, monkeypat
         embeddings = Embeddings()
 
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     store.save_run(_run(status="passed"))
     vector_ops = FakeVectorOps()
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(graph_ops=None, vector_ops=vector_ops, llm_client=FakeEmbeddingClient())))
 
-    response = asyncio.run(routers.ingest_runs_to_knowledge(request, limit=10))
+    response = asyncio.run(knowledge_service.ingest_runs_to_knowledge_service(request, limit=10))
 
     assert response["vector_written"] >= 1
     assert vector_ops.created[0]["doc_type"] == "api_execution_knowledge"
@@ -220,9 +227,10 @@ def test_ingest_runs_indexes_knowledge_when_vector_available(tmp_path, monkeypat
 
 def test_save_run_report_creates_knowledge_candidate(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
 
-    saved = routers._save_run_report(_run(status="passed"))
+    saved = run_service.save_run_report(_run(status="passed"))
 
     tasks = store.list_automation_tasks(status="pending")
     assert saved["run_id"] == "run-1"
@@ -233,9 +241,10 @@ def test_save_run_report_creates_knowledge_candidate(tmp_path, monkeypatch):
 
 def test_save_run_report_skips_failed_knowledge_candidate(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
 
-    saved = routers._save_run_report(_run(status="failed"))
+    saved = run_service.save_run_report(_run(status="failed"))
 
     tasks = store.list_automation_tasks(status="pending")
     assert saved["run_id"] == "run-1"
@@ -244,7 +253,8 @@ def test_save_run_report_skips_failed_knowledge_candidate(tmp_path, monkeypatch)
 
 def test_approve_knowledge_candidate_ingests_and_resolves_task(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     store.save_run(_run(status="passed"))
     store.save_automation_task(
         {
@@ -264,7 +274,7 @@ def test_approve_knowledge_candidate_ingests_and_resolves_task(tmp_path, monkeyp
     )
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(graph_ops=None, vector_ops=None, llm_client=None)))
 
-    response = asyncio.run(routers.approve_knowledge_candidate(request, "knowledge-candidate:run-1"))
+    response = asyncio.run(knowledge_service.approve_knowledge_candidate_service(request, "knowledge-candidate:run-1"))
 
     assert response["knowledge_count"] >= 1
     task = store.get_automation_task("knowledge-candidate:run-1")
@@ -274,7 +284,8 @@ def test_approve_knowledge_candidate_ingests_and_resolves_task(tmp_path, monkeyp
 
 def test_create_run_knowledge_candidate_for_manual_repair_deposit(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     run = _run(status="passed")
     run["repair_history"] = [
         {
@@ -285,7 +296,7 @@ def test_create_run_knowledge_candidate_for_manual_repair_deposit(tmp_path, monk
     ]
     store.save_run(run)
 
-    response = asyncio.run(routers.create_run_knowledge_candidate("run-1"))
+    response = knowledge_service.create_run_knowledge_candidate_service("run-1")
 
     assert response["task_id"] == "knowledge-candidate:run-1"
     assert response["status"] == "pending"
@@ -298,7 +309,8 @@ def test_create_run_knowledge_candidate_for_manual_repair_deposit(tmp_path, monk
 
 def test_create_run_knowledge_candidate_keeps_resolved_candidate(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     store.save_run(_run(status="passed"))
     store.save_automation_task(
         {
@@ -317,7 +329,7 @@ def test_create_run_knowledge_candidate_keeps_resolved_candidate(tmp_path, monke
         }
     )
 
-    response = asyncio.run(routers.create_run_knowledge_candidate("run-1"))
+    response = knowledge_service.create_run_knowledge_candidate_service("run-1")
 
     assert response["already_resolved"] is True
     assert store.get_automation_task("knowledge-candidate:run-1")["status"] == "resolved"

@@ -1,8 +1,20 @@
 from fnmatch import fnmatch
+import ipaddress
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
+from app.config import settings
 from app.api_execution.schemas import APITestCaseDsl
-from app.api_execution.storage import api_execution_store
+from app.api_execution.storage import api_execution_store as _default_api_execution_store
+from app.api_execution.storage import get_api_execution_store
+
+api_execution_store = _default_api_execution_store
+
+
+def _store():
+    if api_execution_store is not _default_api_execution_store:
+        return api_execution_store
+    return get_api_execution_store()
 
 HIGH_RISK_METHODS = {"DELETE"}
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -22,6 +34,8 @@ HIGH_RISK_KEYWORDS = {
 }
 SENSITIVE_KEYS = {"authorization", "cookie", "token", "secret", "password", "apikey", "api-key", "x-api-key"}
 VALID_RISK_LEVELS = {"low", "medium", "high", "blocked"}
+ALLOWED_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+BLOCKED_IP_REASON = "目标地址属于 SSRF 高风险网段"
 
 
 def evaluate_execution_policy(
@@ -31,6 +45,8 @@ def evaluate_execution_policy(
     step_ids: list[str] | None = None,
     project_id: str | None = None,
     environment_id: str | None = None,
+    base_url: str | None = None,
+    approved_high_risk: bool = False,
     project_policy_snapshot: dict[str, Any] | None = None,
     environment_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -39,8 +55,10 @@ def evaluate_execution_policy(
     policy = _resolve_project_policy(project_id, project_policy_snapshot)
     environment = _resolve_environment(environment_id, environment_snapshot)
     steps = _selected_steps(script, step_id=step_id, step_ids=step_ids)
+    resolved_base_url = (base_url or environment.get("base_url") or script.base_url or "").strip()
     allowlist = _patterns(policy.get("operation_allowlist"))
     blocklist = _patterns(policy.get("operation_blocklist"))
+    egress_allowlist = _patterns(policy.get("egress_allowlist"))
     risk_overrides = _risk_overrides(policy.get("risk_overrides"))
     violations: list[str] = []
     warnings: list[str] = []
@@ -64,10 +82,16 @@ def evaluate_execution_policy(
         if allowlist and not _matches(signature, allowlist):
             violations.append(f"{signature} 不在项目接口白名单内，已阻断执行。")
             continue
-        if step_risk["risk_level"] == "high" and not _matches(signature, allowlist):
-            violations.append(f"{signature} 属于高风险接口（{step_risk['reason']}），必须加入项目白名单后才能执行。")
+        if step_risk["risk_level"] == "blocked":
+            violations.append(f"{signature} 已被标记为阻断风险，禁止执行。")
+        if step_risk["risk_level"] == "high" and not approved_high_risk and not _matches(signature, allowlist):
+            violations.append(f"{signature} 属于高风险接口（{step_risk['reason']}），必须加入项目白名单或人工确认后才能执行。")
         if step_risk["risk_level"] == "medium":
             warnings.append(f"{signature} 属于中风险接口：{step_risk['reason']}。")
+        if settings.API_EXECUTION_EGRESS_GUARD_ENABLED:
+            egress_violation = _egress_violation(step, resolved_base_url, egress_allowlist)
+            if egress_violation:
+                violations.append(f"{signature} 出网目标被阻断：{egress_violation}")
 
     environment_type = str(environment.get("environment_type") or "").lower()
     if environment_type in PRODUCTION_ENV_TYPES:
@@ -92,9 +116,12 @@ def evaluate_execution_policy(
         "allow_scheduled_execution": bool(policy.get("allow_scheduled_execution")),
         "allow_ai_generate_dsl": bool(policy.get("allow_ai_generate_dsl", True)),
         "allow_overwrite_history": bool(policy.get("allow_overwrite_history", True)),
+        "approved_high_risk": bool(approved_high_risk),
         "max_auto_repairs": _positive_int(policy.get("max_auto_repairs")),
         "max_reruns": _positive_int(policy.get("max_reruns")),
         "max_requests_per_run": max_requests,
+        "egress_allowlist": egress_allowlist,
+        "egress_guard_enabled": bool(settings.API_EXECUTION_EGRESS_GUARD_ENABLED),
     }
 
 
@@ -105,8 +132,86 @@ def assert_execution_allowed(script: APITestCaseDsl, **kwargs: Any) -> dict[str,
     return decision
 
 
+def _egress_violation(step: Any, base_url: str, egress_allowlist: list[str]) -> str:
+    if not base_url:
+        return "缺少 Base URL，无法确认执行目标。"
+    url = _build_policy_url(base_url, step)
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return f"仅允许 http/https 目标，当前 scheme={parsed.scheme or 'empty'}。"
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return "目标 URL 缺少 host。"
+    if _matches_egress_allowlist(parsed, egress_allowlist):
+        return ""
+    if host in ALLOWED_LOCAL_HOSTS:
+        return ""
+    ip_error = _ip_egress_violation(host)
+    if ip_error is not None:
+        return ip_error
+    return "公网或未显式白名单 host 默认禁止执行。"
+
+
+def _build_policy_url(base_url: str, step: Any) -> str:
+    path = str(getattr(step, "path", "") or "")
+    return urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
+
+
+def _matches_egress_allowlist(parsed: Any, patterns: list[str]) -> bool:
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    origin = f"{parsed.scheme}://{host}"
+    if parsed.port:
+        origin = f"{origin}:{parsed.port}"
+    for pattern in patterns:
+        normalized = _normalize_egress_pattern(pattern)
+        if not normalized:
+            continue
+        if normalized.startswith(("http://", "https://")):
+            candidate = urlparse(normalized)
+            if candidate.scheme and candidate.scheme != parsed.scheme:
+                continue
+            candidate_host = (candidate.hostname or "").lower()
+            candidate_origin = f"{candidate.scheme}://{candidate_host}"
+            if candidate.port:
+                candidate_origin = f"{candidate_origin}:{candidate.port}"
+            if fnmatch(host, candidate_host) or fnmatch(origin, candidate_origin):
+                return True
+            continue
+        if fnmatch(host, normalized):
+            return True
+    return False
+
+
+def _normalize_egress_pattern(pattern: str) -> str:
+    text = str(pattern or "").strip().lower()
+    if not text:
+        return ""
+    if text.startswith(("http://", "https://")):
+        return text.rstrip("/")
+    text = text.split("/", 1)[0]
+    if ":" in text and not text.startswith("["):
+        text = text.split(":", 1)[0]
+    return text
+
+
+def _ip_egress_violation(host: str) -> str | None:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if ip.is_loopback:
+        return "" if host in ALLOWED_LOCAL_HOSTS else BLOCKED_IP_REASON
+    if ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+        return BLOCKED_IP_REASON
+    if ip.is_private:
+        return ""
+    return "公网 IP 默认禁止执行。"
+
+
 def _resolve_project_policy(project_id: str | None, snapshot: dict[str, Any] | None) -> dict[str, Any]:
-    stored = api_execution_store.get_project(project_id) if project_id else None
+    stored = _store().get_project(project_id) if project_id else None
     return {
         **(snapshot or {}),
         **(stored or {}),
@@ -114,7 +219,7 @@ def _resolve_project_policy(project_id: str | None, snapshot: dict[str, Any] | N
 
 
 def _resolve_environment(environment_id: str | None, snapshot: dict[str, Any] | None) -> dict[str, Any]:
-    stored = api_execution_store.get_environment(environment_id) if environment_id else None
+    stored = _store().get_environment(environment_id) if environment_id else None
     return {
         **(snapshot or {}),
         **(stored or {}),
@@ -122,12 +227,13 @@ def _resolve_environment(environment_id: str | None, snapshot: dict[str, Any] | 
 
 
 def _selected_steps(script: APITestCaseDsl, *, step_id: str | None, step_ids: list[str] | None):
+    all_steps = [*(script.steps or []), *(script.cleanup_steps or [])]
     if step_ids:
         selected = set(step_ids)
-        return [step for step in script.steps if step.id in selected]
+        return [step for step in all_steps if step.id in selected]
     if step_id:
-        return [step for step in script.steps if step.id == step_id]
-    return list(script.steps)
+        return [step for step in all_steps if step.id == step_id]
+    return all_steps
 
 
 def _patterns(value: Any) -> list[str]:

@@ -1,8 +1,14 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Annotated
 
-from app.api_execution.router_support import *
-from app.governance_center import services as governance_services
+from app.api.deps import require_production_auth
+from app.api_execution.router_support import (
+    PolicyAuditListResponse, AutomationTaskListResponse, AutomationTaskCenterSummaryResponse,
+    AutomationTaskRecord, ScheduledExecutionResponse, SpecSyncResponse,
+    list_policy_audits_service, trigger_scheduled_runs_service, trigger_spec_sync_service,
+    list_automation_tasks_service,
+    get_task_center_summary_service, resolve_automation_task_service,
+)
 
 router = APIRouter()
 
@@ -24,25 +30,37 @@ async def list_automation_tasks(
     status: str | None = None,
     project_id: str | None = None,
 ):
-    return governance_services.list_task_queue(limit=limit, offset=offset, status=status, project_id=project_id)
+    return list_automation_tasks_service(limit=limit, offset=offset, status=status, project_id=project_id)
 
 
 @router.get("/automation/task-center/summary", response_model=AutomationTaskCenterSummaryResponse)
 async def get_task_center_summary(limit: Annotated[int, Query(ge=1, le=200)] = 50, project_id: str | None = None):
-    return governance_services.summarize_task_queue(limit=limit, project_id=project_id)
+    return get_task_center_summary_service(limit=limit, project_id=project_id)
 
 
-@router.post("/automation/tasks/{task_id}/resolve", response_model=AutomationTaskRecord)
+@router.post(
+    "/automation/tasks/{task_id}/resolve",
+    response_model=AutomationTaskRecord,
+    dependencies=[Depends(require_production_auth)],
+)
 async def resolve_automation_task(task_id: str):
-    return governance_services.resolve_task(task_id)
+    return resolve_automation_task_service(task_id)
 
 
-@router.post("/automation/scheduled-runs/trigger", response_model=ScheduledExecutionResponse)
+@router.post(
+    "/automation/scheduled-runs/trigger",
+    response_model=ScheduledExecutionResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def trigger_scheduled_runs():
     return await trigger_scheduled_runs_service()
 
 
-@router.post("/automation/spec-sync/trigger", response_model=SpecSyncResponse)
+@router.post(
+    "/automation/spec-sync/trigger",
+    response_model=SpecSyncResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def trigger_spec_sync():
     return trigger_spec_sync_service()
 

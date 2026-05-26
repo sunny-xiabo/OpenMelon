@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import require_production_auth
 from app.testcase_gen.router_support import *
 
 router = APIRouter()
@@ -41,7 +42,7 @@ async def get_cache_stats():
         raise InternalError(details=f"获取缓存统计失败: {str(e)}")
 
 
-@router.delete("/performance/cache")
+@router.delete("/performance/cache", dependencies=[Depends(require_production_auth)])
 async def clear_cache():
     """
     清空所有缓存

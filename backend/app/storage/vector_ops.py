@@ -34,6 +34,92 @@ class VectorOperations:
         """Convert a string ID to a valid UUID for external vector db."""
         return str(uuid.uuid5(uuid.NAMESPACE_URL, string_id))
 
+    def _qdrant_vector_size(self) -> int:
+        return max(settings.EMBEDDING_DIM, 1024)
+
+    def _qdrant_quantization_config(self):
+        if not settings.QDRANT_ENABLE_QUANTIZATION:
+            return None
+        quantization_type = (settings.QDRANT_QUANTIZATION_TYPE or "").strip().lower()
+        if quantization_type != "scalar_int8":
+            logger.warning("Unsupported Qdrant quantization type: %s", quantization_type)
+            return None
+        try:
+            from qdrant_client.models import (
+                ScalarQuantization,
+                ScalarQuantizationConfig,
+                ScalarType,
+            )
+
+            return ScalarQuantization(
+                scalar=ScalarQuantizationConfig(
+                    type=ScalarType.INT8,
+                    quantile=0.99,
+                    always_ram=True,
+                )
+            )
+        except Exception as exc:
+            logger.warning("Failed to build Qdrant quantization config: %s", exc)
+            return None
+
+    async def ensure_qdrant_collection(self, collection_name: str, *, recreate: bool = False) -> bool:
+        if not self._qdrant_client:
+            return False
+        from qdrant_client.models import Distance, VectorParams
+
+        if recreate:
+            try:
+                await self._qdrant_client.delete_collection(collection_name=collection_name)
+            except Exception:
+                pass
+
+        collections = await self._qdrant_client.get_collections()
+        collection_names = [c.name for c in collections.collections]
+        if collection_name in collection_names:
+            return False
+
+        kwargs = {
+            "collection_name": collection_name,
+            "vectors_config": VectorParams(
+                size=self._qdrant_vector_size(),
+                distance=Distance.COSINE,
+            ),
+        }
+        quantization_config = self._qdrant_quantization_config()
+        if quantization_config is not None:
+            kwargs["quantization_config"] = quantization_config
+        await self._qdrant_client.create_collection(**kwargs)
+        logger.info(
+            "Created Qdrant collection: %s%s",
+            collection_name,
+            " with scalar int8 quantization" if quantization_config is not None else "",
+        )
+        return True
+
+    async def get_qdrant_collection_info(self, collection_name: str) -> Dict[str, Any]:
+        if not self._qdrant_client:
+            return {"available": False, "collection": collection_name}
+        try:
+            info = await self._qdrant_client.get_collection(collection_name=collection_name)
+            config = getattr(info, "config", None)
+            params = getattr(config, "params", None)
+            quantization_config = getattr(config, "quantization_config", None)
+            return {
+                "available": True,
+                "collection": collection_name,
+                "points_count": getattr(info, "points_count", None),
+                "vectors_count": getattr(info, "vectors_count", None),
+                "quantization_enabled": quantization_config is not None,
+                "quantization_config": str(quantization_config) if quantization_config is not None else None,
+                "vector_size": getattr(getattr(params, "vectors", None), "size", None),
+            }
+        except Exception as exc:
+            return {
+                "available": False,
+                "collection": collection_name,
+                "error": str(exc),
+            }
+
     async def init_external_collections(self):
         """Initialize required collections in the external vector database."""
         if not self._qdrant_client:
@@ -41,29 +127,8 @@ class VectorOperations:
         last_error = None
         for attempt in range(1, 6):
             try:
-                from qdrant_client.models import VectorParams, Distance
-                collections = await self._qdrant_client.get_collections()
-                collection_names = [c.name for c in collections.collections]
-                
-                if "doc_chunks" not in collection_names:
-                    await self._qdrant_client.create_collection(
-                        collection_name="doc_chunks",
-                        vectors_config=VectorParams(
-                            size=max(settings.EMBEDDING_DIM, 1024),
-                            distance=Distance.COSINE
-                        )
-                    )
-                    logger.info("Created Qdrant collection: doc_chunks")
-                    
-                if "test_cases" not in collection_names:
-                    await self._qdrant_client.create_collection(
-                        collection_name="test_cases",
-                        vectors_config=VectorParams(
-                            size=max(settings.EMBEDDING_DIM, 1024),
-                            distance=Distance.COSINE
-                        )
-                    )
-                    logger.info("Created Qdrant collection: test_cases")
+                await self.ensure_qdrant_collection("doc_chunks")
+                await self.ensure_qdrant_collection("test_cases")
                 return
             except Exception as e:
                 last_error = e
@@ -515,26 +580,92 @@ class VectorOperations:
                 "skipped": 0,
             }
 
-        created = 0
-        skipped = 0
-        errors = []
-
+        vectors = []
         for i, (tc, emb) in enumerate(zip(test_cases, embeddings)):
-            result = await self.create_test_case_vector(
-                test_case_id=tc.get("id", f"tc_{i}"),
-                test_case_name=tc.get("title", tc.get("name", f"TestCase_{i}")),
-                description=tc.get("description", ""),
-                steps=self._format_steps(tc.get("steps", [])),
-                embedding=emb,
-                module=module or tc.get("module"),
-                priority=tc.get("priority"),
+            test_case_name = tc.get("title", tc.get("name", f"TestCase_{i}"))
+            description = tc.get("description", "")
+            content_hash = hashlib.md5(
+                f"{test_case_name}:{description[:100]}".encode()
+            ).hexdigest()[:12]
+            vector_id = f"tc:{content_hash}"
+            vectors.append(
+                {
+                    "vector_id": vector_id,
+                    "test_case_id": tc.get("id", f"tc_{i}"),
+                    "test_case_name": test_case_name,
+                    "description": description[:2000] if description else "",
+                    "steps": self._format_steps(tc.get("steps", []))[:5000],
+                    "module": module or tc.get("module"),
+                    "priority": tc.get("priority"),
+                    "embedding": emb,
+                }
             )
-            if result["action"] == "created":
-                created += 1
-            elif result["action"] == "exists":
-                skipped += 1
-            else:
-                errors.append(result["message"])
+
+        created = 0
+        created_ids: set[str] = set()
+        errors = []
+        query = """
+            UNWIND $vectors AS item
+            OPTIONAL MATCH (existing:TestCaseVector {vector_id: item.vector_id})
+            WITH item, existing
+            WHERE existing IS NULL
+            MERGE (tc:TestCaseVector {vector_id: item.vector_id})
+            SET tc.test_case_id = item.test_case_id,
+                tc.test_case_name = item.test_case_name,
+                tc.description = item.description,
+                tc.steps = item.steps,
+                tc.module = item.module,
+                tc.priority = item.priority,
+                tc.embedding = item.embedding,
+                tc.created_at = datetime()
+            RETURN count(tc) AS created, collect(item.vector_id) AS created_ids
+        """
+        try:
+            async with self._driver.session() as session:
+                result = await session.run(query, vectors=vectors)
+                record = await result.single()
+                created = int(record["created"] or 0) if record else 0
+                created_ids = set(record["created_ids"] or []) if record else set()
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": f"批量存储失败: {exc}",
+                "created": 0,
+                "skipped": 0,
+                "errors": [str(exc)],
+            }
+        skipped = len(vectors) - created
+
+        if created_ids and settings.USE_EXTERNAL_VECTOR and self._qdrant_client:
+            try:
+                from qdrant_client.models import PointStruct
+
+                points = []
+                for item in vectors:
+                    if item["vector_id"] not in created_ids:
+                        continue
+                    points.append(
+                        PointStruct(
+                            id=self._generate_uuid(item["vector_id"]),
+                            vector=item["embedding"],
+                            payload={
+                                "test_case_id": item["test_case_id"],
+                                "test_case_name": item["test_case_name"],
+                                "description": item["description"],
+                                "steps": item["steps"],
+                                "module": item["module"],
+                                "priority": item["priority"],
+                            },
+                        )
+                    )
+                if points:
+                    await self._qdrant_client.upsert(
+                        collection_name="test_cases",
+                        points=points,
+                    )
+            except Exception as exc:
+                logger.warning("Failed to batch write test cases to Qdrant: %s", exc)
+                errors.append(str(exc))
 
         return {
             "success": True,

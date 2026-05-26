@@ -24,7 +24,7 @@ import {
 import MetricCard from '../../Coverage/components/MetricCard';
 import EmptyState from '../../../components/EmptyState';
 import { useSnackbar } from '../../../components/SnackbarProvider';
-import { apiExecutionAPI } from '../../../services/api';
+import { apiExecutionAPI } from '../../../api/execution';
 import { SWITCH_TAB_EVENT } from '../../../constants/events';
 import {
   formatDuration,
@@ -43,6 +43,7 @@ import {
   Toolbar,
   TopList,
 } from './APIExecutionDashboardParts';
+import HealthyPulseIcon from '../../../components/icons/HealthyPulseIcon';
 
 // Hooks
 import { useExecProjects } from '../../../features/APIExecution/hooks/useAPIExecutionQueries';
@@ -136,7 +137,14 @@ export default function APIExecutionDashboard({ onOpenAPIExecution }) {
           {/* Metrics */}
           <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
             <MetricCard label="累计执行" value={summary.total_runs} helper="最近 50 条快照" accent="rgba(26,115,232,0.08)" icon={<RuleOutlined fontSize="inherit" />} />
-            <MetricCard label="通过率" value={formatPercent(summary.pass_rate)} helper="任务成功比率" accent="rgba(16,185,129,0.08)" icon={<TaskAltOutlined fontSize="inherit" />} trend={{ text: summary.pass_rate >= 80 ? '健康' : '待优化', color: summary.pass_rate >= 80 ? '#22c55e' : '#ef4444' }} />
+            <MetricCard 
+              label="通过率" 
+              value={formatPercent(summary.pass_rate)} 
+              helper="任务成功比率" 
+              accent="rgba(16,185,129,0.08)" 
+              icon={summary.pass_rate >= 80 ? <HealthyPulseIcon size={18} /> : <TaskAltOutlined fontSize="inherit" />} 
+              trend={{ text: summary.pass_rate >= 80 ? '健康' : '待优化', color: summary.pass_rate >= 80 ? '#22c55e' : '#ef4444' }} 
+            />
             <MetricCard label="失败数" value={summary.status_counts?.failed || 0} helper="需重点关注记录" accent="rgba(239,68,68,0.08)" icon={<BugReportOutlined fontSize="inherit" />} />
             <MetricCard label="待确认" value={summary.pending_task_count || 0} helper="待入库或待确认" accent="rgba(245,158,11,0.08)" icon={<AssignmentLateOutlined fontSize="inherit" />} />
             <MetricCard label="平均耗时" value={formatDuration(summary.average_duration_ms)} helper="单任务执行速度" accent="rgba(8,145,178,0.08)" icon={<SpeedOutlined fontSize="inherit" />} />

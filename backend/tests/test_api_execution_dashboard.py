@@ -1,10 +1,14 @@
-from app.api_execution import routers
+from app.api_execution.services import dashboard_service
+from app.api_execution.services import knowledge_service
+from app.api_execution.services import run_service
+from app.api_execution.services import template_service
+from app.api_execution.services import automation_service
 from app.api_execution.storage import APIExecutionStore
 
 
 def test_dashboard_summary_aggregates_runs_and_failures(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(dashboard_service, "api_execution_store", store)
     store.save_run(_run("run_passed", "passed", duration_ms=100, passed=1, failed=0, flow_template_id="template_1", flow_template_name="登录流程"))
     store.save_run(
         _run(
@@ -39,7 +43,7 @@ def test_dashboard_summary_aggregates_runs_and_failures(monkeypatch, tmp_path):
     store.save_run(_run("run_cancelled", "cancelled", duration_ms=50, passed=0, failed=0))
     store.save_automation_task({"task_id": "task_1", "status": "pending", "project_id": "project_a", "updated_at": "2026-01-01T00:00:00Z"})
 
-    summary = routers._dashboard_summary(project_id="project_a", limit=50)
+    summary = dashboard_service._dashboard_summary(project_id="project_a", limit=50)
 
     assert summary["total_runs"] == 4
     assert summary["status_counts"]["passed"] == 1
@@ -61,13 +65,13 @@ def test_dashboard_summary_aggregates_runs_and_failures(monkeypatch, tmp_path):
 
 def test_dashboard_summary_filters_project(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(dashboard_service, "api_execution_store", store)
     store.save_run(_run("run_a", "passed", project_id="project_a"))
     store.save_run(_run("run_b", "failed", project_id="project_b", failure_reason="服务错误"))
     store.save_automation_task({"task_id": "task_a", "status": "pending", "project_id": "project_a", "updated_at": "2026-01-01T00:00:00Z"})
     store.save_automation_task({"task_id": "task_b", "status": "pending", "project_id": "project_b", "updated_at": "2026-01-01T00:00:00Z"})
 
-    summary = routers._dashboard_summary(project_id="project_b", limit=50)
+    summary = dashboard_service._dashboard_summary(project_id="project_b", limit=50)
 
     assert summary["total_runs"] == 1
     assert summary["status_counts"]["failed"] == 1
@@ -77,9 +81,9 @@ def test_dashboard_summary_filters_project(monkeypatch, tmp_path):
 
 def test_dashboard_summary_empty_history(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(dashboard_service, "api_execution_store", store)
 
-    summary = routers._dashboard_summary(limit=50)
+    summary = dashboard_service._dashboard_summary(limit=50)
 
     assert summary["total_runs"] == 0
     assert summary["pass_rate"] == 0
@@ -91,7 +95,7 @@ def test_dashboard_summary_empty_history(monkeypatch, tmp_path):
 
 def test_task_center_summary_groups_status_type_risk_and_project(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(dashboard_service, "api_execution_store", store)
     store.save_automation_task(
         {
             "task_id": "task_manual",
@@ -142,7 +146,7 @@ def test_task_center_summary_groups_status_type_risk_and_project(monkeypatch, tm
         }
     )
 
-    summary = routers._task_center_summary(project_id="project_a", limit=10)
+    summary = dashboard_service.task_center_summary(project_id="project_a", limit=10)
 
     assert summary["total_task_count"] == 3
     assert summary["pending_task_count"] == 2
@@ -160,7 +164,9 @@ def test_task_center_summary_groups_status_type_risk_and_project(monkeypatch, tm
 
 def test_flow_template_helpers_roundtrip(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(dashboard_service, "api_execution_store", store)
+    store.save_run(_run("tpl_passed", "passed", duration_ms=120, passed=1, failed=0, flow_template_id="template-1", flow_template_name="登录流程"))
+    store.save_run(_run("tpl_failed_latest", "failed", duration_ms=340, passed=0, failed=1, flow_template_id="template-1", flow_template_name="登录流程"))
     definition = store.save_automation_definition(
         {
             "definition_id": "flow-template:template-1",
@@ -176,16 +182,22 @@ def test_flow_template_helpers_roundtrip(monkeypatch, tmp_path):
         }
     )
 
-    template = routers._flow_template_from_definition(definition)
+    template = dashboard_service.flow_template_from_definition(definition)
 
     assert template["template_id"] == "template-1"
     assert template["project_id"] == "project_a"
     assert template["script"]["case_id"] == "case-1"
+    assert template["performance_snapshot"]["run_count"] == 2
+    assert template["performance_snapshot"]["pass_rate"] == 0.5
+    assert template["performance_snapshot"]["failure_rate"] == 0.5
 
 
 def test_list_endpoints_use_unified_pagination_shape(monkeypatch, tmp_path):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
+    monkeypatch.setattr(knowledge_service, "api_execution_store", store)
+    monkeypatch.setattr(template_service, "api_execution_store", store)
     store.save_run(_run("run_1", "passed"))
     store.save_run(_run("run_2", "failed"))
     store.save_automation_task(
@@ -223,10 +235,10 @@ def test_list_endpoints_use_unified_pagination_shape(monkeypatch, tmp_path):
         }
     )
 
-    runs = routers.list_run_history_service(limit=1, offset=1, project_id="project_a")
-    tasks = routers.list_automation_tasks_service(limit=10, offset=0, status="pending", project_id="project_a")
-    knowledge = routers.list_knowledge_review_items_service(limit=10, offset=0, project_id="project_a")
-    templates = routers.list_flow_templates_service(limit=10, offset=0, project_id="project_a")
+    runs = run_service.list_run_history_service(limit=1, offset=1, project_id="project_a")
+    tasks = automation_service.list_automation_tasks_service(limit=10, offset=0, status="pending", project_id="project_a")
+    knowledge = knowledge_service.list_knowledge_review_items_service(limit=10, offset=0, project_id="project_a")
+    templates = template_service.list_flow_templates_service(limit=10, offset=0, project_id="project_a")
 
     assert runs["total"] == 2
     assert runs["limit"] == 1

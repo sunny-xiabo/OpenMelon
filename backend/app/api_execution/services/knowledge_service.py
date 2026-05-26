@@ -1,7 +1,18 @@
-from app.api_execution.router_deps import *
+import json
+from typing import Any
 
-def _save_knowledge_ingest_candidate(run: dict[str, Any], trigger_source: str = "run_completed") -> dict[str, Any] | None:
-    from app.api_execution.services.run_service import _log_task_event
+from fastapi import Request
+
+from app.api.errors import InvalidRequestError, NotFoundError
+from app.api.logging_service import log_event
+from app.api_execution.knowledge import build_run_knowledge_items, write_run_to_graph_with_retry, build_graph_write_failure_task
+from app.api_execution.schemas import APITestCaseDsl, KnowledgeStatusUpdateRequest
+from app.api_execution.storage import api_execution_store
+from app.engine.rag.cache import bump_rag_cache_version
+from app.api_execution.utils import now_iso as _now_iso
+
+def save_knowledge_ingest_candidate(run: dict[str, Any], trigger_source: str = "run_completed") -> dict[str, Any] | None:
+    from app.api_execution.services.run_service import log_task_event
 
     run_id = run.get("run_id")
     if not run_id:
@@ -47,7 +58,7 @@ def _save_knowledge_ingest_candidate(run: dict[str, Any], trigger_source: str = 
             "resolution_note": "",
         }
     )
-    _log_task_event(task, "knowledge_candidate_created")
+    log_task_event(task, "knowledge_candidate_created")
     return task
 
 
@@ -68,7 +79,7 @@ def _knowledge_candidate_reason(run: dict[str, Any]) -> str:
 
 
 async def _ingest_single_run_to_knowledge(request: Request, run: dict[str, Any]) -> dict[str, Any]:
-    from app.api_execution.services.run_service import _log_task_event, _save_unified_automation_records
+    from app.api_execution.services.run_service import log_task_event, save_unified_automation_records
 
     ingested_at = _now_iso()
     graph_ops = getattr(request.app.state, "graph_ops", None)
@@ -85,7 +96,7 @@ async def _ingest_single_run_to_knowledge(request: Request, run: dict[str, Any])
         "errors": [],
     }
     try:
-        _save_unified_automation_records(run)
+        save_unified_automation_records(run)
         for item in build_run_knowledge_items(run):
             api_execution_store.save_knowledge_item(item)
             response["knowledge_count"] += 1
@@ -93,6 +104,7 @@ async def _ingest_single_run_to_knowledge(request: Request, run: dict[str, Any])
                 response["vector_written"] += await _index_knowledge_item(vector_ops, llm_client, item)
         if response["knowledge_count"]:
             _invalidate_knowledge_index()
+            bump_rag_cache_version("api_knowledge_ingested")
         if graph_ops is not None:
             graph_result = await write_run_to_graph_with_retry(graph_ops, run)
             if graph_result["success"]:
@@ -102,7 +114,7 @@ async def _ingest_single_run_to_knowledge(request: Request, run: dict[str, Any])
                 task = api_execution_store.save_automation_task(
                     build_graph_write_failure_task(run, graph_result["error"], graph_result["attempt"])
                 )
-                _log_task_event(task, "knowledge_write_failed")
+                log_task_event(task, "knowledge_write_failed")
         response["run_count"] += 1
     except Exception as exc:
         response["errors"].append(f"{run.get('run_id', '<unknown>')}: {exc}")
@@ -130,7 +142,7 @@ async def _index_knowledge_item(vector_ops: Any, llm_client: Any, item: dict[str
         return 0
 
 
-async def _search_historical_repair_context(
+async def search_historical_repair_context(
     request: Request,
     query: str,
     *,
@@ -310,7 +322,7 @@ def _knowledge_item_from_vector(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _repair_context_query(script: APITestCaseDsl, report: dict[str, Any]) -> str:
+def repair_context_query(script: APITestCaseDsl, report: dict[str, Any]) -> str:
     failed_results = [
         result
         for result in report.get("results", []) or []
@@ -376,12 +388,12 @@ async def ingest_runs_to_knowledge_service(request: Request, limit: int = 20) ->
 
 async def search_repair_knowledge_service(request: Request, query: str, project_id: str = "", limit: int = 5) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 20))
-    items = await _search_historical_repair_context(request, query, project_id=project_id, top_k=safe_limit)
+    items = await search_historical_repair_context(request, query, project_id=project_id, top_k=safe_limit)
     return {"query": query, "items": items}
 
 
 async def approve_knowledge_candidate_service(request: Request, task_id: str) -> dict[str, Any]:
-    from app.api_execution.services.run_service import _log_task_event
+    from app.api_execution.services.run_service import log_task_event
 
     task = api_execution_store.get_automation_task(task_id)
     if not task:
@@ -411,7 +423,7 @@ async def approve_knowledge_candidate_service(request: Request, task_id: str) ->
         },
     )
     if resolved_task:
-        _log_task_event(resolved_task, "knowledge_candidate_approved")
+        log_task_event(resolved_task, "knowledge_candidate_approved")
     return {"task_id": task_id, "run_id": run_id, **response}
 
 
@@ -469,6 +481,7 @@ def update_knowledge_item_status_service(knowledge_id: str, request: KnowledgeSt
         patch["revoked_at"] = None
     saved = api_execution_store.save_knowledge_item(patch)
     _invalidate_knowledge_index()
+    bump_rag_cache_version("knowledge_status_updated")
     log_event(
         "warning" if safe_status != "active" else "info",
         "knowledge",
@@ -494,6 +507,7 @@ def delete_knowledge_item_service(knowledge_id: str) -> dict[str, bool]:
     if not api_execution_store.delete_knowledge_item(knowledge_id):
         raise NotFoundError(message=str("知识项不存在"))
     _invalidate_knowledge_index()
+    bump_rag_cache_version("knowledge_deleted")
     log_event(
         "warning",
         "knowledge",
@@ -513,7 +527,7 @@ def create_run_knowledge_candidate_service(run_id: str) -> dict[str, Any]:
     run = api_execution_store.get_run(run_id)
     if not run:
         raise NotFoundError(message=str("执行历史不存在"))
-    task = _save_knowledge_ingest_candidate(run, trigger_source="manual_repair_deposit")
+    task = save_knowledge_ingest_candidate(run, trigger_source="manual_repair_deposit")
     if not task:
         raise InvalidRequestError(message=str("该执行记录暂不能生成知识沉淀候选"))
     summary = task.get("summary") or {}

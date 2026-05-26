@@ -5,6 +5,20 @@ export const promptHubAPI = {
 
   getTemplates: () => fetchJSON(`${API_BASE}/prompt-hub/templates`),
 
+  getSafetyRecommendations: () => fetchJSON(`${API_BASE}/prompt-hub/safety/recommendations`),
+
+  executeSafetyAction: ({ action, recordKind, recordId, confirm = false, params = {} }) =>
+    fetchJSON(`${API_BASE}/prompt-hub/safety/actions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        action,
+        record_kind: recordKind,
+        record_id: recordId,
+        confirm,
+        params,
+      }),
+    }),
+
   createTemplate: (payload) =>
     fetchJSON(`${API_BASE}/prompt-hub/templates`, {
       method: 'POST',
@@ -60,4 +74,3 @@ export const promptHubAPI = {
       method: 'DELETE',
     }),
 };
-

@@ -1,6 +1,6 @@
 # API 自动化功能设计方案
 
-> 最后更新: 2026-05-08 (API 自动化存储已收敛为 SQLite-only)
+> 最后更新: 2026-05-22 (API 自动化存储已收敛为 PostgreSQL-only)
 
 ## 概述
 
@@ -8,7 +8,7 @@
 
 ---
 
-## 一、存储层抽象 (已完成)
+## 一、存储层 (已完成)
 
 ### 问题
 
@@ -16,37 +16,40 @@
 
 ### 方案
 
-抽象存储接口，SQLite 起步，后期可迁移到 PostgreSQL。当前运行时入口已收敛为 SQLite-only，JSON 文件只作为迁移种子。
+API 自动化的结构化运行时数据统一写入 PostgreSQL，`DATABASE_URL` 为必填配置。旧 JSON 种子仅用于首次初始化少量静态配置。
 
 **接口定义** (`storage.py`):
-- `APIExecutionStore` — SQLite 兼容构造器，保留旧名称以减少调用面变更
-- `SQLiteStore` — API 自动化实际存储实现
+- `APIExecutionStore` — PostgreSQL 兼容构造器，保留旧名称以减少调用面变更
+- `PostgresStore` — API 自动化实际存储实现
 
-**SQLite 设计** (`app/storage/sqlite_store.py` + `app/api_execution/sqlite_store.py`):
+**PostgreSQL 设计** (`app/storage/postgres_store.py` + `app/api_execution/api_execution_store.py`):
 - 表: `runs`, `projects`, `environments`, `specs`, `policy_audits`, `automation_tasks`, `automation_definitions`, `automation_runs`, `run_stage_events`, `artifact_meta`, `knowledge_items`
 - 索引: `status`, `project_id`, `run_at`, `created_at`, `item_type`, `content_hash`
-- WAL 模式 + `busy_timeout=5000`
-- JSON-in-TEXT 存储模式，兼顾灵活性与查询能力
-- 共享连接架构: `BaseSQLiteStore` (app/storage) 提供连接管理和通用工具方法，各模块子类继承并定义自己的表和方法，共享同一个 db 文件
+- JSONB + 普通索引混合模式，兼顾灵活性与查询能力
+- 共享连接架构: `BasePostgresStore` (app/storage) 提供连接管理和通用工具方法，各模块子类继承并定义自己的表和方法
 
-**自动迁移**:
-- 启动时创建共享 SQLite store
-- 如果共享 DB 为空且旧 JSON 文件存在，逐条读取写入 SQLite
-- 迁移后保留 JSON 文件作为备份/初始化兼容源，不再作为运行时写入目标
+**初始化**:
+- 启动时创建共享 PostgreSQL store
+- 旧 JSON 文件仅作为静态配置初始化源，不参与历史运行记录迁移
 
 **分页**: `list_runs` 等方法支持 `offset` 参数
 
-### 后期迁移 PG
+### 运行时约定
 
-只需新增 `PostgresStore(BaseStore)` 实现，使用 `asyncpg` 或 `psycopg`，SQL 语法与 SQLite 高度兼容。
+迁移原则：
+
+- 稳定查询字段拆列：`project_id`、`status`、`run_at`、`method`、`path`、`source_url`、`content_hash` 等继续建普通索引。
+- 复杂 payload 保留 JSONB：`script`、`results`、`execution_options`、OpenAPI request/response 片段、策略 decision 和扩展配置不急于全量拆列。
+- 敏感配置单独处理：项目认证、环境变量和 headers 迁移前需要扫描敏感键，生产环境优先迁为 Secret 引用或密文。
+- 执行历史先定归档：普通通过记录可按项目/月归档，失败、策略阻断、已沉淀知识的记录延长保留。
 
 ### 涉及文件
 
 | 文件 | 说明 |
 |------|------|
-| `backend/app/storage/sqlite_store.py` | BaseSQLiteStore 基类 + 共享连接管理 |
-| `backend/app/api_execution/storage.py` | API 自动化 SQLite-only 入口 + 默认 store |
-| `backend/app/api_execution/sqlite_store.py` | API 执行模块 SQLite 实现 (继承 BaseSQLiteStore) |
+| `backend/app/storage/postgres_store.py` | BasePostgresStore 基类 + 共享连接管理 |
+| `backend/app/api_execution/storage.py` | API 自动化 PostgreSQL-only 入口 + 默认 store |
+| `backend/app/api_execution/api_execution_store.py` | API 执行模块 PostgreSQL 实现 (继承 BasePostgresStore) |
 | `backend/app/api_execution/__init__.py` | API 自动化模块初始化 |
 
 ---
@@ -190,9 +193,9 @@ class VariableSetup(BaseModel):
 **实现**:
 - `_build_step_levels(steps)` — Kahn 算法拓扑排序，返回可并行执行的层级列表
 - `_detect_cycle(steps, step_map)` — DFS 检测循环依赖，有环抛 ValueError
-- `_needs_dag_execution(steps)` — 检测是否有步骤使用 `depends_on`，无则走串行路径（向后兼容）
-- `_run_dag()` — 按层级执行，单步骤走串行，多步骤用 `asyncio.gather` 并行
-- 并行步骤各自持有变量副本，组完成后合并 extraction 到全局变量
+- `_needs_dag_execution(steps)` — 检测是否有步骤使用 `depends_on` 或 `parallel_group`，无则走串行路径（向后兼容）
+- `_run_dag()` — 按层级执行；未使用 `parallel_group` 时保持原有层级并行，使用后同一拓扑层内按并行组分批执行
+- 并行步骤各自持有变量副本，组完成后合并 extraction 到全局变量；同名变量不同值会显式标记 `variable_conflict` 失败
 - `continue_on_failure=False` 时，任何并行组有失败即停止后续组
 
 ### 涉及文件
@@ -218,7 +221,7 @@ class VariableSetup(BaseModel):
 **实现**:
 - `run_queue.py` 维护 `_sse_channels: dict[str, list[asyncio.Queue]]` 映射
 - `subscribe_sse(run_id)` / `unsubscribe_sse(run_id, queue)` 管理连接
-- `_broadcast_sse(run_id, event, data)` 向所有订阅者广播
+- `_broadcast_sse(run_id, event, data)` 向所有订阅者广播；SSE 队列使用 `API_EXECUTION_SSE_QUEUE_SIZE` 控制上限，慢客户端会丢弃旧进度保留最新进度
 - `_update_progress` 中写入 storage 后广播 `progress` 事件
 - `_mark_finished` 中广播 `finished` 事件并关闭所有连接
 - `_close_sse_channels(run_id)` 发送 None 信号终止流
@@ -230,6 +233,15 @@ class VariableSetup(BaseModel):
 | 文件 | 说明 |
 |------|------|
 | `backend/app/api_execution/routers.py` | SSE 端点 |
+
+### 队列运行时配置
+
+单节点生产加固保留当前 asyncio 后台队列，不引入外部队列依赖。队列吞吐和等待策略由以下配置控制：
+
+- `API_EXECUTION_MAX_CONCURRENT_RUNS`：后台执行最大并发，默认 `2`
+- `API_EXECUTION_QUEUE_WAIT_TIMEOUT_S`：等待并发槽位超时时间，默认 `60`
+- `API_EXECUTION_SSE_QUEUE_SIZE`：单个 SSE 订阅连接的进度缓冲上限，默认 `100`
+- `GET /api/api-execution/runs/queue/status`：返回单进程队列状态、存储中的 queued/running 计数和 SSE 订阅数
 | `backend/app/api_execution/run_queue.py` | 进度广播 |
 
 ---
@@ -258,7 +270,7 @@ class APITestSuite(BaseModel):
 
 **路由**: Suite CRUD + `POST /suites/{suite_id}/run`
 
-**存储**: `suites.json` 或 SQLite suites 表
+**存储**: `suites.json` 或 PostgreSQL suites 表
 
 ### 涉及文件
 
@@ -325,7 +337,7 @@ class APITestSuite(BaseModel):
 
 | 阶段 | 模块 | 状态 |
 |------|------|------|
-| P0 | SQLite 存储 | 已完成 |
+| P0 | PostgreSQL 存储 | 已完成 |
 | P0 | 步骤级重试 | 已完成 |
 | P0 | 变量系统增强 | 已完成 |
 | P0 | 项目级 max_reruns | 已完成 |

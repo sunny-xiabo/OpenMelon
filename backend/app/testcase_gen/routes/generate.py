@@ -1,10 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import require_production_auth
 from app.testcase_gen.router_support import *
 
 router = APIRouter()
 
-@router.post("/generate")
+@router.post("/generate", dependencies=[Depends(require_production_auth)])
 async def generate_test_cases(
     req: Request,
     file: UploadFile = File(...),
@@ -177,7 +178,7 @@ async def generate_test_cases(
         raise InternalError(details=f"处理文件时发生错误: {str(e)}")
 
 
-@router.post("/generate-from-context")
+@router.post("/generate-from-context", dependencies=[Depends(require_production_auth)])
 async def generate_from_context(
     req: Request,
     context: str = Form(...),
@@ -281,7 +282,7 @@ class MindMapRequest(BaseModel):
     test_cases: List[Dict[str, Any]]
 
 
-@router.post("/generate-mindmap")
+@router.post("/generate-mindmap", dependencies=[Depends(require_production_auth)])
 async def generate_mindmap_from_test_cases(request: MindMapRequest):
     """
     从测试用例生成思维导图数据

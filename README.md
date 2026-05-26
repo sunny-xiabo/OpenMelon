@@ -11,10 +11,11 @@
 ## 核心特性
 
 - **多通道智能问答 (Agentic RAG)**：LLM 自动识别用户问题意图（图谱/向量/混合/可视化），支持自动改写查询、评估答案充分性的多步推理，搭配 BGE 重排序 (Reranker) 提升精度，所有回答均标注精确引用。
-- **多智能体测试用例生成**：基于 AutoGen 的三阶段流水线（需求分析、用例生成、用例评审），支持 Prompt Hub 动态配置模板与技能，生成结果双写落盘至图谱和向量库，支持导出 Excel/XMind。
-- **全链路 API 自动化**：IDE 级三栏式工作台，支持接口编排拖拽排序、变量跨步骤注入、AI 修复补丁、执行历史批量管理（勾选删除/一键清空全部）及执行经验知识沉淀。
+- **多智能体测试用例生成**：基于 AutoGen 的三阶段流水线（需求分析、用例生成、用例评审），支持 Prompt Hub 动态配置模板与技能；生成结果默认落盘至图谱，开启外部向量库后同步写入 Qdrant，支持导出 Excel/XMind。
+- **全链路 API 自动化**：支持项目-模块-接口资产台账、OpenAPI 差异预览确认同步、项目级认证/前置依赖/清理流程配置向导、变量引用检查、API Agent 冒烟与参数负向测试计划生成、推荐解释、依赖发现、业务链路自动编排、画布式依赖图确认、Agent 失败诊断摘要、调度/CI 触发入口、PostgreSQL 运行态健康检查、项目测试任务复用与治理、策略校验、执行结果回写、AI 修复补丁、执行历史批量管理及执行经验知识沉淀。
 - **动态图谱可视化**：vis.js 实时渲染，支持拖拽、缩放、节点高亮，支持多维筛选和 2 度关系子图探索。
 - **全链路数据仪表盘**：涵盖图谱覆盖率、API 自动化健康度及 UI 自动化（规划中）的多维度可视化聚合看板，快速定位高风险功能。
+- **索引治理工作台**：统一查看业务源、Neo4j 图谱索引与 Qdrant 向量库的一致性，支持缺失/孤儿/源缺失诊断、明细查看、状态同步、异步回填和审计记录。
 - **全格式文档解析与管理**：支持 16 种文件格式的解析（PDF/Word/Markdown/XMind 等），提供异步上传、文件追踪、重新索引及批量管理。
 - **灵活的部署与配置**：支持内置 Provider 模板、自定义 Provider 注册、设置页运行配置中心和阶段一热更新；运行时产物统一存放在 `backend/runtime/`，支持 `OPENMELON_DATA_DIR` 自定义挂载；原生支持企业级通知 Webhook。
 
@@ -40,10 +41,12 @@ cp .env.example .env
 # 至少填写：
 # LLM_PROVIDER=qwen
 # API_KEY=你的大模型密钥
+# 本机运行后端时还需要：
+# DATABASE_URL=postgresql://openmelon:openmelon@localhost:5432/openmelon
 ```
 > 默认不提供 Embedding 的模型（如 DeepSeek）需额外配置 Embedding 参数，详见 [.env.example](.env.example)。
 >
-> 如果初始化阶段还没有 `.env`，也可以先启动前后端，再到“设置 -> 运行配置”里执行最小初始化或从模板初始化。
+> PostgreSQL 是唯一运行期元数据库。Docker 一键启动会给 app 容器注入 `DATABASE_URL`；本机启动后端前，请先启动 `postgres` 服务并在 `.env` 中配置 localhost 连接串。
 
 ### 2. 启动服务（两种方式任选）
 
@@ -52,13 +55,13 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-该命令会构建并启动前端、主后端、Reranker Sidecar、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
+该命令会构建并启动前端、主后端、Reranker Sidecar、PostgreSQL、Neo4j 和 Qdrant。首次构建 Reranker 镜像会下载 `torch`、`FlagEmbedding` 等重依赖，耗时较长；后续会复用 Docker/uv 缓存。
 
 #### 方式 B：本机开发模式（推荐前端或快速调试）
 ```bash
 # 启动依赖服务
-# 如只调试主后端，可只启动 neo4j qdrant；Reranker 可在 .env 中关闭或改为 local
-docker compose up -d neo4j qdrant
+# 如只调试主后端，可只启动 postgres neo4j qdrant；Reranker 可在 .env 中关闭或改为 local
+docker compose up -d postgres neo4j qdrant
 
 # 启动后端
 cd backend
@@ -71,12 +74,53 @@ npm install
 npm run dev
 ```
 
-本机模式默认前端地址为 `http://localhost:3000`；Docker 一键启动默认前端地址为 `http://localhost`。
+本机模式默认前端地址为 `http://localhost:3000`；Docker 一键启动默认前端地址为 `http://localhost`。本机 Vite 开发服务会代理 `/api`、`/docs`、`/openapi.json` 和 `/redoc` 到后端 `8000`，因此 `http://localhost:3000/docs` 也可查看 FastAPI 文档；如果访问失败，先确认 `http://localhost:8000/docs` 是否正常。
 
 ### 3. 访问系统
 - **前端页面**: [http://localhost:3000](http://localhost:3000)
 - **API 文档**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **API 文档（前端代理）**: [http://localhost:3000/docs](http://localhost:3000/docs)
 - **Neo4j 数据库**: [http://localhost:7474](http://localhost:7474)
+
+---
+
+## 开发维护命令
+
+```bash
+# 清理本地测试缓存、Python 字节码和前端构建产物
+scripts/clean_artifacts.sh
+
+# 一键运行后端测试、前端 lint/test/build
+scripts/check.sh
+
+# 后端测试
+cd backend && uv run pytest
+
+# 前端检查
+cd frontend && npm run lint && npm test && npm run build
+```
+
+如果本机没有全局 `npm`，但已有 Node 可执行文件和 `frontend/node_modules`，可以这样运行：
+
+```bash
+OPENMELON_NODE_BIN=/path/to/node scripts/check.sh
+```
+
+### 生产安全配置
+
+生产环境建议显式设置以下配置，避免开发默认值进入线上：
+
+```bash
+APP_ENV=production
+DEBUG=false
+CORS_ALLOW_ORIGINS=https://your-openmelon.example.com
+PROTECT_ADMIN_API=true
+ADMIN_API_KEYS=replace-with-long-random-key
+# 可选：如前置网关签发 JWT，可配置 HS256 Bearer Token 校验密钥
+ADMIN_JWT_SECRET=replace-with-long-random-secret
+```
+
+`APP_ENV=production` 且未配置 `CORS_ALLOW_ORIGINS` 时，后端不会默认放开任意跨域来源；`DEBUG=false` 时，接口不会向客户端返回内部异常详情。`PROTECT_ADMIN_API=true` 后，删除、清空、配置保存、执行触发、AI 生成和索引治理等高风险接口需要 `X-API-Key` 或 `Authorization: Bearer <jwt>`。
 
 ---
 
@@ -90,8 +134,9 @@ npm run dev
 | **2** | **图谱总览** | 查看系统刚为你自动抽取生成的实体与关系图谱 |
 | **3** | **问答** | 针对上传的文档直接提问，体验 Agentic RAG 的多步推理与精准引用 |
 | **4** | **测试用例生成** | 体验一键将文档或业务模块转换为测试用例，落盘存证并导出 Excel |
-| **5** | **API 自动化** | 将用例转化为 API DSL，支持 AI 一键生成编排、自动修复并沉淀可信执行经验 |
+| **5** | **API 自动化** | 维护项目接口资产台账，按模块或接口生成 API Agent 冒烟 DSL，保存为项目测试任务后可反复载入执行 |
 | **6** | **数据仪表盘** | 查看全链路覆盖率、哪些模块缺少用例以及自动化的健康度 |
+| **7** | **索引治理** | 检查 Neo4j 与 Qdrant 是否一致，必要时执行状态同步、孤儿清理或 Qdrant 异步回填 |
 
 ### 界面概览
 
@@ -103,41 +148,23 @@ npm run dev
 - **导入管理**：![导入管理页面](docs/screenshots/manage-page.png)
 - **测试用例生成**：![测试用例生成页面](docs/screenshots/testcase-page.png)
 - **API 自动化**：![API 自动化页面](docs/screenshots/api-execution-page.png)
+- **数据仪表盘**：![数据仪表盘页面](docs/screenshots/dashboard-page.png)
+- **索引治理**：![索引治理页面](docs/screenshots/index-governance-page.png)
+- **设置中心**：![设置中心页面](docs/screenshots/settings-page.png)
 - **设置 - 节点类型配置**：![节点类型配置](docs/screenshots/node-page.png)
 - **设置 - 项目与环境**：![项目与环境](docs/screenshots/project-env-page.png)
-- **设置 - 运行配置**：统一管理 `.env`、主模块 LLM、热更新项和自定义 Provider 模板
+- **设置 - 运行配置**：![运行配置](docs/screenshots/runtime-config-page.png)
 - **设置 - Prompt Hub**：![Prompt Hub 页面](docs/screenshots/prompt-hub-page.png)
+- **设置 - 治理中心**：![治理中心](docs/screenshots/governance-center-page.png)
+- **设置 - 日志中心**：![日志中心](docs/screenshots/log-center-page.png)
+- **设置 - AI/RAG 观测**：![AI/RAG 观测](docs/screenshots/ai-observability-page.png)
 </details>
 
 ---
 
 ## 运行配置中心
 
-设置页中的“运行配置”已经是当前版本推荐的运行参数入口，适合处理这些事情：
-
-- 初始化缺失的 `.env`
-- 查看配置来源：已生效 `.env`、程序默认、模板示例或未设置
-- 编辑主模块 LLM、Embedding、检索、Reranker、生成和日志生命周期参数
-- 管理自定义 Provider 模板，并在主模块 LLM 分组里直接套用
-
-当前阶段的生效规则：
-
-- `热更新`：保存后会刷新进程内运行参数，只影响后续新请求，不会中途切换正在执行的任务
-- `需重启`：配置已经写入 `.env`，但路径、数据库、向量库主连接和启动期长期持有资源仍需服务重启
-
-当前已接入热更新的重点范围包括：
-
-- 主模块 `LLM_PROVIDER`、`API_KEY`、`API_BASE_URL`、`CHAT_MODEL`
-- `EMBEDDING_MODEL`、`EMBEDDING_DIM`
-- 检索、Reranker、生成参数
-- 日志生命周期参数 `EVENT_LOG_RETENTION_DAYS`、`EVENT_LOG_MAX_ROWS`
-
-以下仍建议按重启生效处理：
-
-- `OPENMELON_DATA_DIR`
-- `NEO4J_URI`、`NEO4J_USER`、`NEO4J_PASSWORD`、`NEO4J_DATABASE`
-- 向量库主连接参数
-- 启动时初始化并长期持有的路径、数据库连接、客户端实例
+设置页中的“运行配置”是当前版本推荐的运行参数入口，可初始化 `.env`、维护 LLM/Embedding/检索/Reranker 参数、管理自定义 Provider 模板，并区分热更新与需重启项。完整说明见 [MANUAL.md](MANUAL.md#3-环境配置详解)。
 
 ---
 
@@ -170,22 +197,24 @@ npm run dev
 OpenMelon/
 ├── backend/app/
 │   ├── api/                 # 通用 FastAPI 路由（问答、图谱、导入、日志等）
-│   ├── api_execution/       # API 自动化模块（接口解析、DSL、编排执行、策略、AI 修复、知识沉淀）
+│   ├── api_execution/       # API 自动化模块（项目/模块/接口资产、Agent 测试任务、DSL、编排执行、策略、诊断、调度入口、AI 修复、知识沉淀）
 │   │   ├── routes/          # 各子模块路由（runs、specs、projects、knowledge、templates 等）
 │   │   ├── services/        # 业务服务（run_service、spec_service、knowledge_service 等）
-│   │   └── sqlite_store.py  # 模块专属 SQLite 存储层
+│   │   ├── postgres_store.py # API 执行模块 PostgreSQL 存储门面与索引查询
+│   │   └── storage.py        # 运行时存储实例与 provider 入口
+│   ├── index_governance/    # 索引治理模块（Neo4j/Qdrant 一致性扫描、清理、回填任务）
 │   ├── engine/              # RAG 核心编排层（意图路由、多路召回、Rerank）
-│   ├── storage/             # 存储底座（共享 SQLite、Neo4j 知识图谱与 Qdrant 向量库）
+│   ├── storage/             # 存储底座（PostgreSQL 元数据库、Neo4j 知识图谱与 Qdrant 向量库）
 │   ├── services/            # 业务逻辑（文档解析、覆盖率计算、会话管理、企业 Webhook 等）
 │   ├── testcase_gen/        # 基于 AutoGen 的多智能体测试用例生成模块
 │   └── runtime_paths.py     # 集中管理所有运行时产物路径，支持 OPENMELON_DATA_DIR 环境变量
-├── backend/runtime/         # 运行时产物（数据库、日志、上传文件等，不提交 git）
-│   ├── data/openmelon.db    # SQLite 主库（执行历史、项目、知识、Prompt Hub 等所有结构化数据）
+├── backend/runtime/         # 运行时产物（数据库连接外部化，保留上传文件与日志等）
+│   ├── data/                # 上传文件、Prompt Hub 种子和其他运行时文件
 │   ├── data/uploads/        # 用户上传的原始文件
 │   └── logs/                # 应用日志
 ├── frontend/src/
-│   ├── pages/               # 页面组件（QA、Graph、Manage、TestCase、APIExecution、Dashboard、Settings）
-│   ├── features/            # 功能模块（APIExecution、APIExecutionFlow、Graph、QA、PromptHub 等）
+│   ├── pages/               # 页面组件（QA、Graph、Manage、TestCase、APIExecution、Dashboard、IndexGovernance、Settings）
+│   ├── features/            # 功能模块（APIExecution、APIExecutionFlow、Graph、QA、PromptHub、AIObservability 等）
 │   ├── api/                 # 前端 API 客户端（execution.js、client.js 等）
 │   └── components/          # 通用 UI 组件
 ├── docs/                    # 项目补充文档及截图资源
@@ -195,6 +224,10 @@ OpenMelon/
 ```
 
 后端所有的运行时产物（数据库、日志、导出文件、上传文件）统一存放在 `backend/runtime/` 目录下，并支持通过 `OPENMELON_DATA_DIR` 环境变量配置存放路径，彻底将运行时数据与源码分离。Neo4j 与 Qdrant 数据仍使用各自独立的挂载卷。
+
+当前业务元数据库为 PostgreSQL-only：`DATABASE_URL` 是必填运行配置，API execution、FileTracker、Prompt Hub、NodeTypeStore、日志中心事件日志和 AI 调用日志均写入 PostgreSQL。系统健康会直接检查 PostgreSQL 运行态。
+
+PostgreSQL 本地环境直接由 `docker-compose.yml` 提供。新环境启动时，后端会在 PostgreSQL 中自动确保运行期表结构；运维备份、恢复、重置和索引治理说明见 [MANUAL.md](MANUAL.md#15-数据维护与清理)。索引治理任务队列是进程内状态，重启应用会清空当前待处理任务视图。
 
 ---
 
@@ -206,7 +239,3 @@ OpenMelon/
 |------|---------|---------|
 | **[MANUAL.md](MANUAL.md)** | 开发者、运维 | 操作手册：环境初始化、运行配置中心、Provider 管理、热更新边界、页面运维与常见排查 |
 | **[CHANGELOG.md](CHANGELOG.md)** | 开发者 | 项目版本的变更记录与架构优化历史归档 |
-| **[docs/Knowledge/FRONTEND_DEPLOYMENT.md](docs/Knowledge/FRONTEND_DEPLOYMENT.md)** | 运维 | 前端独立部署 Nginx 配置示例与环境变量说明 |
-| **[docs/Knowledge/OPERATION_INTRO_GUIDE.md](docs/Knowledge/OPERATION_INTRO_GUIDE.md)** | 新用户、测试、产品 | 页面入口、操作路径和常见使用流程 |
-| **[docs/Knowledge/PROMPT_HUB_GUIDE.md](docs/Knowledge/PROMPT_HUB_GUIDE.md)** | 测试、管理员 | Prompt Hub 模板、技能和分类管理说明 |
-| **[docs/planning/UI_EXECUTION_PLAN.md](docs/planning/UI_EXECUTION_PLAN.md)** | 开发者、测试负责人 | UI 自动化执行能力规划与落地路径 |

@@ -25,6 +25,26 @@ services:
     networks:
       - openmlon-network
 
+  postgres:
+    image: postgres:16
+    container_name: openmlon-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-openmelon}
+      POSTGRES_USER: ${POSTGRES_USER:-openmelon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openmelon}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openmelon} -d ${POSTGRES_DB:-openmelon}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - openmlon-network
+
   app:
     build:
       context: ./backend
@@ -37,7 +57,19 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
       NEO4J_DATABASE: neo4j
+      DATABASE_URL: postgresql://${POSTGRES_USER:-openmelon}:${POSTGRES_PASSWORD:-openmelon}@postgres:5432/${POSTGRES_DB:-openmelon}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-openmelon}
+      POSTGRES_USER: ${POSTGRES_USER:-openmelon}
       PYTHONUNBUFFERED: "1"
+      OPENMELON_DATA_DIR: /app/runtime
+      APP_ENV: ${APP_ENV:-development}
+      DEBUG: ${DEBUG:-false}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+      PROTECT_ADMIN_API: ${PROTECT_ADMIN_API:-false}
+      ADMIN_API_KEYS: ${ADMIN_API_KEYS:-}
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       API_KEY: ${API_KEY}
       API_BASE_URL: ${API_BASE_URL:-}
@@ -55,7 +87,11 @@ services:
       NO_PROXY: localhost,127.0.0.1,qdrant,neo4j,reranker
       no_proxy: localhost,127.0.0.1,qdrant,neo4j,reranker
       UV_SYSTEM_PYTHON: 1
+    volumes:
+      - openmelon_runtime:/app/runtime
     depends_on:
+      postgres:
+        condition: service_healthy
       neo4j:
         condition: service_healthy
       qdrant:
@@ -114,6 +150,8 @@ services:
       - openmlon-network
 
 volumes:
+  openmelon_runtime:
+  postgres_data:
   neo4j_data:
   neo4j_logs:
   qdrant_storage:

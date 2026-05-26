@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import { apiExecutionAPI } from '../../../api/execution';
 import { useUIContext } from './UIContext';
@@ -8,7 +9,8 @@ import {
   useExecHistory, 
   usePendingTasks, 
   useDeleteRunMutation, 
-  useBatchDeleteRunsMutation 
+  useBatchDeleteRunsMutation,
+  EXEC_KEYS,
 } from '../hooks/useAPIExecutionQueries';
 
 const RunHistoryContext = createContext();
@@ -21,11 +23,13 @@ export const useRunHistoryContext = () => {
 
 export const RunHistoryProvider = ({ children }) => {
   const showSnackbar = useSnackbar();
+  const queryClient = useQueryClient();
   const { setLoading: setGlobalLoading } = useUIContext();
 
   const [runHistoryProjectId, setRunHistoryProjectId] = useState('');
   const [runHistoryStatus, setRunHistoryStatus] = useState('');
   const [runHistoryKeyword, setRunHistoryKeyword] = useState('');
+  const [automationTriggerResult, setAutomationTriggerResult] = useState(null);
 
   // 使用 TanStack Query
   const historyParams = {
@@ -39,6 +43,12 @@ export const RunHistoryProvider = ({ children }) => {
 
   const deleteRunMutation = useDeleteRunMutation();
   const batchDeleteMutation = useBatchDeleteRunsMutation();
+
+  const invalidateProjectRunState = (projectId) => {
+    if (!projectId) return;
+    queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(projectId) });
+    queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(projectId) });
+  };
 
   // 从会话中恢复搜索词（例如刚跑完一个任务跳回来）
   useEffect(() => {
@@ -55,13 +65,14 @@ export const RunHistoryProvider = ({ children }) => {
     try {
       const res = await apiExecutionAPI.clearAllRuns();
       showSnackbar(`已成功清空所有执行记录（共 ${res.deleted_count} 条）`, { severity: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['exec', 'agent-context'] });
       fetchHistory(); // 这种全局清空的操作可以直接强制刷一次
     } catch (error) {
       showSnackbar(error.message || '清空历史失败', { severity: 'error' });
     }
   };
 
-  const replayRun = async (run, _unused, buildRunOptionsFn) => {
+  const replayRun = async (run, _unused, _buildRunOptionsFn) => {
     if (!run || !run.script) {
       showSnackbar('该历史记录没有脚本数据，无法重跑', { severity: 'warning' });
       return;
@@ -74,6 +85,7 @@ export const RunHistoryProvider = ({ children }) => {
         replace_run_id: run.run_id,
       });
       showSnackbar(`重跑完成：${data.passed} 通过 / ${data.failed} 失败`, { severity: data.status === 'passed' ? 'success' : 'error' });
+      invalidateProjectRunState(data.execution_options?.project_id || options.project_id);
       fetchHistory();
     } catch (error) {
       showSnackbar(error.message || '重跑失败', { severity: 'error' });
@@ -92,6 +104,7 @@ export const RunHistoryProvider = ({ children }) => {
       const data = await apiExecutionAPI.autoRepairRun(runId);
       setRunReport(data);
       setDslText(JSON.stringify(data.script || parsedScript, null, 2));
+      invalidateProjectRunState(data.execution_options?.project_id || runReport?.execution_options?.project_id);
       showSnackbar(
         data.status === 'passed' ? '受控自动修复重跑已通过，并更新原记录' : '自动修复已重跑，仍需人工确认失败项',
         { severity: data.status === 'passed' ? 'success' : 'warning' }
@@ -110,7 +123,9 @@ export const RunHistoryProvider = ({ children }) => {
     try {
       const data = await apiExecutionAPI.triggerSpecSync();
       const updated = (data.items || []).filter((i) => i.status === 'updated').length;
+      setAutomationTriggerResult({ type: 'spec_sync', ...data });
       showSnackbar(`文档同步完成：${updated} 个项目已更新 DSL`, { severity: 'success' });
+      (data.items || []).forEach((item) => invalidateProjectRunState(item.project_id));
       fetchHistory();
     } catch (error) {
       showSnackbar(error.message || '同步失败', { severity: 'error' });
@@ -119,7 +134,23 @@ export const RunHistoryProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const handleTriggerScheduledRuns = async () => {
+    setGlobalLoading(true);
+    try {
+      const data = await apiExecutionAPI.triggerScheduledRuns();
+      const queued = (data.items || []).filter((i) => i.status === 'queued').length;
+      const blocked = (data.items || []).filter((i) => i.status === 'blocked').length;
+      setAutomationTriggerResult({ type: 'scheduled_runs', ...data });
+      showSnackbar(`定时触发完成：${queued} 个已入队${blocked ? `，${blocked} 个需处理` : ''}`, { severity: blocked ? 'warning' : 'success' });
+      fetchHistory();
+    } catch (error) {
+      showSnackbar(error.message || '触发定时执行失败', { severity: 'error' });
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
+  const value = useMemo(() => ({
     runHistory, isHistoryLoading,
     automationTasks,
     runHistoryProjectId, setRunHistoryProjectId,
@@ -132,7 +163,9 @@ export const RunHistoryProvider = ({ children }) => {
     replayRun,
     handleAutoRepairRun,
     handleTriggerSpecSync,
-  };
+    handleTriggerScheduledRuns,
+    automationTriggerResult,
+  }), [runHistory, isHistoryLoading, automationTasks, runHistoryProjectId, runHistoryStatus, runHistoryKeyword, automationTriggerResult]);
 
   return (
     <RunHistoryContext.Provider value={value}>

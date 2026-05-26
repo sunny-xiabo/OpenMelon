@@ -33,8 +33,9 @@ export function SnackbarProvider({ children }) {
   const [severity, setSeverity] = useState('info');
 
   const showSnackbar = useCallback((msg, sev = 'info') => {
+    const nextSeverity = typeof sev === 'string' ? sev : sev?.severity || 'info';
     setMessage(msg);
-    setSeverity(sev);
+    setSeverity(nextSeverity);
     setOpen(true);
   }, []);
 

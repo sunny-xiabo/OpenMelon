@@ -4,6 +4,7 @@ import {
   Checkbox,
   FormControl,
   FormControlLabel,
+  LinearProgress,
   MenuItem,
   Paper,
   Select,
@@ -12,7 +13,6 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { AccountTree } from '@mui/icons-material';
-import LoadingOverlay from '../../../components/LoadingOverlay';
 import EmptyState from '../../../components/EmptyState';
 
 export default function GraphInsightPanel({
@@ -104,7 +104,14 @@ export default function GraphInsightPanel({
       </Box>
 
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', minHeight: 0, overflow: 'hidden' }}>
-        {graphLoading && <LoadingOverlay message="图谱数据加载中..." />}
+        {graphLoading && (
+          <Box sx={{ position: 'absolute', top: 10, left: 12, right: 12, zIndex: 12, borderRadius: 1, bgcolor: (theme) => alpha(theme.palette.common.white, 0.88), border: '1px solid', borderColor: 'divider', overflow: 'hidden', pointerEvents: 'none' }}>
+            <LinearProgress sx={{ height: 3 }} />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1.25, py: 0.75, fontWeight: 800 }}>
+              图谱线索正在刷新，当前内容可继续查看
+            </Typography>
+          </Box>
+        )}
         {graphError ? (
           <Box sx={{ m: 1, flex: 1, minHeight: 0, display: 'flex' }}>
             <EmptyState

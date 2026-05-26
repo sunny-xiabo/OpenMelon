@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import ConfirmDialog from '../../../components/ConfirmDialog';
 
 const UIContext = createContext();
@@ -15,21 +15,21 @@ export const UIProvider = ({ children }) => {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [confirmDialog, setConfirmDialog] = useState({ open: false, message: '', onConfirm: null });
 
-  const requestConfirm = (message) => new Promise((resolve) => {
+  const requestConfirm = useCallback((message) => new Promise((resolve) => {
     setConfirmDialog({
       open: true,
       message,
       onConfirm: () => { setConfirmDialog({ open: false, message: '', onConfirm: null }); resolve(true); },
       onCancel: () => { setConfirmDialog({ open: false, message: '', onConfirm: null }); resolve(false); },
     });
-  });
+  }), []);
 
-  const value = {
+  const value = useMemo(() => ({
     activeStep, setActiveStep,
     loading, setLoading,
     loadingMessage, setLoadingMessage,
     requestConfirm,
-  };
+  }), [activeStep, loading, loadingMessage, requestConfirm]);
 
   return (
     <UIContext.Provider value={value}>

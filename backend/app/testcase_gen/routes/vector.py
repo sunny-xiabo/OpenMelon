@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import require_production_auth
 from app.testcase_gen.router_support import *
 
 router = APIRouter()
@@ -29,7 +30,7 @@ class StoreVectorRequest(BaseModel):
     module: str = None
 
 
-@router.post("/store-vector")
+@router.post("/store-vector", dependencies=[Depends(require_production_auth)])
 async def store_test_cases_to_vector(req: Request, body: StoreVectorRequest):
     """
     将 JSON 格式的测试用例列表存入向量库

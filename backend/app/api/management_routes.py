@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import Request
 import os
 
+from app.api.deps import require_production_auth
 from app.api.logging_service import safe_log_event
+from app.engine.rag.cache import bump_rag_cache_version
 from app.api.schemas import (
     FileListResponse,
     FileRecord,
@@ -31,7 +33,11 @@ async def list_files(req: Request):
         raise InternalError(details=str(e))
 
 
-@router.delete("/files/{record_id}", response_model=DeleteResponse)
+@router.delete(
+    "/files/{record_id}",
+    response_model=DeleteResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_file(record_id: str, req: Request):
     try:
         tracker = req.app.state.file_tracker
@@ -70,6 +76,7 @@ async def delete_file(record_id: str, req: Request):
                     await req.app.state.vector_ops.delete_chunks_by_file(filename)
                 except Exception as e:
                     print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
+            bump_rag_cache_version("file_deleted")
 
             _log_manage_event(
                 "info",
@@ -103,7 +110,11 @@ async def delete_file(record_id: str, req: Request):
         raise InternalError(details=str(e))
 
 
-@router.delete("/files", response_model=DeleteResponse)
+@router.delete(
+    "/files",
+    response_model=DeleteResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def delete_file_by_name(
     req: Request, filename: str = Query(..., description="Filename to delete")
 ):
@@ -127,6 +138,7 @@ async def delete_file_by_name(
                 await req.app.state.vector_ops.delete_chunks_by_file(filename)
             except Exception as e:
                 print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
+            bump_rag_cache_version("file_deleted_by_name")
 
         _log_manage_event(
             "info" if count > 0 else "warning",
@@ -155,7 +167,11 @@ async def delete_file_by_name(
         raise InternalError(details=str(e))
 
 
-@router.post("/files/{record_id}/reindex", response_model=ReindexResponse)
+@router.post(
+    "/files/{record_id}/reindex",
+    response_model=ReindexResponse,
+    dependencies=[Depends(require_production_auth)],
+)
 async def reindex_file(record_id: str, req: Request):
     try:
         tracker = req.app.state.file_tracker
@@ -229,6 +245,8 @@ async def reindex_file(record_id: str, req: Request):
 
         # 重新索引跑完后，精确地把当前这条记录的状态改成"已索引"，并更新最新切出来的区块数
         tracker.update_record(record_id, status="indexed", chunk_count=chunks)
+        if chunks > 0:
+            bump_rag_cache_version("file_reindexed")
         _log_manage_event(
             "info",
             "managed_file_reindexed",

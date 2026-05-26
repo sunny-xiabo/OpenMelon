@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { Box } from '@mui/material';
-import LoadingOverlay from '../components/LoadingOverlay';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Box, LinearProgress, Typography } from '@mui/material';
 import EmptyState from '../components/EmptyState';
 import GraphLegend from '../features/Graph/components/GraphLegend';
 import GraphToolbar from '../features/Graph/components/GraphToolbar';
 import NodeDetailPanel from '../features/Graph/components/NodeDetailPanel';
+import {
+  buildGraphRenderState,
+  focusGraphNode,
+} from '../features/Graph/utils/graphRendering';
 
 // Hooks
 import { 
@@ -20,7 +23,12 @@ export default function GraphPage({ isActive = true }) {
   const containerRef = useRef(null);
   const networkRef = useRef(null);
   const graphLibRef = useRef(null);
+  const graphStateRef = useRef(null);
+  const graphDataRef = useRef(null);
+  const expandedClusterKeysRef = useRef(new Set());
+  const renderGraphRef = useRef(null);
   const [graphEngineLoading, setGraphEngineLoading] = useState(false);
+  const [graphEngineReady, setGraphEngineReady] = useState(false);
   
   // 筛选与交互状态
   const [searchText, setSearchText] = useState('');
@@ -40,14 +48,14 @@ export default function GraphPage({ isActive = true }) {
   const graphParams = useMemo(() => ({ doc_type: docType, module: moduleFilter, include_chunks: showChunks }), [docType, moduleFilter, showChunks]);
   
   const { data: graphData, isLoading: isGraphLoading, error: graphError, refetch: refetchGraph } = useFullGraph(graphParams, graphReady && isActive);
-  const getNodeDetailMutation = useGetNodeDetail();
+  const { mutateAsync: getNodeDetail } = useGetNodeDetail();
   const searchEntityMutation = useSearchEntity();
 
-  // 初始化 vis-network
+  // 只有图谱页激活且确实有数据时才加载 vis-network。
   useEffect(() => {
     let cancelled = false;
     async function initNetwork() {
-      if (!containerRef.current || networkRef.current) return;
+      if (!isActive || !graphReady || !containerRef.current || networkRef.current) return;
       setGraphEngineLoading(true);
       const [{ Network }, { DataSet }] = await Promise.all([
         import('vis-network'),
@@ -56,22 +64,32 @@ export default function GraphPage({ isActive = true }) {
       if (cancelled || !containerRef.current || networkRef.current) return;
       graphLibRef.current = { DataSet };
       const options = {
-        physics: { enabled: true, stabilization: { iterations: 100 } },
-        interaction: { hover: true, tooltipDelay: 200, zoomView: true, dragView: true },
-        edges: { smooth: { type: 'curvedCW', roundness: 0.2 }, color: '#cbd5e1' },
+        autoResize: true,
+        physics: { enabled: false },
+        interaction: { hover: false, tooltipDelay: 0, zoomView: true, dragView: true, hideEdgesOnDrag: true },
+        edges: { smooth: false, color: '#cbd5e1' },
       };
       
       const network = new Network(containerRef.current, { nodes: new DataSet([]), edges: new DataSet([]) }, options);
       networkRef.current = network;
+      setGraphEngineReady(true);
       setGraphEngineLoading(false);
 
       network.on('click', async (params) => {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
+          const clusterKey = graphStateRef.current?.collapsedClusterLookup?.get(nodeId);
+          if (clusterKey) {
+            setDetailOpen(false);
+            setSelectedNode(null);
+            expandedClusterKeysRef.current = new Set([...expandedClusterKeysRef.current, clusterKey]);
+            renderGraphRef.current?.(graphDataRef.current);
+            return;
+          }
           setDetailOpen(true);
           setDetailCollapsed(false);
           try {
-            const detail = await getNodeDetailMutation.mutateAsync(nodeId);
+            const detail = await getNodeDetail(nodeId);
             setSelectedNode(detail);
           } catch (e) { console.error(e); }
         } else {
@@ -80,13 +98,10 @@ export default function GraphPage({ isActive = true }) {
         }
       });
 
-      network.on('stabilizationIterationsDone', () => {
-        network.setOptions({ physics: { enabled: false } });
-        network.fit();
-      });
     }
     initNetwork().catch((error) => {
       console.error('Failed to load graph engine:', error);
+      setGraphEngineReady(false);
       setGraphEngineLoading(false);
     });
     
@@ -96,58 +111,70 @@ export default function GraphPage({ isActive = true }) {
         networkRef.current.destroy();
         networkRef.current = null;
       }
+      graphLibRef.current = null;
+      setGraphEngineReady(false);
+      setGraphEngineLoading(false);
     };
-  }, []);
+  }, [getNodeDetail, graphReady, isActive]);
 
-  // 渲染图谱逻辑 (增加健壮性检查)
-  const renderGraph = (data, focusLabel) => {
-    // 关键修复：检查 Network 实例及其内部渲染体是否存在
+  const renderGraph = useCallback((data, focusLabel) => {
     const DataSet = graphLibRef.current?.DataSet;
     if (!networkRef.current || !networkRef.current.body || !DataSet || !data) return;
     
     try {
-      const nodes = (data.nodes || []).map(n => {
-        const g = n.group || n.labels?.[0] || 'Entity';
-        const visual = legend.find(l => l.type === g) || { color: { bg: '#94a3b8', border: '#64748b' }, size: 20 };
-        return { 
-          id: n.id, 
-          label: n.label || n.id, 
-          group: g, 
-          color: { background: visual.color.bg, border: visual.color.border }, 
-          size: visual.size,
-          font: { color: '#fff', size: 12 } 
-        };
-      });
-      const edges = (data.relationships || []).map((r, i) => ({ 
-        id: i, from: r.source || r.from, to: r.target || r.to, label: r.label || r.type 
-      }));
+      if (graphDataRef.current !== data) {
+        graphDataRef.current = data;
+        expandedClusterKeysRef.current = new Set();
+      }
+      let graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
 
-      // 静默设置数据，防止触发未初始化的 unselectAll
-      networkRef.current.setData({ nodes: new DataSet(nodes), edges: new DataSet(edges) });
-      
       if (focusLabel) {
-        const target = nodes.find(n => n.label === focusLabel);
-        if (target) networkRef.current.focus(target.id, { scale: 1.2, animation: true });
+        const hiddenTarget = graphState.allNodes.find((node) => node.label === focusLabel || node.id === focusLabel || node.properties?.name === focusLabel);
+        const clusterId = hiddenTarget ? graphState.nodeClusterLookup.get(hiddenTarget.id) : null;
+        const clusterKey = clusterId ? graphState.collapsedClusterLookup.get(clusterId) : null;
+        if (clusterKey) {
+          expandedClusterKeysRef.current = new Set([...expandedClusterKeysRef.current, clusterKey]);
+          graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
+        }
+      }
+
+      graphStateRef.current = graphState;
+      networkRef.current.setOptions(graphState.options);
+      networkRef.current.setData({ nodes: new DataSet(graphState.nodes), edges: new DataSet(graphState.edges) });
+
+      if (focusLabel) {
+        const target = graphState.nodes.find((node) => node.label === focusLabel || node.id === focusLabel || node.properties?.name === focusLabel);
+        if (target) focusGraphNode(networkRef.current, target.id, graphState.nodeClusterLookup);
+      } else {
+        window.setTimeout(() => {
+          networkRef.current?.fit({ animation: graphState.mode === 'full' });
+        }, graphState.mode === 'full' ? 80 : 40);
       }
     } catch (e) {
       console.warn('Vis-network rendering suppressed due to internal state:', e.message);
     }
-  };
+  }, [legend]);
+
+  useEffect(() => {
+    renderGraphRef.current = renderGraph;
+  }, [renderGraph]);
 
   // 数据变化时重新渲染
   useEffect(() => {
     // 只有当元数据和图谱数据都就绪，且渲染引擎 body 存在时才渲染
-    if (graphData && legend.length > 0 && networkRef.current?.body) {
+    if (graphData && graphEngineReady && networkRef.current?.body) {
       renderGraph(graphData);
     }
-  }, [graphData, legend, isActive]);
+  }, [graphData, graphEngineReady, isActive, renderGraph]);
 
   const handleSearch = async () => {
     if (!searchText.trim()) return;
     try {
       const data = await searchEntityMutation.mutateAsync(searchText);
       renderGraph(data, searchText);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Graph search failed:', e);
+    }
   };
 
   const resetFilters = () => {
@@ -179,16 +206,25 @@ export default function GraphPage({ isActive = true }) {
 
       <Box sx={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative' }}>
-          {(isGraphLoading || graphEngineLoading) && <LoadingOverlay message="图谱计算中..." />}
+          {(isGraphLoading || graphEngineLoading) && (
+            <Box sx={{ position: 'absolute', top: 12, left: 16, right: 16, zIndex: 12, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.86)', border: '1px solid rgba(15, 23, 42, 0.08)', overflow: 'hidden', pointerEvents: 'none' }}>
+              <LinearProgress sx={{ height: 3 }} />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1.25, py: 0.75, fontWeight: 800 }}>
+                图谱正在更新，画布可继续查看
+              </Typography>
+            </Box>
+          )}
           
-          <Box
-            ref={containerRef}
-            sx={{
-              flex: 1, minHeight: 0, outline: 'none',
-              backgroundImage: 'radial-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px)',
-              backgroundSize: '32px 32px',
-            }}
-          />
+          {graphReady && (
+            <Box
+              ref={containerRef}
+              sx={{
+                flex: 1, minHeight: 0, outline: 'none',
+                backgroundImage: 'radial-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px)',
+                backgroundSize: '32px 32px',
+              }}
+            />
+          )}
 
           {graphError && (
             <Box sx={{ position: 'absolute', inset: 0, display: 'flex', zIndex: 10, bgcolor: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(4px)' }}>

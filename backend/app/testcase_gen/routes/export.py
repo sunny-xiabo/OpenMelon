@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.deps import require_production_auth
 from app.testcase_gen.router_support import *
 
 router = APIRouter()
@@ -8,7 +9,7 @@ class ExportMarkdownRequest(BaseModel):
     markdown: str
 
 
-@router.post("/export-markdown")
+@router.post("/export-markdown", dependencies=[Depends(require_production_auth)])
 async def export_markdown(request: ExportMarkdownRequest):
     """
     将AI生成的Markdown测试用例导出为Excel
@@ -36,7 +37,7 @@ async def export_markdown(request: ExportMarkdownRequest):
         raise InternalError(details=f"导出失败: {str(e)}")
 
 
-@router.post("/export-xmind")
+@router.post("/export-xmind", dependencies=[Depends(require_production_auth)])
 async def export_xmind_from_markdown(request: ExportMarkdownRequest):
     """
     将AI生成的Markdown测试用例导出为XMind文件(.xmind格式)
@@ -61,7 +62,7 @@ async def export_xmind_from_markdown(request: ExportMarkdownRequest):
         logger.error(f"导出XMind失败: {str(e)}", exc_info=True)
         raise InternalError(details=f"导出失败: {str(e)}")
 
-@router.post("/export-xmind-json")
+@router.post("/export-xmind-json", dependencies=[Depends(require_production_auth)])
 async def export_xmind_from_json(test_cases: List[Dict[str, Any]]):
     """
     将JSON格式的测试用例列表直接导出为XMind文件(.xmind格式)
@@ -80,7 +81,7 @@ async def export_xmind_from_json(test_cases: List[Dict[str, Any]]):
         raise InternalError(details=f"导出失败: {str(e)}")
 
 
-@router.post("/export")
+@router.post("/export", dependencies=[Depends(require_production_auth)])
 async def export_test_cases(test_cases: List[Union[TestCase, Dict[str, Any]]]):
     """
     将测试用例导出到Excel

@@ -1,5 +1,6 @@
 from app.api_execution.ai.common import *
 from app.api_execution.ai.shared import _looks_like_login
+from app.api_execution.orchestration_planner import plan_api_orchestration
 
 def build_flow_draft(
     spec: dict[str, Any],
@@ -32,7 +33,8 @@ def build_flow_draft(
 
     operations_by_id = {str(operation.get("id")): operation for operation in operations if operation.get("id")}
     operations_by_operation_id = {str(operation.get("operation_id")): operation for operation in operations if operation.get("operation_id")}
-    uncertainties = _enrich_flow_draft(draft, operations_by_id, operations_by_operation_id)
+    planner_result = _enrich_flow_draft(draft, operations_by_id, operations_by_operation_id)
+    uncertainties = planner_result["uncertainties"]
     steps = draft.get("steps") or []
     step_summaries = [
         {
@@ -41,6 +43,7 @@ def build_flow_draft(
             "method": step.get("method", ""),
             "path": step.get("path", ""),
             "depends_on": step.get("depends_on") or [],
+            "parallel_group": step.get("parallel_group") or "",
             "extractions": step.get("extractions") or [],
             "variable_references": _collect_variable_references(step),
             "assertion_recommendations": _summarize_assertions(step.get("assertions") or []),
@@ -55,6 +58,9 @@ def build_flow_draft(
         "uncertainties": uncertainties,
         "template_recommendations": _recommend_flow_templates(flow_templates or [], business_goal, selected_ids),
         "quality_score": _score_flow_draft(draft, step_summaries, uncertainties),
+        "dependency_graph": planner_result["dependency_graph"],
+        "orchestration_summary": planner_result["orchestration_summary"],
+        "orchestration_quality_score": planner_result["quality_score"],
         "summary": f"已根据业务目标生成 {len(steps)} 步流程草稿，应用前请确认变量、账号和断言口径。",
         "requires_approval": True,
         "ai_mode": "heuristic",
@@ -177,116 +183,34 @@ def _enrich_flow_draft(
     draft: dict[str, Any],
     operations_by_id: dict[str, dict[str, Any]] | None = None,
     operations_by_operation_id: dict[str, dict[str, Any]] | None = None,
-) -> list[str]:
+) -> dict[str, Any]:
     uncertainties = []
     steps = draft.get("steps") or []
-    known_vars: dict[str, str] = {key: f"全局变量 {key}" for key in draft.get("variables") or {}}
-    last_step_id = ""
-    preferred_id_var = ""
 
     for step in steps:
-        if last_step_id:
-            step["depends_on"] = sorted({*(step.get("depends_on") or []), last_step_id})
-        last_step_id = step.get("id", "")
-
-        if _looks_like_login(step) and not step.get("extractions"):
-            step.setdefault("extractions", []).append({"name": "access_token", "source": "body", "path": "data.token"})
-            known_vars["access_token"] = f"{step.get('name') or step.get('id')} 提取"
-            uncertainties.append("登录/鉴权步骤的 token 提取路径暂按 data.token 生成，请按真实响应确认。")
-
-        if step.get("method", "").upper() == "POST":
-            resource = _resource_name(step.get("path", ""))
-            resource_id_var = f"{resource}_id" if resource else "created_id"
-            if not any(item.get("name") == resource_id_var for item in step.get("extractions") or []):
-                step.setdefault("extractions", []).append({"name": resource_id_var, "source": "body", "path": "data.id"})
-                uncertainties.append(f"{step.get('name') or step.get('id')} 的 ID 提取路径暂按 data.id 生成，请按真实响应确认。")
-            known_vars[resource_id_var] = f"{step.get('name') or step.get('id')} 提取"
-            preferred_id_var = resource_id_var
-
-        for extraction in step.get("extractions") or []:
-            name = str(extraction.get("name") or "").strip()
-            if name:
-                known_vars[name] = f"{step.get('name') or step.get('id')} 提取"
-
-        if "access_token" in known_vars and not _looks_like_login(step):
-            headers = step.setdefault("headers", {})
-            if not any(str(key).lower() == "authorization" for key in headers):
-                headers["Authorization"] = "Bearer {{access_token}}"
-
-        for name, value in list((step.get("path_params") or {}).items()):
-            matched_var = _match_variable_for_field(name, known_vars, preferred_id_var)
-            if matched_var:
-                step["path_params"][name] = f"{{{{{matched_var}}}}}"
-            elif isinstance(value, str) and value.startswith("example_"):
-                uncertainties.append(f"{step.get('name') or step.get('id')} 的路径参数 {name} 需要确认真实来源。")
-
-        _replace_field_variables(step.setdefault("query", {}), known_vars, preferred_id_var, step, uncertainties, "Query")
-        _replace_field_variables(step.setdefault("headers", {}), known_vars, preferred_id_var, step, uncertainties, "Header")
-        _replace_field_variables(step.get("body"), known_vars, preferred_id_var, step, uncertainties, "Body")
-
         operation = (operations_by_operation_id or {}).get(str(step.get("operation_id"))) or (operations_by_id or {}).get(str(step.get("operation_id")))
         _apply_assertion_recommendations(step, operation)
 
-    if not any(_looks_like_login(step) for step in steps):
+    operations = [
+        (operations_by_operation_id or {}).get(str(step.get("operation_id")))
+        or (operations_by_id or {}).get(str(step.get("operation_id")))
+        or {}
+        for step in steps
+    ]
+    planner_result = plan_api_orchestration(
+        steps,
+        operations=operations,
+        variables=draft.get("variables") or {},
+    )
+    draft["steps"] = planner_result["steps"]
+    for recommendation in planner_result["recommendations"]:
+        message = recommendation.get("message") or recommendation.get("title")
+        if message and recommendation.get("severity") in {"warning", "info"}:
+            uncertainties.append(str(message))
+
+    if not any(_looks_like_login(step) for step in draft.get("steps") or []):
         uncertainties.append("未识别到明确登录/鉴权步骤，如目标接口需要认证，请补充 token 获取或全局请求头。")
-    return list(dict.fromkeys(uncertainties))
-
-
-def _resource_name(path: str) -> str:
-    parts = [part.strip("{}") for part in str(path).split("/") if part and not part.startswith("{")]
-    if not parts:
-        return ""
-    name = parts[-1].replace("-", "_")
-    if name.endswith("s") and len(name) > 3:
-        name = name[:-1]
-    return re.sub(r"\W+", "_", name).strip("_")
-
-
-def _match_variable_for_field(field_name: str, known_vars: dict[str, str], preferred_id_var: str = "") -> str:
-    normalized = str(field_name or "").lower().replace("-", "_")
-    if normalized in known_vars:
-        return normalized
-    if normalized == "id" and preferred_id_var:
-        return preferred_id_var
-    if normalized.endswith("_id") and normalized in known_vars:
-        return normalized
-    if normalized.endswith("_id"):
-        resource = normalized.removesuffix("_id")
-        for var_name in known_vars:
-            if var_name.endswith("_id") and (resource in var_name or var_name.removesuffix("_id") in resource):
-                return var_name
-    if "token" in normalized and "access_token" in known_vars:
-        return "access_token"
-    return ""
-
-
-def _replace_field_variables(
-    value: Any,
-    known_vars: dict[str, str],
-    preferred_id_var: str,
-    step: dict[str, Any],
-    uncertainties: list[str],
-    location: str,
-) -> Any:
-    if isinstance(value, dict):
-        for key, item in list(value.items()):
-            matched_var = _match_variable_for_field(key, known_vars, preferred_id_var)
-            if matched_var and _is_placeholder_value(item):
-                value[key] = f"{{{{{matched_var}}}}}"
-            else:
-                value[key] = _replace_field_variables(item, known_vars, preferred_id_var, step, uncertainties, location)
-                if _is_placeholder_value(item) and not matched_var:
-                    uncertainties.append(f"{step.get('name') or step.get('id')} 的 {location} 字段 {key} 需要确认真实取值来源。")
-        return value
-    if isinstance(value, list):
-        for index, item in enumerate(value):
-            value[index] = _replace_field_variables(item, known_vars, preferred_id_var, step, uncertainties, location)
-        return value
-    return value
-
-
-def _is_placeholder_value(value: Any) -> bool:
-    return isinstance(value, str) and (value.startswith("example_") or value in {"string", "id", "token"})
+    return {**planner_result, "uncertainties": list(dict.fromkeys(uncertainties))}
 
 
 def _collect_variable_references(step: dict[str, Any]) -> list[dict[str, str]]:

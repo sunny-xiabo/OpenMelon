@@ -10,7 +10,8 @@
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile full up
 #
 # 【普通本地开发（推荐）无需此文件，直接：】
-#   1. docker compose up -d          ← 仅启动基础设施（Neo4j + Qdrant）
+#   1. docker compose up -d postgres neo4j qdrant
+#                                      ← 启动本机后端需要的基础设施
 #   2. uvicorn app.main:app \        ← 本地运行后端
 #        --host 0.0.0.0 --port 8000 --reload
 # =============================================================

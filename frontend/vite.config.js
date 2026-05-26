@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { configDefaults } from 'vitest/config'
 
 export default defineConfig({
   plugins: [react()],
@@ -7,11 +8,24 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
     globals: false,
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
   server: {
     port: 3000,
     proxy: {
       '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/docs': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/openapi.json': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/redoc': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },

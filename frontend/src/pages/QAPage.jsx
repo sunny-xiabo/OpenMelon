@@ -30,6 +30,9 @@ import { useNodeTypeLegend } from '../features/NodeType/hooks/useNodeTypes';
 import SessionHistoryPanel from '../features/QA/components/SessionHistoryPanel';
 import MessageBubble from '../features/QA/components/MessageBubble';
 import GraphInsightPanel from '../features/QA/components/GraphInsightPanel';
+import {
+  buildGraphRenderState,
+} from '../features/Graph/utils/graphRendering';
 
 export default function QAPage({ isActive = true }) {
   const theme = useTheme();
@@ -60,6 +63,10 @@ export default function QAPage({ isActive = true }) {
   const containerRef = useRef(null);
   const networkRef = useRef(null);
   const graphLibRef = useRef(null);
+  const graphStateRef = useRef(null);
+  const graphDataRef = useRef(null);
+  const expandedClusterKeysRef = useRef(new Set());
+  const renderGraphRef = useRef(null);
   const initialGraphLoadedRef = useRef(false);
   const scrollRef = useRef(null);
 
@@ -96,28 +103,38 @@ export default function QAPage({ isActive = true }) {
     }
   }, [history]);
 
-  const renderGraph = useCallback((data) => {
+  const renderGraph = useCallback((data, focusLabel) => {
     const DataSet = graphLibRef.current?.DataSet;
     if (!networkRef.current?.body || !DataSet || !data) return false;
     try {
-      const nodes = (data.nodes || []).map(n => {
-        const g = n.group || n.labels?.[0] || 'Entity';
-        const visual = legend.find(l => l.type === g) || { color: { bg: '#94a3b8', border: '#64748b' }, size: 20 };
-        return { 
-          id: n.id, label: n.label || n.id, group: g, 
-          color: { background: visual.color.bg, border: visual.color.border }, 
-          size: visual.size, font: { color: '#fff', size: 11 } 
-        };
-      });
-      const edges = (data.relationships || []).map((r, i) => ({ 
-        id: i, from: r.source || r.from, to: r.target || r.to, label: r.label || r.type 
-      }));
-      networkRef.current.setData({ nodes: new DataSet(nodes), edges: new DataSet(edges) });
-      networkRef.current.setOptions({ physics: { enabled: true, stabilization: { iterations: 100 } } });
+      if (graphDataRef.current !== data) {
+        graphDataRef.current = data;
+        expandedClusterKeysRef.current = new Set();
+      }
+      let graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
+      if (focusLabel) {
+        const hiddenTarget = graphState.allNodes.find((node) => node.label === focusLabel || node.id === focusLabel || node.properties?.name === focusLabel);
+        const clusterId = hiddenTarget ? graphState.nodeClusterLookup.get(hiddenTarget.id) : null;
+        const clusterKey = clusterId ? graphState.collapsedClusterLookup.get(clusterId) : null;
+        if (clusterKey) {
+          expandedClusterKeysRef.current = new Set([...expandedClusterKeysRef.current, clusterKey]);
+          graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
+        }
+      }
+      graphStateRef.current = graphState;
+      networkRef.current.setOptions(graphState.options);
+      networkRef.current.setData({ nodes: new DataSet(graphState.nodes), edges: new DataSet(graphState.edges) });
       setTimeout(() => {
         networkRef.current?.redraw();
-        networkRef.current?.fit({ animation: true });
-      }, 80);
+        if (focusLabel) {
+          const target = graphState.nodes.find((node) => node.label === focusLabel || node.id === focusLabel || node.properties?.name === focusLabel);
+          if (target) {
+            networkRef.current?.focus(target.id, { scale: 1.2, animation: true });
+          }
+        } else {
+          networkRef.current?.fit({ animation: graphState.mode === 'full' });
+        }
+      }, graphState.mode === 'full' ? 80 : 40);
       return true;
     } catch (e) {
       console.error('Graph render error:', e);
@@ -125,6 +142,10 @@ export default function QAPage({ isActive = true }) {
       return false;
     }
   }, [legend]);
+
+  useEffect(() => {
+    renderGraphRef.current = renderGraph;
+  }, [renderGraph]);
 
   const loadFullGraph = useCallback(async () => {
     setGraphLoading(true);
@@ -152,11 +173,11 @@ export default function QAPage({ isActive = true }) {
     }
   }, [docType, moduleFilter, renderGraph, showChunks, showSnackbar]);
 
-  // 1. 初始化图谱。graphReady 可能异步变化，容器出现后再创建实例。
+  // 1. 初始化图谱。只有页面激活且图谱有数据时才下载 vis 引擎。
   useEffect(() => {
     let cancelled = false;
     async function initNetwork() {
-      if (!containerRef.current || networkRef.current) return;
+      if (!isActive || !graphReady || !containerRef.current || networkRef.current) return;
       const [{ Network }, { DataSet }] = await Promise.all([
         import('vis-network'),
         import('vis-data'),
@@ -164,24 +185,32 @@ export default function QAPage({ isActive = true }) {
       if (cancelled || !containerRef.current || networkRef.current) return;
       graphLibRef.current = { DataSet };
       networkRef.current = new Network(containerRef.current, { nodes: new DataSet([]), edges: new DataSet([]) }, {
-        physics: { enabled: true, stabilization: { iterations: 100 } },
-        interaction: { hover: true, zoomView: true, dragView: true },
-        edges: { smooth: { type: 'curvedCW', roundness: 0.2 }, color: '#cbd5e1' },
+        autoResize: true,
+        physics: { enabled: false },
+        interaction: { hover: false, tooltipDelay: 0, zoomView: true, dragView: true, hideEdgesOnDrag: true },
+        edges: { smooth: false, color: '#cbd5e1' },
       });
-      networkRef.current.on('stabilizationIterationsDone', () => {
-        networkRef.current?.setOptions({ physics: { enabled: false } });
-        networkRef.current?.fit();
+      networkRef.current.on('click', (params) => {
+        if (params.nodes.length > 0) {
+          const nodeId = params.nodes[0];
+          const clusterKey = graphStateRef.current?.collapsedClusterLookup?.get(nodeId);
+          if (clusterKey) {
+            expandedClusterKeysRef.current = new Set([...expandedClusterKeysRef.current, clusterKey]);
+            renderGraphRef.current?.(graphDataRef.current);
+          }
+        }
       });
       setGraphEngineReady(true);
     }
     initNetwork().catch((error) => {
       console.error('Failed to load QA graph engine:', error);
+      setGraphEngineReady(false);
       setGraphError(error);
     });
     return () => {
       cancelled = true;
     };
-  }, [graphError, graphReady]);
+  }, [graphReady, isActive]);
 
   useEffect(() => {
     return () => {
@@ -228,7 +257,9 @@ export default function QAPage({ isActive = true }) {
       const r = await chatMutation.mutateAsync({ question: q, sessionId: sid, includeHistory });
       if (!currentSessionId) setCurrentSessionId(r.session_id);
       if (r.graph_data?.nodes?.length > 0) renderGraph(r.graph_data);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Chat request failed:', e);
+    }
   };
 
   const handleNewSession = () => {
@@ -236,6 +267,9 @@ export default function QAPage({ isActive = true }) {
     setMessages([]);
     const DataSet = graphLibRef.current?.DataSet;
     if (networkRef.current && DataSet) networkRef.current.setData({ nodes: new DataSet([]), edges: new DataSet([]) });
+    graphDataRef.current = null;
+    graphStateRef.current = null;
+    expandedClusterKeysRef.current = new Set();
   };
 
   // 监听会话切换，自动清空或尝试恢复图谱
@@ -246,6 +280,9 @@ export default function QAPage({ isActive = true }) {
     if (networkRef.current && DataSet) {
       networkRef.current.setData({ nodes: new DataSet([]), edges: new DataSet([]) });
     }
+    graphDataRef.current = null;
+    graphStateRef.current = null;
+    expandedClusterKeysRef.current = new Set();
   }, [currentSessionId]);
 
   const handleStartRename = (id, title) => {
@@ -279,7 +316,7 @@ export default function QAPage({ isActive = true }) {
         showSnackbar('未找到相关实体', { severity: 'info' });
         return;
       }
-      renderGraph(d);
+      renderGraph(d, searchText);
     } catch (e) {
       showSnackbar('搜索失败: ' + (e.message || '未知错误'), { severity: 'error' });
     }

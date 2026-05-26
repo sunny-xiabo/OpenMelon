@@ -38,8 +38,8 @@ function CrossDomainWire() {
     const pendingRunId = sessionStorage.getItem('openmelon_api_execution_run_id');
     if (!pendingRunId) return;
     let cancelled = false;
-    import('../../../api/execution').then(({ apiExecutionAPI }) => (
-      apiExecutionAPI.getRun(pendingRunId)
+    import('../../../api/executionRun').then(({ getExecutionRun }) => (
+      getExecutionRun(pendingRunId)
     )).then((run) => {
       if (cancelled || !run?.script) return;
       applyRunToEditor({

@@ -5,22 +5,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.config import settings
 from app.runtime_paths import LEGACY_JSON_DIR
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_text
 
 logger = logging.getLogger(__name__)
 
 
-class FileTracker(BaseSQLiteStore):
+class FileTracker(BasePostgresStore):
     _JSON_FILE = LEGACY_JSON_DIR / "file_tracker.json"
+    storage_engine = "postgres"
 
     def __init__(
         self,
         db_path: Path | None = None,
         json_path: Path | None = None,
+        database_url: str | None = None,
     ) -> None:
         self._json_path = json_path or self._JSON_FILE
-        super().__init__(db_path)
+        _ = db_path
+        super().__init__(database_url or settings.DATABASE_URL)
         self._migrate_from_json_if_empty()
 
     def _init_schema(self) -> None:
@@ -159,9 +163,49 @@ class FileTracker(BaseSQLiteStore):
                 self._save_record_no_lock(record)
                 migrated += 1
             if migrated:
-                logger.info("Migrated %d file tracker records into SQLite", migrated)
+                logger.info("Migrated %d file tracker records into PostgreSQL", migrated)
             return migrated
 
 
+class PostgresFileTracker(FileTracker):
+    storage_engine = "postgres"
+
+    def __init__(
+        self,
+        database_url: str,
+        json_path: Path | None = None,
+    ) -> None:
+        self._json_path = json_path or self._JSON_FILE
+        BasePostgresStore.__init__(self, database_url)
+        self._migrate_from_json_if_empty()
+
+    def _init_schema(self) -> None:
+        self._conn.executescript(
+            postgres_schema_from_text(
+                """
+                CREATE TABLE IF NOT EXISTS file_records (
+                    id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL DEFAULT '',
+                    doc_type TEXT NOT NULL DEFAULT '',
+                    module TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT '',
+                    indexed_at TEXT NOT NULL DEFAULT '',
+                    file_path TEXT DEFAULT '',
+                    chunk_count INTEGER NOT NULL DEFAULT 0,
+                    data TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_file_records_filename ON file_records(filename);
+                CREATE INDEX IF NOT EXISTS idx_file_records_module ON file_records(module);
+                CREATE INDEX IF NOT EXISTS idx_file_records_status ON file_records(status);
+                """
+            )
+        )
+
+
+def _create_default_tracker() -> FileTracker:
+    logger.info("Using PostgreSQL file tracker store")
+    return PostgresFileTracker(settings.DATABASE_URL)
+
+
 # Singleton instance used across the app
-file_tracker = FileTracker()
+file_tracker = _create_default_tracker()

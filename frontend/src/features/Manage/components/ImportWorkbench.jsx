@@ -15,6 +15,7 @@ import {
 } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
 import { ACCEPTED_EXTENSIONS } from '../constants';
+import VirtualizedList from '../../../components/VirtualizedList';
 
 export default function ImportWorkbench({
   dragOver,
@@ -238,16 +239,40 @@ export default function ImportWorkbench({
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
               待导入文件
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, maxHeight: 120, overflow: 'auto' }}>
-              {selectedFiles.map((file, index) => (
-                <Chip
-                  key={`${file.name}-${file.size}-${index}`}
-                  label={file.name}
-                  size="small"
-                  onDelete={() => setSelectedFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))}
-                />
-              ))}
-            </Box>
+            <VirtualizedList
+              items={selectedFiles}
+              height={160}
+              estimateSize={36}
+              overscan={6}
+              getItemKey={(file, index) => `${file.name}-${file.size}-${index}`}
+              ariaLabel="待导入文件列表"
+              renderItem={(file, index) => (
+                <Box sx={{ px: 0.25, py: 0.25 }}>
+                  <Chip
+                    label={file.name}
+                    size="small"
+                    onDelete={() => setSelectedFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))}
+                    sx={{
+                      maxWidth: '100%',
+                      width: '100%',
+                      justifyContent: 'flex-start',
+                      '& .MuiChip-label': {
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      },
+                    }}
+                  />
+                </Box>
+              )}
+              sx={{
+                maxHeight: 160,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+                bgcolor: 'rgba(248,250,252,0.7)',
+              }}
+            />
           </Box>
         )}
       </Box>

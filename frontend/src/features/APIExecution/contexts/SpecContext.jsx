@@ -77,12 +77,20 @@ export const SpecProvider = ({ children }) => {
     });
   };
 
-  const resetAfterSpecChange = (data) => {
+  const resetAfterSpecChange = (data, { advanceStep = true } = {}) => {
     setSpec(data);
     setSearchText('');
     setSelectedOperationIds(new Set());
     for (const cb of resetCallbacksRef.current) cb(data);
-    setActiveStep(1);
+    if (advanceStep) setActiveStep(1);
+  };
+
+  const clearSpec = () => {
+    setSpec(null);
+    setSearchText('');
+    setSelectedOperationIds(new Set());
+    for (const cb of resetCallbacksRef.current) cb(null);
+    setActiveStep(0);
   };
 
   const parseFile = async () => {
@@ -119,7 +127,7 @@ export const SpecProvider = ({ children }) => {
   };
 
   const loadDemoOpenApi = async () => {
-    setLoadingMessage('正在加载 Demo API 资产...');
+    setLoadingMessage('Demo API 资产准备中...');
     setLoading(true);
     try {
       const data = await parseMutation.mutateAsync({ type: 'demo' });
@@ -130,7 +138,7 @@ export const SpecProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const value = useMemo(() => ({
     sourceUrl, setSourceUrl,
     selectedFile, setSelectedFile,
     spec, setSpec,
@@ -143,11 +151,12 @@ export const SpecProvider = ({ children }) => {
     toggleOperation,
     toggleVisibleOperations,
     resetAfterSpecChange,
+    clearSpec,
     registerResetCallback,
     parseFile,
     parseUrl,
     loadDemoOpenApi,
-  };
+  }), [sourceUrl, selectedFile, spec, searchText, selectedOperationIds, tagOptions, filteredOperations, visibleOperationIds]);
 
   return (
     <SpecContext.Provider value={value}>

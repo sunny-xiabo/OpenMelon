@@ -25,4 +25,11 @@ describe('EmptyState', () => {
     await userEvent.click(screen.getByRole('button', { name: /重试/ }));
     expect(onAction).toHaveBeenCalledTimes(1);
   });
+
+  it('renders success state copy when no custom text is provided', () => {
+    render(<EmptyState variant="success" />);
+
+    expect(screen.getByText('系统运行稳健')).toBeInTheDocument();
+    expect(screen.getByText(/当前资产配置与自动化流程均处于健康状态/)).toBeInTheDocument();
+  });
 });

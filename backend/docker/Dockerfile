@@ -17,9 +17,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     if [ "$INSTALL_RERANKER" = "true" ]; then \
-        uv sync --frozen --no-dev --extra reranker --no-install-project; \
+        uv sync --frozen --no-dev --extra postgres --extra reranker --no-install-project; \
     else \
-        uv sync --frozen --no-dev --no-install-project; \
+        uv sync --frozen --no-dev --extra postgres --no-install-project; \
     fi
 
 COPY app/ ./app
@@ -34,8 +34,9 @@ ENV HOME=/app
 ENV UV_CACHE_DIR=/app/.cache/uv
 ENV UV_LINK_MODE=copy
 
-RUN adduser --system --group appuser && chown -R appuser:appuser /app
+RUN adduser --system --group appuser \
+    && mkdir -p /app/runtime \
+    && chown -R appuser:appuser /app
 USER appuser
 
 CMD ["sh", "-c", "uv run uvicorn ${APP_MODULE} --host 0.0.0.0 --port ${APP_PORT}"]
-

@@ -2,11 +2,116 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND_DIR="${ROOT_DIR}/backend"
+FRONTEND_DIR="${ROOT_DIR}/frontend"
 API_BASE="${OPENMELON_API_BASE:-http://localhost:8000/api}"
 
 cd "$ROOT_DIR"
 
 echo "[release-smoke] API base: ${API_BASE}"
+
+resolve_python_bin() {
+  if [[ -n "${OPENMELON_PYTHON_BIN:-}" && -x "${OPENMELON_PYTHON_BIN}" ]]; then
+    printf '%s\n' "${OPENMELON_PYTHON_BIN}"
+    return 0
+  fi
+
+  if [[ -x "${BACKEND_DIR}/.venv/bin/python" ]]; then
+    printf '%s\n' "${BACKEND_DIR}/.venv/bin/python"
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    command -v python3
+    return 0
+  fi
+
+  if command -v python >/dev/null 2>&1; then
+    command -v python
+    return 0
+  fi
+
+  return 1
+}
+
+resolve_node_bin() {
+  if [[ -n "${OPENMELON_NODE_BIN:-}" && -x "${OPENMELON_NODE_BIN}" ]]; then
+    printf '%s\n' "${OPENMELON_NODE_BIN}"
+    return 0
+  fi
+
+  local codex_node="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+  if [[ -x "${codex_node}" ]]; then
+    printf '%s\n' "${codex_node}"
+    return 0
+  fi
+
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+    return 0
+  fi
+
+  return 1
+}
+
+run_backend_smoke_tests() {
+  local tests=(
+    tests/test_api_execution_demo_assets.py
+    tests/test_api_execution_dashboard.py
+    tests/test_api_execution_project_environment.py
+    tests/test_api_execution_knowledge.py
+    tests/test_api_execution_ai_assistant.py
+    tests/test_api_execution_flow_draft.py
+    tests/test_api_execution_runner.py
+    tests/test_event_logs.py
+  )
+
+  if command -v uv >/dev/null 2>&1; then
+    (cd "${BACKEND_DIR}" && uv run pytest "${tests[@]}")
+    return
+  fi
+
+  local python_bin
+  if python_bin="$(resolve_python_bin)"; then
+    (cd "${BACKEND_DIR}" && "${python_bin}" -m pytest "${tests[@]}")
+    return
+  fi
+
+  echo "[release-smoke] uv was not found. Install uv or set OPENMELON_PYTHON_BIN to a Python executable with pytest installed." >&2
+  return 127
+}
+
+run_frontend_with_npm() {
+  npm --prefix "${FRONTEND_DIR}" run lint
+  npm --prefix "${FRONTEND_DIR}" run build
+}
+
+run_frontend_with_node() {
+  local node_bin="$1"
+  (cd "${FRONTEND_DIR}" && "${node_bin}" ./node_modules/eslint/bin/eslint.js .)
+  (cd "${FRONTEND_DIR}" && "${node_bin}" ./node_modules/vite/bin/vite.js build)
+}
+
+run_frontend_smoke_checks() {
+  if command -v npm >/dev/null 2>&1; then
+    run_frontend_with_npm
+    return
+  fi
+
+  local node_bin
+  if node_bin="$(resolve_node_bin)"; then
+    run_frontend_with_node "${node_bin}"
+    return
+  fi
+
+  echo "[release-smoke] npm/node was not found. Install Node.js/npm or set OPENMELON_NODE_BIN to a node executable." >&2
+  return 127
+}
+
+if ! PYTHON_BIN="$(resolve_python_bin)"; then
+  echo "[release-smoke] python was not found. Install Python or set OPENMELON_PYTHON_BIN." >&2
+  exit 127
+fi
 
 json_get() {
   local path="$1"
@@ -21,7 +126,7 @@ json_post() {
 assert_json() {
   local label="$1"
   local expression="$2"
-  python -c '
+  "${PYTHON_BIN}" -c '
 import json, sys
 label = sys.argv[1]
 expression = sys.argv[2]
@@ -55,17 +160,7 @@ json_get "/logs/events?project_id=demo-api-flow&limit=10&offset=0" \
   | assert_json "logs/events" "'total' in data and isinstance(data.get('items'), list)"
 
 echo "[release-smoke] 6/6 自动化测试与前端构建"
-uv run pytest \
-  backend/tests/test_api_execution_demo_assets.py \
-  backend/tests/test_api_execution_dashboard.py \
-  backend/tests/test_api_execution_project_environment.py \
-  backend/tests/test_api_execution_knowledge.py \
-  backend/tests/test_api_execution_ai_assistant.py \
-  backend/tests/test_api_execution_flow_draft.py \
-  backend/tests/test_api_execution_runner.py \
-  backend/tests/test_event_logs.py
-
-npm --prefix frontend run lint
-npm --prefix frontend run build
+run_backend_smoke_tests
+run_frontend_smoke_checks
 
 echo "[release-smoke] all checks passed"

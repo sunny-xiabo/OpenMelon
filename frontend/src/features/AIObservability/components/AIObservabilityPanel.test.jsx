@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AIObservabilityPanel from './AIObservabilityPanel';
 import { apiExecutionAPI } from '../../../api/execution';
+import { indexGovernanceAPI } from '../../../api/indexGovernance';
 
 vi.mock('../../../components/SnackbarProvider', () => ({
   useSnackbar: () => vi.fn(),
@@ -16,6 +17,13 @@ vi.mock('../../../api/execution', () => ({
     getAIDebugSettings: vi.fn(),
     updateAIDebugSettings: vi.fn(),
     getAIDebugSnapshot: vi.fn(),
+  },
+}));
+
+vi.mock('../../../api/indexGovernance', () => ({
+  indexGovernanceAPI: {
+    getRecommendations: vi.fn(),
+    executeRecommendationAction: vi.fn(),
   },
 }));
 
@@ -50,6 +58,8 @@ describe('AIObservabilityPanel', () => {
     apiExecutionAPI.listAICallLogs.mockResolvedValue({ total: 0, items: [] });
     apiExecutionAPI.getAIDebugSettings.mockResolvedValue({ enabled: false, retention_minutes: 30, max_chars: 4000 });
     apiExecutionAPI.updateAIDebugSettings.mockResolvedValue({ enabled: true, retention_minutes: 30, max_chars: 4000 });
+    indexGovernanceAPI.getRecommendations.mockResolvedValue({ total: 0, items: [], summary: {} });
+    indexGovernanceAPI.executeRecommendationAction.mockResolvedValue({ message: 'ok' });
   });
 
   it('renders empty observability state from mocked API data', async () => {
@@ -80,6 +90,35 @@ describe('AIObservabilityPanel', () => {
         retention_minutes: 30,
         max_chars: 4000,
       }));
+    });
+  });
+
+  it('renders RAG governance recommendations and executes low risk action', async () => {
+    indexGovernanceAPI.getRecommendations.mockResolvedValue({
+      total: 1,
+      items: [{
+        id: 'rag_stability:index_scan',
+        title: 'RAG 失败或降级率升高',
+        severity: 'error',
+        reason: '近期 RAG 调用出现失败/降级，建议先复查索引一致性。',
+        evidence: [{ label: '失败率', value: '20.0%' }],
+        actions: [{ id: 'scan_index', label: '扫描索引一致性', kind: 'scan_index', risk: 'low', requires_confirm: false }],
+      }],
+      summary: { open_count: 1 },
+    });
+
+    renderWithQueryClient(<AIObservabilityPanel />);
+
+    expect(await screen.findByText('RAG 失败或降级率升高')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /扫描索引一致性/ }));
+
+    await waitFor(() => {
+      expect(indexGovernanceAPI.executeRecommendationAction).toHaveBeenCalled();
+      expect(indexGovernanceAPI.executeRecommendationAction.mock.calls[0][0]).toEqual({
+        action: 'scan_index',
+        assetKey: '',
+        confirm: false,
+      });
     });
   });
 });

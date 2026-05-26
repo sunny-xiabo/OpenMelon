@@ -1,12 +1,12 @@
 import asyncio
 
-from app.api_execution import routers
+from app.api_execution.services import automation_service
 from app.api_execution.storage import APIExecutionStore
 
 
 def test_spec_sync_regenerates_dsl_when_spec_changed(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
     store.save_spec(
         {
             "spec_id": "spec-1",
@@ -38,7 +38,7 @@ def test_spec_sync_regenerates_dsl_when_spec_changed(tmp_path, monkeypatch):
         }
     )
 
-    response = asyncio.run(routers.trigger_spec_sync())
+    response = automation_service.trigger_spec_sync_service()
 
     assert response["items"][0]["status"] == "updated"
     project = store.get_project("project-1")
@@ -48,7 +48,7 @@ def test_spec_sync_regenerates_dsl_when_spec_changed(tmp_path, monkeypatch):
 
 def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
     store.save_spec(
         {
             "spec_id": "spec-1",
@@ -78,6 +78,7 @@ def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
             "default_environment_id": "env-1",
             "spec_id": "spec-1",
             "operation_allowlist": ["GET /health"],
+            "egress_allowlist": ["example.test"],
         }
     )
     store.save_environment(
@@ -101,9 +102,9 @@ def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
         assert policy_decision["allowed"] is True
         return {"run_id": "run-1", "status": "queued"}
 
-    monkeypatch.setattr(routers, "enqueue_run", fake_enqueue_run)
+    monkeypatch.setattr(automation_service, "enqueue_run", fake_enqueue_run)
 
-    response = asyncio.run(routers.trigger_scheduled_runs())
+    response = asyncio.run(automation_service.trigger_scheduled_runs_service())
 
     assert response["items"][0]["status"] == "queued"
     assert response["items"][0]["run_id"] == "run-1"
@@ -112,7 +113,7 @@ def test_scheduled_trigger_enqueues_allowlisted_project(tmp_path, monkeypatch):
 
 def test_scheduled_trigger_blocks_when_project_policy_disabled(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(automation_service, "api_execution_store", store)
     store.save_project(
         {
             "project_id": "project-1",
@@ -123,7 +124,7 @@ def test_scheduled_trigger_blocks_when_project_policy_disabled(tmp_path, monkeyp
         }
     )
 
-    response = asyncio.run(routers.trigger_scheduled_runs())
+    response = asyncio.run(automation_service.trigger_scheduled_runs_service())
 
     assert response["items"][0]["status"] == "blocked"
     assert "AI 自动执行" in response["items"][0]["reason"]

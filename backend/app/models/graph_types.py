@@ -4,7 +4,8 @@ import re
 from pathlib import Path
 from typing import Dict, List
 
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.config import settings
+from app.storage.postgres_store import BasePostgresStore, postgres_schema_from_text
 
 
 DEFAULT_NODE_TYPES_CONFIG_PATH = (
@@ -35,14 +36,16 @@ FALLBACK_NODE_TYPE = "Entity"
 DOCUMENT_CHUNK_NODE_TYPE = "DocumentChunk"
 
 
-class NodeTypeStore(BaseSQLiteStore):
+class NodeTypeStore(BasePostgresStore):
     def __init__(
         self,
         db_path: Path | None = None,
         seed_path: Path | None = None,
+        database_url: str | None = None,
     ) -> None:
         self._seed_path = seed_path or NODE_TYPES_CONFIG_PATH
-        super().__init__(db_path)
+        _ = db_path
+        super().__init__(database_url or settings.DATABASE_URL)
         self._initialize_from_seed_if_empty()
 
     def _init_schema(self) -> None:
@@ -83,21 +86,17 @@ class NodeTypeStore(BaseSQLiteStore):
             self._conn.commit()
 
     def _save_config_no_lock(self, config: Dict, sort_order: int) -> None:
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO graph_node_types
-                (type, category, bg, border, size, sort_order, data)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                config["type"],
-                config["category"],
-                config["color"]["bg"],
-                config["color"]["border"],
-                int(config["size"]),
-                sort_order,
-                json.dumps(config, ensure_ascii=False),
-            ),
+        self._replace(
+            "graph_node_types",
+            {
+                "type": config["type"],
+                "category": config["category"],
+                "bg": config["color"]["bg"],
+                "border": config["color"]["border"],
+                "size": int(config["size"]),
+                "sort_order": sort_order,
+                "data": json.dumps(config, ensure_ascii=False),
+            },
         )
 
 
@@ -111,7 +110,41 @@ def _load_seed_configs(path: Path) -> List[Dict]:
         return json.load(f)
 
 
-node_type_store = NodeTypeStore()
+class PostgresNodeTypeStore(NodeTypeStore):
+    def __init__(
+        self,
+        database_url: str,
+        seed_path: Path | None = None,
+    ) -> None:
+        self._seed_path = seed_path or NODE_TYPES_CONFIG_PATH
+        BasePostgresStore.__init__(self, database_url)
+        self._initialize_from_seed_if_empty()
+
+    def _init_schema(self) -> None:
+        self._conn.executescript(
+            postgres_schema_from_text(
+                """
+                CREATE TABLE IF NOT EXISTS graph_node_types (
+                    type TEXT PRIMARY KEY,
+                    category TEXT NOT NULL,
+                    bg TEXT NOT NULL,
+                    border TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 100,
+                    data TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_graph_node_types_category
+                    ON graph_node_types(category);
+                """
+            )
+        )
+
+
+def _create_default_node_type_store() -> NodeTypeStore:
+    return PostgresNodeTypeStore(settings.DATABASE_URL)
+
+
+node_type_store = _create_default_node_type_store()
 
 
 def _load_configs_from_store() -> List[Dict]:

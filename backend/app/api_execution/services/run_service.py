@@ -1,4 +1,42 @@
-from app.api_execution.router_deps import *
+import json
+import asyncio
+import time
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi.responses import StreamingResponse
+
+from app.api.errors import InvalidRequestError, NotFoundError
+from app.api.logging_service import log_event
+from app.api_execution.ai_assistant import build_repair_patch
+from app.api_execution.direct_execution import cancel_direct_execution, is_direct_execution_cancelled, register_direct_execution, unregister_direct_execution
+from app.api_execution.diagnostics import enrich_run_report
+from app.api_execution.policy import assert_execution_allowed
+from app.api_execution.run_queue import cancel_run, enqueue_run, get_queue_status, subscribe_sse, unsubscribe_sse
+from app.api_execution.runner import ExecutionCancelledError, run_all_steps, run_single_step
+from app.api_execution.schemas import APITestCaseDsl, RunScriptRequest
+from app.api_execution.storage import api_execution_store as _default_api_execution_store
+from app.api_execution.storage import get_api_execution_store
+from app.api_execution.utils import execution_options as _execution_options
+from app.api_execution.utils import now_iso as _now_iso
+
+api_execution_store = _default_api_execution_store
+
+
+def _store():
+    if api_execution_store is not _default_api_execution_store:
+        return api_execution_store
+    return get_api_execution_store()
+
+
+def _script_with_environment_variables(script: APITestCaseDsl, environment_snapshot: dict[str, Any] | None) -> APITestCaseDsl:
+    variables = dict((environment_snapshot or {}).get("variables") or {})
+    if not variables:
+        return script
+    variables.update(script.variables or {})
+    return script.model_copy(update={"variables": variables})
+
 
 def _single_step_report(script: APITestCaseDsl, result: dict[str, Any], execution_options: dict[str, Any]) -> dict[str, Any]:
     passed = 1 if result.get("status") == "passed" else 0
@@ -20,8 +58,8 @@ def _single_step_report(script: APITestCaseDsl, result: dict[str, Any], executio
     }
 
 
-def _save_run_report(report: dict[str, Any]) -> dict[str, Any]:
-    from app.api_execution.services.knowledge_service import _save_knowledge_ingest_candidate
+def save_run_report(report: dict[str, Any]) -> dict[str, Any]:
+    from app.api_execution.services.knowledge_service import save_knowledge_ingest_candidate
 
     script = _script_from_report(report)
     if script:
@@ -31,9 +69,9 @@ def _save_run_report(report: dict[str, Any]) -> dict[str, Any]:
         "run_id": report.get("run_id") or str(uuid.uuid4()),
         "run_at": _now_iso(),
     }
-    api_execution_store.save_run(saved)
-    _save_unified_automation_records(saved)
-    _save_knowledge_ingest_candidate(saved)
+    _store().save_run(saved)
+    save_unified_automation_records(saved)
+    save_knowledge_ingest_candidate(saved)
     _log_run_event(saved)
     return saved
 
@@ -98,7 +136,7 @@ def _script_from_report(report: dict[str, Any]) -> APITestCaseDsl | None:
     return None
 
 
-def _assert_policy_allowed(
+def assert_policy_allowed(
     request: RunScriptRequest,
     *,
     step_id: str | None = None,
@@ -111,10 +149,11 @@ def _assert_policy_allowed(
             step_ids=step_ids,
             project_id=request.project_id,
             environment_id=request.environment_id,
+            base_url=request.base_url,
             project_policy_snapshot=request.project_policy_snapshot,
             environment_snapshot=request.environment_snapshot,
         )
-        _save_policy_audit("execute", decision)
+        save_policy_audit("execute", decision)
         return decision
     except ValueError as exc:
         decision = {
@@ -125,11 +164,11 @@ def _assert_policy_allowed(
             "environment_id": request.environment_id or request.environment_snapshot.get("environment_id", ""),
             "evaluated_steps": [f"{step.method} {step.path}" for step in request.script.steps],
         }
-        _save_policy_audit("execute_blocked", decision)
+        save_policy_audit("execute_blocked", decision)
         raise
 
 
-def _save_policy_audit(action: str, decision: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
+def save_policy_audit(action: str, decision: dict[str, Any], run_id: str | None = None) -> dict[str, Any]:
     audit = {
         "audit_id": str(uuid.uuid4()),
         "created_at": _now_iso(),
@@ -142,7 +181,7 @@ def _save_policy_audit(action: str, decision: dict[str, Any], run_id: str | None
         "approved": decision.get("allowed", False),
         "approval_note": "系统策略自动判定",
     }
-    saved = api_execution_store.save_policy_audit(audit)
+    saved = _store().save_policy_audit(audit)
     _log_policy_event(saved)
     return saved
 
@@ -191,7 +230,7 @@ def _log_policy_event(audit: dict[str, Any]) -> None:
     )
 
 
-def _log_task_event(task: dict[str, Any], event_type: str = "task_created") -> None:
+def log_task_event(task: dict[str, Any], event_type: str = "task_created") -> None:
     log_event(
         "error" if task.get("risk_level") == "blocked" or task.get("status") == "failed" else "warning" if task.get("status") == "pending" else "info",
         "task_center",
@@ -206,13 +245,13 @@ def _log_task_event(task: dict[str, Any], event_type: str = "task_created") -> N
     )
 
 
-def _save_unified_automation_records(run: dict[str, Any]) -> None:
+def save_unified_automation_records(run: dict[str, Any]) -> None:
     now = _now_iso()
     options = run.get("execution_options") or {}
     script = run.get("script") or {}
     definition_id = f"api:{run.get('case_id') or script.get('case_id') or run.get('run_id')}"
     automation_run_id = f"api-run:{run.get('run_id')}"
-    api_execution_store.save_automation_definition(
+    _store().save_automation_definition(
         {
             "definition_id": definition_id,
             "automation_type": "api",
@@ -225,7 +264,7 @@ def _save_unified_automation_records(run: dict[str, Any]) -> None:
             "updated_at": now,
         }
     )
-    api_execution_store.save_automation_run(
+    _store().save_automation_run(
         {
             "automation_run_id": automation_run_id,
             "automation_type": "api",
@@ -240,7 +279,7 @@ def _save_unified_automation_records(run: dict[str, Any]) -> None:
         }
     )
     for stage, status in _stage_events_from_run(run):
-        api_execution_store.save_run_stage_event(
+        _store().save_run_stage_event(
             {
                 "event_id": f"{automation_run_id}:{stage}",
                 "automation_run_id": automation_run_id,
@@ -250,7 +289,7 @@ def _save_unified_automation_records(run: dict[str, Any]) -> None:
                 "detail": _run_result_summary(run) if stage == "summary" else {},
             }
         )
-    api_execution_store.save_artifact_meta(
+    _store().save_artifact_meta(
         {
             "artifact_id": f"{automation_run_id}:report-json",
             "automation_run_id": automation_run_id,
@@ -435,7 +474,7 @@ def _repair_outcome_score(before: dict[str, Any], after: dict[str, Any], risk_le
     return {"score": score, "level": level, "label": label}
 
 
-def _save_automation_task(
+def save_automation_task(
     task_type: str,
     run: dict[str, Any],
     decision: dict[str, Any],
@@ -461,8 +500,8 @@ def _save_automation_task(
         "resolved_at": None,
         "resolution_note": "",
     }
-    saved = api_execution_store.save_automation_task(task)
-    _log_task_event(saved)
+    saved = _store().save_automation_task(task)
+    log_task_event(saved)
     return saved
 
 
@@ -481,7 +520,7 @@ def _decision_from_run(run: dict[str, Any], *, risk_level: str, reason: str) -> 
 
 
 async def auto_repair_and_rerun_service(run_id: str) -> dict[str, Any]:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if not run:
         raise NotFoundError(message=str("执行历史不存在"))
     script = _script_from_report(run)
@@ -520,7 +559,7 @@ async def auto_repair_and_rerun_service(run_id: str) -> dict[str, Any]:
             continue_on_failure=options.get("continue_on_failure", True),
             replace_run_id=run_id,
         )
-        policy_decision = _assert_policy_allowed(request, step_ids=failed_step_ids)
+        policy_decision = assert_policy_allowed(request, step_ids=failed_step_ids)
         report = await run_all_steps(
             request.script,
             base_url=request.base_url,
@@ -537,10 +576,10 @@ async def auto_repair_and_rerun_service(run_id: str) -> dict[str, Any]:
         report["execution_options"] = _execution_options(request, policy_decision)
         report = _merge_partial_run_report(run, report, request.script)
         report = _append_repair_summary(run, report, patch, failed_step_ids, policy_decision)
-        saved_report = _save_run_report(report)
-        _save_policy_audit("auto_repair_rerun", policy_decision, run_id=run_id)
+        saved_report = save_run_report(report)
+        save_policy_audit("auto_repair_rerun", policy_decision, run_id=run_id)
         if saved_report.get("failed"):
-            _save_automation_task(
+            save_automation_task(
                 "manual_review",
                 saved_report,
                 policy_decision,
@@ -550,40 +589,74 @@ async def auto_repair_and_rerun_service(run_id: str) -> dict[str, Any]:
         return saved_report
     except ValueError as exc:
         decision = _decision_from_run(run, risk_level="blocked", reason=str(exc))
-        _save_automation_task("manual_review", run, decision, reason=str(exc))
-        _save_policy_audit("auto_repair_blocked", decision, run_id=run_id)
+        save_automation_task("manual_review", run, decision, reason=str(exc))
+        save_policy_audit("auto_repair_blocked", decision, run_id=run_id)
         raise InvalidRequestError(message=str(exc)) from exc
 
 
 async def run_single_step_service(request: RunScriptRequest) -> dict[str, Any]:
+    started = time.perf_counter()
+    execution_id = (request.execution_id or "").strip()
+    current_task = asyncio.current_task()
+    if execution_id and current_task:
+        register_direct_execution(execution_id, current_task, request)
     try:
-        policy_decision = _assert_policy_allowed(request, step_id=request.step_id)
+        policy_decision = assert_policy_allowed(request, step_id=request.step_id)
         result = await run_single_step(
             request.script,
             step_id=request.step_id,
             base_url=request.base_url,
             global_headers=request.global_headers,
             timeout_ms=request.timeout_ms,
+            cancel_check=lambda: is_direct_execution_cancelled(execution_id),
         )
-        saved_report = _save_run_report(_single_step_report(request.script, result, _execution_options(request, policy_decision)))
+        saved_report = save_run_report(_single_step_report(request.script, result, _execution_options(request, policy_decision)))
         return (saved_report.get("results") or [result])[0]
+    except (ExecutionCancelledError, asyncio.CancelledError):
+        result = {
+            "step_id": request.step_id or (request.script.steps[0].id if request.script.steps else ""),
+            "name": "用户强制结束执行",
+            "method": "",
+            "url": "",
+            "status": "cancelled",
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "assertions": [],
+            "extracted": {},
+            "request": {},
+            "response": {},
+            "error": "用户强制结束执行",
+            "diagnostics": [],
+        }
+        save_run_report(_single_step_report(request.script, result, _execution_options(request, {})))
+        return result
     except ValueError as exc:
         raise InvalidRequestError(message=str(exc)) from exc
+    finally:
+        if execution_id:
+            unregister_direct_execution(execution_id)
 
 
 async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
+    started = time.perf_counter()
+    execution_id = (request.execution_id or "").strip()
+    current_task = asyncio.current_task()
+    if execution_id and current_task:
+        register_direct_execution(execution_id, current_task, request)
     try:
-        if request.replace_run_id and not api_execution_store.get_run(request.replace_run_id):
+        if request.replace_run_id and not _store().get_run(request.replace_run_id):
             raise NotFoundError(message=str("要更新的执行历史不存在"))
-        policy_decision = _assert_policy_allowed(request, step_ids=request.step_ids)
+        executable_script = _script_with_environment_variables(request.script, request.environment_snapshot)
+        request = request.model_copy(update={"script": executable_script})
+        policy_decision = assert_policy_allowed(request, step_ids=request.step_ids)
         report = await run_all_steps(
-            request.script,
+            executable_script,
             base_url=request.base_url,
             global_headers=request.global_headers,
             timeout_ms=request.timeout_ms,
             max_steps=request.max_steps,
             continue_on_failure=request.continue_on_failure,
             step_ids=request.step_ids,
+            cancel_check=lambda: is_direct_execution_cancelled(execution_id),
         )
         report["case_name"] = request.script.name
         report["mode"] = "batch"
@@ -591,19 +664,51 @@ async def run_all_steps_service(request: RunScriptRequest) -> dict[str, Any]:
         report["execution_options"] = _execution_options(request, policy_decision)
         if request.replace_run_id:
             report["run_id"] = request.replace_run_id
-            existing = api_execution_store.get_run(request.replace_run_id) or {}
+            existing = _store().get_run(request.replace_run_id) or {}
             if request.step_ids:
                 report = _merge_partial_run_report(existing, report, request.script)
             if request.script.ai_repair_source:
                 report = _append_applied_repair_summary(existing, report, request.script, request.step_ids, policy_decision)
-        return _save_run_report(report)
+        return save_run_report(report)
+    except (ExecutionCancelledError, asyncio.CancelledError):
+        report = {
+            "case_id": request.script.case_id,
+            "target_project": request.script.target_project,
+            "case_name": request.script.name,
+            "mode": "batch",
+            "script": request.script.model_dump(),
+            "execution_options": _execution_options(request, {}),
+            "status": "cancelled",
+            "failure_reason": "用户强制结束执行",
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+            "total": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": len(request.step_ids or request.script.steps or []),
+            "progress_total": len(request.step_ids or request.script.steps or []),
+            "progress_completed": 0,
+            "current_step_id": None,
+            "current_step_name": None,
+            "results": [],
+        }
+        return save_run_report(report)
     except ValueError as exc:
         raise InvalidRequestError(message=str(exc)) from exc
+    finally:
+        if execution_id:
+            unregister_direct_execution(execution_id)
+
+
+async def cancel_direct_run_service(execution_id: str) -> dict[str, Any]:
+    cancelled = cancel_direct_execution(execution_id)
+    if not cancelled:
+        raise NotFoundError(message=str("直接执行任务不存在"))
+    return cancelled
 
 
 async def create_background_run_service(request: RunScriptRequest) -> dict[str, Any]:
     try:
-        policy_decision = _assert_policy_allowed(request)
+        policy_decision = assert_policy_allowed(request)
         queued_run = await enqueue_run(request, _execution_options(request, policy_decision), policy_decision)
         return {"run_id": queued_run["run_id"], "status": queued_run["status"]}
     except ValueError as exc:
@@ -620,28 +725,32 @@ def list_run_history_service(
     safe_limit = max(1, min(limit, 50))
     safe_offset = max(0, offset)
     safe_status = status if status in {"queued", "running", "passed", "failed", "cancelled"} else None
-    items = api_execution_store.list_runs(safe_limit, safe_status, keyword, project_id, offset=safe_offset)
-    total = api_execution_store.count_runs(safe_status, keyword, project_id)
+    items = _store().list_runs(safe_limit, safe_status, keyword, project_id, offset=safe_offset)
+    total = _store().count_runs(safe_status, keyword, project_id)
     return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "runs": items}
 
 
 def list_case_runs_service(case_id: str, limit: int = 20, offset: int = 0) -> dict[str, Any]:
     safe_limit = max(1, min(limit, 50))
     safe_offset = max(0, offset)
-    items = api_execution_store.list_runs(safe_limit, keyword=case_id, offset=safe_offset)
-    total = api_execution_store.count_runs(keyword=case_id)
+    items = _store().list_runs(safe_limit, keyword=case_id, offset=safe_offset)
+    total = _store().count_runs(keyword=case_id)
     return {"total": total, "limit": safe_limit, "offset": safe_offset, "items": items, "runs": items}
 
 
 def get_run_report_service(run_id: str) -> dict[str, Any]:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if not run:
         raise NotFoundError(message=str("执行历史不存在"))
     return run
 
 
+def get_queue_status_service() -> dict[str, Any]:
+    return get_queue_status()
+
+
 def stream_run_progress_service(run_id: str) -> StreamingResponse:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if not run:
         raise NotFoundError(message=str("执行历史不存在"))
 
@@ -687,20 +796,20 @@ async def cancel_background_run_service(run_id: str) -> dict[str, Any]:
 
 
 async def clear_all_runs_service() -> dict[str, int]:
-    runs = api_execution_store.list_runs(limit=1000)
+    runs = _store().list_runs(limit=1000)
     for run in runs:
         if run.get("status") in {"queued", "running"}:
             await cancel_run(run.get("run_id"))
 
-    deleted_count = api_execution_store.delete_all_runs()
+    deleted_count = _store().delete_all_runs()
     return {"deleted_count": deleted_count}
 
 
 async def delete_run_history_service(run_id: str) -> dict[str, bool]:
-    run = api_execution_store.get_run(run_id)
+    run = _store().get_run(run_id)
     if run and run.get("status") in {"queued", "running"}:
         await cancel_run(run_id)
-    if not api_execution_store.delete_run(run_id):
+    if not _store().delete_run(run_id):
         raise NotFoundError(message=str("执行历史不存在"))
     return {"deleted": True}
 
@@ -708,10 +817,10 @@ async def delete_run_history_service(run_id: str) -> dict[str, bool]:
 async def batch_delete_run_history_service(run_ids: list[str]) -> dict[str, int]:
     deleted_count = 0
     for run_id in run_ids:
-        run = api_execution_store.get_run(run_id)
+        run = _store().get_run(run_id)
         if run and run.get("status") in {"queued", "running"}:
             await cancel_run(run_id)
-        if api_execution_store.delete_run(run_id):
+        if _store().delete_run(run_id):
             deleted_count += 1
     return {"deleted_count": deleted_count}
 

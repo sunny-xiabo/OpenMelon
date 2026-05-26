@@ -31,3 +31,10 @@ def test_env_example_documents_runtime_env_keys():
     missing = sorted(RUNTIME_ENV_KEYS - keys)
 
     assert missing == []
+
+
+def test_storage_backend_switch_is_not_documented():
+    keys = _env_example_keys()
+
+    assert "STORAGE_BACKEND" not in keys
+    assert "STORAGE_BACKEND" not in Settings.model_fields

@@ -1,7 +1,9 @@
 import {
   Box,
+  Stack,
   Typography,
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 export const TASK_LABELS = {
   manual_review: '失败待诊断',
@@ -80,21 +82,64 @@ export const getTaskSource = (task) => {
 
 export function Metric({ label, value, tone, compact = false }) {
   const colors = {
-    warning: { bg: 'rgba(245,158,11,0.10)', color: 'warning.main' },
-    error: { bg: 'rgba(239,68,68,0.10)', color: 'error.main' },
-    success: { bg: 'rgba(34,197,94,0.10)', color: 'success.main' },
-    info: { bg: 'rgba(14,165,233,0.10)', color: 'info.main' },
+    warning: { bg: 'rgba(217, 119, 6, 0.04)', color: '#d97706', border: 'rgba(217, 119, 6, 0.15)' },
+    error: { bg: 'rgba(220, 38, 38, 0.04)', color: '#dc2626', border: 'rgba(220, 38, 38, 0.15)' },
+    success: { bg: 'rgba(22, 163, 74, 0.04)', color: '#16a34a', border: 'rgba(22, 163, 74, 0.15)' },
+    info: { bg: 'rgba(2, 132, 199, 0.04)', color: '#0284c7', border: 'rgba(2, 132, 199, 0.15)' },
   };
   const theme = colors[tone] || colors.info;
+  const isErrorAlert = tone === 'error' && (typeof value === 'number' ? value > 0 : parseInt(value, 10) > 0);
+
   return (
-    <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: theme.bg, border: '1px solid', borderColor: 'divider' }}>
-      <Typography variant="caption" color="text.secondary">{label}</Typography>
-      <Typography
-        variant={compact ? 'body2' : 'h5'}
-        sx={{ color: theme.color, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-      >
-        {value}
-      </Typography>
+    <Box 
+      className={isErrorAlert ? "pulse-animation magnetic-card" : "magnetic-card"}
+      sx={{ 
+        p: compact ? 1.75 : 2.2, 
+        borderRadius: 3.5, 
+        bgcolor: theme.bg, 
+        border: '1px solid', 
+        borderColor: isErrorAlert ? '#dc2626' : theme.border, 
+        minWidth: 0,
+        boxShadow: isErrorAlert 
+          ? '0 0 12px rgba(220,38,38,0.15), inset 0 1px 0 rgba(255,255,255,0.6)' 
+          : '0 4px 12px rgba(15,23,42,0.01), inset 0 1px 0 rgba(255,255,255,0.7)',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        position: 'relative',
+        overflow: 'hidden',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          borderColor: theme.color,
+          boxShadow: `0 8px 24px ${isErrorAlert ? 'rgba(220,38,38,0.2)' : 'rgba(15,23,42,0.03)'}, inset 0 1px 0 rgba(255,255,255,0.8)`
+        }
+      }}
+    >
+      {/* Visual background gradient glow */}
+      <Box sx={{ 
+        position: 'absolute', top: -30, right: -30, width: 80, height: 80, 
+        background: `radial-gradient(circle, ${alpha(theme.color, 0.06)} 0%, transparent 70%)`,
+        zIndex: 0,
+        pointerEvents: 'none'
+      }} />
+
+      <Stack spacing={compact ? 0.75 : 1} sx={{ position: 'relative', zIndex: 1 }}>
+        <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', display: 'block', letterSpacing: '0.02em', opacity: 0.85 }}>
+          {label}
+        </Typography>
+        <Typography
+          variant={compact ? 'body2' : 'h6'}
+          sx={{ 
+            color: theme.color, 
+            fontWeight: 900, 
+            overflow: 'hidden', 
+            textOverflow: 'ellipsis', 
+            whiteSpace: 'nowrap',
+            fontSize: compact ? '12px' : '18px',
+            letterSpacing: '-0.02em',
+          }}
+        >
+          {value}
+        </Typography>
+      </Stack>
     </Box>
   );
 }

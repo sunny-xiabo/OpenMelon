@@ -1,4 +1,5 @@
 from app.api_execution.ai.common import *
+from app.api_execution.ai import llm_patch
 from app.api_execution.ai.flow_draft import _collect_variable_references, _score_flow_draft, _summarize_assertions
 from app.api_execution.ai.shared import _operation
 
@@ -62,7 +63,7 @@ async def build_repair_patch_with_configured_ai(
     project_policy_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     fallback = build_repair_patch(script, report, project_policy_snapshot)
-    if not _is_llm_configured():
+    if not llm_patch._is_llm_configured():
         _log_ai_event(
             "info",
             "ai_assistant_fallback_used",
@@ -74,7 +75,7 @@ async def build_repair_patch_with_configured_ai(
         )
         return fallback
     try:
-        result = await _build_patch_with_llm(
+        result = await llm_patch._build_patch_with_llm(
             task="repair_patch",
             script=script,
             report=report,

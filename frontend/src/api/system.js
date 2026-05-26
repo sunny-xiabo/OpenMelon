@@ -6,6 +6,10 @@ export const logsAPI = {
     fetchJSON(`${API_BASE}/logs?filename=${filename}&lines=${lines}`),
 };
 
+export const systemAPI = {
+  health: () => fetchJSON(`${API_BASE}/system/health`),
+};
+
 export const webhookAPI = {
   send: (platform, question, answer) =>
     fetchJSON(`${API_BASE}/webhook/${platform}`, {
@@ -13,4 +17,3 @@ export const webhookAPI = {
       body: JSON.stringify({ question, answer }),
     }),
 };
-

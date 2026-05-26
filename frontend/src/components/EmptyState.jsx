@@ -5,6 +5,7 @@ import searchEmptyStateImg from '../assets/empty-state-search.svg';
 import loadingEmptyStateImg from '../assets/empty-state-loading.svg';
 import errorEmptyStateImg from '../assets/empty-state-error.svg';
 import chatEmptyStateImg from '../assets/chat-empty-state.svg';
+import healthyStateImg from '../assets/system_healthy.svg';
 
 /**
  * 极致空状态组件 (Sprite 版)
@@ -16,23 +17,24 @@ export default function EmptyState({
   actionLabel = '',
   onAction,
   compact = false,
-  variant = 'empty', // 'empty' | 'search' | 'loading' | 'error' | 'process' | 'chat'
+  variant = 'empty', // 'empty' | 'search' | 'loading' | 'error' | 'process' | 'chat' | 'success'
   loading = false,
 }) {
   const isLoading = loading || variant === 'loading' || variant === 'process';
   const isError = variant === 'error';
   const isSearch = variant === 'search';
   const isChat = variant === 'chat';
+  const isSuccess = variant === 'success';
 
   // 映射文案
   const displayTitle = isLoading 
     ? (variant === 'process' ? '正在执行智能任务' : '正在同步数据') 
-    : (isError ? '发生了点小意外' : (isSearch ? '未找到相关线索' : title));
+    : (isError ? '发生了点小意外' : (isSearch ? '未找到相关线索' : (isSuccess ? '系统运行稳健' : title)));
     
   const displayDesc = description || (
     isLoading 
       ? 'AI 正在全力以赴，请耐心等待结果产生。' 
-      : (isSearch ? '试着精简关键词，或者更换筛选维度再试试。' : '这里目前还是一片处女地，点击下方按钮开启新旅程。')
+      : (isSearch ? '试着精简关键词，或者更换筛选维度再试试。' : (isSuccess ? '当前资产配置与自动化流程均处于健康状态，未发现显著风险。' : '这里目前还是一片处女地，点击下方按钮开启新旅程。'))
   );
 
   const getIllustrationStyle = () => {
@@ -41,6 +43,7 @@ export default function EmptyState({
     else if (isSearch) bgImg = searchEmptyStateImg;
     else if (isLoading) bgImg = loadingEmptyStateImg;
     else if (isError) bgImg = errorEmptyStateImg;
+    else if (isSuccess) bgImg = healthyStateImg;
 
     return {
       backgroundImage: `url(${bgImg})`,
@@ -77,9 +80,9 @@ export default function EmptyState({
             mb: 2,
             ...getIllustrationStyle(),
             // 关键：正片叠底过滤掉白色背景，使其与毛玻璃完美融合
-            mixBlendMode: 'multiply', 
-            filter: 'drop-shadow(0 8px 16px rgba(99, 102, 241, 0.1))',
-            animation: isLoading ? 'pulse 2.5s infinite ease-in-out' : 'float 5s infinite ease-in-out',
+            mixBlendMode: isSuccess ? 'normal' : 'multiply', 
+            filter: isSuccess ? 'none' : 'drop-shadow(0 8px 16px rgba(99, 102, 241, 0.1))',
+            animation: isLoading ? 'pulse 2.5s infinite ease-in-out' : (isSuccess ? 'none' : 'float 5s infinite ease-in-out'),
             '@keyframes float': {
               '0%, 100%': { transform: 'translateY(0px)' },
               '50%': { transform: 'translateY(-15px)' },

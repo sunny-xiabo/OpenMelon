@@ -1,5 +1,17 @@
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Iterable, Optional
+
+from app.config import settings
 from app.models.entities import GraphNode, GraphRelationship, GraphData
+
+
+_CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _batched(items: List[Dict[str, Any]], size: int) -> Iterable[List[Dict[str, Any]]]:
+    batch_size = max(1, int(size or 1))
+    for index in range(0, len(items), batch_size):
+        yield items[index:index + batch_size]
 
 
 class GraphOperations:
@@ -57,6 +69,83 @@ class GraphOperations:
             )
             record = await result.single()
             return record is not None
+
+    async def batch_create_relationships(self, relationships: List[Any]) -> int:
+        if not relationships:
+            return 0
+        payload = []
+        for rel in relationships:
+            if isinstance(rel, dict):
+                from_name = rel.get("from_name") or rel.get("source") or rel.get("from")
+                from_label = rel.get("from_label") or rel.get("source_label") or rel.get("from_type") or "Entity"
+                to_name = rel.get("to_name") or rel.get("target") or rel.get("to")
+                to_label = rel.get("to_label") or rel.get("target_label") or rel.get("to_type") or "Entity"
+                rel_type = rel.get("rel_type") or rel.get("type") or "RELATED_TO"
+                properties = rel.get("properties") or {}
+            else:
+                from_name, from_label, to_name, to_label, *rest = rel
+                rel_type = rest[0] if rest else "RELATED_TO"
+                properties = rest[1] if len(rest) > 1 else {}
+            if not from_name or not to_name:
+                continue
+            payload.append(
+                {
+                    "from_name": str(from_name),
+                    "from_label": str(from_label or "Entity"),
+                    "to_name": str(to_name),
+                    "to_label": str(to_label or "Entity"),
+                    "rel_type": str(rel_type or "RELATED_TO"),
+                    "properties": properties or {},
+                }
+            )
+        if not payload:
+            return 0
+        try:
+            return await self._batch_create_relationships_with_apoc(payload)
+        except Exception:
+            return await self._batch_create_relationships_without_apoc(payload)
+
+    async def _batch_create_relationships_with_apoc(self, relationships: List[Dict[str, Any]]) -> int:
+        query = """
+            UNWIND $relationships AS rel
+            MATCH (a {name: rel.from_name})
+            WHERE rel.from_label IN labels(a)
+            MATCH (b {name: rel.to_name})
+            WHERE rel.to_label IN labels(b)
+            CALL apoc.merge.relationship(a, rel.rel_type, {}, rel.properties, b, {}) YIELD rel AS merged
+            RETURN count(merged) AS created
+        """
+        created = 0
+        async with self._driver.session() as session:
+            for batch in _batched(relationships, settings.NEO4J_WRITE_BATCH_SIZE):
+                result = await session.run(query, relationships=batch)
+                record = await result.single()
+                created += int(record["created"] or 0) if record else 0
+        return created
+
+    async def _batch_create_relationships_without_apoc(self, relationships: List[Dict[str, Any]]) -> int:
+        created = 0
+        grouped: Dict[tuple[str, str, str], List[Dict[str, Any]]] = {}
+        for rel in relationships:
+            key = (rel["from_label"], rel["to_label"], rel["rel_type"])
+            grouped.setdefault(key, []).append(rel)
+        async with self._driver.session() as session:
+            for (from_label, to_label, rel_type), items in grouped.items():
+                if not all(_CYPHER_IDENTIFIER_RE.match(value) for value in (from_label, to_label, rel_type)):
+                    continue
+                query = f"""
+                    UNWIND $relationships AS rel
+                    MATCH (a:{from_label} {{name: rel.from_name}})
+                    MATCH (b:{to_label} {{name: rel.to_name}})
+                    MERGE (a)-[r:{rel_type}]->(b)
+                    SET r += rel.properties
+                    RETURN count(r) AS created
+                """
+                for batch in _batched(items, settings.NEO4J_WRITE_BATCH_SIZE):
+                    result = await session.run(query, relationships=batch)
+                    record = await result.single()
+                    created += int(record["created"] or 0) if record else 0
+        return created
 
     async def get_entity_subgraph(self, entity_name: str, depth: int = 2) -> GraphData:
         query = """

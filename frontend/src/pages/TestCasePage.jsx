@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Box,
   Paper,
@@ -20,6 +20,7 @@ import GenerationPanel from '../features/TestCase/components/GenerationPanel';
 import ResultFilters from '../features/TestCase/components/ResultFilters';
 import ResultHeader, { ResultActionBar } from '../features/TestCase/components/ResultHeader';
 import ResultSummaryCards from '../features/TestCase/components/ResultSummaryCards';
+import TestCaseMindMap, { prefetchMindMapEngine } from '../components/TestCaseMindMap';
 
 // Hooks
 import { 
@@ -28,9 +29,6 @@ import {
   useStoreToVector, 
   useExportTestCases 
 } from '../features/TestCase/hooks/useTestCase';
-
-const importMindMap = () => import('../components/TestCaseMindMap');
-const TestCaseMindMap = lazy(importMindMap);
 
 export default function TestCasePage({ isActive = true }) {
   const theme = useTheme();
@@ -117,8 +115,8 @@ export default function TestCasePage({ isActive = true }) {
     setPriorityFilter('all');
     setModuleFilter('all');
 
-    // 预热思维导图组件，因为生成过程需要几秒，正好利用这个空档下载代码包
-    importMindMap().catch(() => {});
+    // 预热思维导图引擎，因为生成过程需要几秒，正好利用这个空档下载代码包。
+    prefetchMindMapEngine().catch(() => {});
 
     try {
       let fullText = '';
@@ -238,7 +236,7 @@ export default function TestCasePage({ isActive = true }) {
             parsedTestCases={parsedTestCases}
             setExportAnchorEl={setExportAnchorEl}
             setViewMode={setViewMode}
-            onPrefetchMindMap={() => importMindMap().catch(() => {})}
+            onPrefetchMindMap={() => prefetchMindMapEngine().catch(() => {})}
             storeToVector={() => storeMutation.mutate({ testCases: filteredTestCases, moduleName })}
             storingVector={storeMutation.isPending}
             vectorStatus={vectorStatus}
@@ -280,9 +278,7 @@ export default function TestCasePage({ isActive = true }) {
             viewMode === 'stages' ? (
               <StageOutput content={streamingContent} isComplete />
             ) : viewMode === 'mindmap' && parsedTestCases.length > 0 ? (
-              <Suspense fallback={<EmptyState compact variant="loading" title="正在加载思维导图" />}>
-                <TestCaseMindMap testCases={filteredTestCases} />
-              </Suspense>
+              <TestCaseMindMap testCases={filteredTestCases} />
             ) : parsedTestCases.length > 0 ? (
               <TestCaseListView testCases={filteredTestCases} />
             ) : (

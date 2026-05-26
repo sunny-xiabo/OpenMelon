@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import { apiExecutionAPI } from '../../../api/execution';
 import {
@@ -6,8 +7,6 @@ import {
   BATCH_REQUEST_TIMEOUT_CEILING_MS,
   BATCH_REQUEST_TIMEOUT_FLOOR_MS,
   BATCH_REQUEST_TIMEOUT_OVERHEAD_MS,
-  BACKGROUND_STEP_TIMEOUT_MS,
-  BACKGROUND_RUN_TIMEOUT_MS,
 } from '../constants';
 import {
   mergeScriptVariables,
@@ -16,6 +15,7 @@ import {
 } from '../utils';
 import { useUIContext } from './UIContext';
 import { API_EXECUTION_DASHBOARD_REFRESH_EVENT } from '../../../constants/events';
+import { EXEC_KEYS } from '../hooks/useAPIExecutionQueries';
 
 const ExecutionContext = createContext();
 
@@ -27,6 +27,13 @@ export const useExecutionContext = () => {
 
 const RUN_POLL_INTERVAL_MS = 1800;
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
+
+const createExecutionId = () => {
+  if (globalThis.crypto?.randomUUID) return `direct_${globalThis.crypto.randomUUID()}`;
+  return `direct_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const isAbortError = (error, signal) => signal.aborted && ['TIMEOUT', 'NETWORK_ERROR'].includes(error.code);
 
 const notifyDashboardRefresh = () => {
   window.dispatchEvent(new CustomEvent(API_EXECUTION_DASHBOARD_REFRESH_EVENT));
@@ -94,17 +101,28 @@ const buildSingleStepRunReport = (script, result, runOptions) => {
 
 export const ExecutionProvider = ({ children }) => {
   const showSnackbar = useSnackbar();
+  const queryClient = useQueryClient();
   const { setLoading, setLoadingMessage, setActiveStep } = useUIContext();
 
   const [runResult, setRunResult] = useState(null);
   const [runReport, setRunReport] = useState(null);
   const [backgroundRunId, setBackgroundRunId] = useState('');
   const [backgroundRunStatus, setBackgroundRunStatus] = useState('');
+  const [cancellingRunId, setCancellingRunId] = useState('');
+  const [activeExecutionMode, setActiveExecutionMode] = useState('');
   const [continueOnFailure] = useState(true);
 
   // Callback for fetchHistory -- set by RunHistoryContext
   const fetchHistoryRef = useRef(null);
+  const activeExecutionControllerRef = useRef(null);
+  const activeExecutionIdRef = useRef('');
   const registerFetchHistory = (fn) => { fetchHistoryRef.current = fn; };
+
+  const invalidateProjectRunState = (projectId) => {
+    if (!projectId) return;
+    queryClient.invalidateQueries({ queryKey: EXEC_KEYS.agentContext(projectId) });
+    queryClient.invalidateQueries({ queryKey: EXEC_KEYS.assets(projectId) });
+  };
 
   useEffect(() => {
     if (!backgroundRunId || !ACTIVE_RUN_STATUSES.has(backgroundRunStatus)) return undefined;
@@ -124,6 +142,7 @@ export const ExecutionProvider = ({ children }) => {
         setBackgroundRunStatus(data.status || status);
         setRunReport(data);
         fetchHistoryRef.current?.();
+        invalidateProjectRunState(data.execution_options?.project_id);
         notifyDashboardRefresh();
       } catch (error) {
         if (!cancelled) {
@@ -141,6 +160,7 @@ export const ExecutionProvider = ({ children }) => {
         setRunReport(data);
         if (!ACTIVE_RUN_STATUSES.has(data.status)) {
           fetchHistoryRef.current?.();
+          invalidateProjectRunState(data.execution_options?.project_id);
           notifyDashboardRefresh();
         }
         // 排队超时提醒
@@ -229,22 +249,41 @@ export const ExecutionProvider = ({ children }) => {
     if (!runOptions) return;
     setLoadingMessage('正在执行接口...');
     setLoading(true);
+    setActiveExecutionMode('single');
     setActiveStep(3);
+    const controller = new AbortController();
+    const executionId = createExecutionId();
+    activeExecutionControllerRef.current = controller;
+    activeExecutionIdRef.current = executionId;
     try {
       const executableScript = mergeScriptVariables(parsedScript, runOptions.environment_variables);
-      const data = await apiExecutionAPI.runSingleStep(executableScript, toRunRequestOptions(runOptions));
+      const data = await apiExecutionAPI.runSingleStep(executableScript, { ...toRunRequestOptions(runOptions), execution_id: executionId, signal: controller.signal });
       setBackgroundRunId('');
       setBackgroundRunStatus('');
       setRunResult(null);
       setRunReport(buildSingleStepRunReport(executableScript, data, runOptions));
-      showSnackbar(data.status === 'passed' ? '接口执行通过' : '接口执行失败', data.status === 'passed' ? 'success' : 'error');
+      if (data.status === 'cancelled') {
+        showSnackbar('接口执行已取消', 'warning');
+      } else {
+        showSnackbar(data.status === 'passed' ? '接口执行通过' : '接口执行失败', data.status === 'passed' ? 'success' : 'error');
+      }
       fetchHistoryRef.current?.();
+      invalidateProjectRunState(runOptions.project_id);
       notifyDashboardRefresh();
     } catch (error) {
-      showSnackbar(error.message || '接口执行失败', 'error');
+      if (isAbortError(error, controller.signal)) {
+        showSnackbar('已强制停止当前接口执行等待', 'warning');
+      } else {
+        showSnackbar(error.message || '接口执行失败', 'error');
+      }
     } finally {
+      if (activeExecutionControllerRef.current === controller) {
+        activeExecutionControllerRef.current = null;
+        activeExecutionIdRef.current = '';
+      }
       setLoading(false);
       setLoadingMessage('');
+      setActiveExecutionMode('');
     }
   };
 
@@ -253,31 +292,78 @@ export const ExecutionProvider = ({ children }) => {
       showSnackbar('请先生成或修复测试脚本 JSON', 'warning');
       return;
     }
+    const stepCount = parsedScript.steps?.length || 1;
     const runOptions = buildRunOptions(parsedScript, {
-      timeout_ms: BACKGROUND_STEP_TIMEOUT_MS,
-      run_timeout_ms: BACKGROUND_RUN_TIMEOUT_MS,
+      timeout_ms: BATCH_STEP_TIMEOUT_MS,
+      requestTimeoutMs: estimateBatchRequestTimeoutMs(stepCount, BATCH_STEP_TIMEOUT_MS),
       max_steps: parsedScript.steps?.length || undefined,
     });
     if (!runOptions) return;
+    setLoadingMessage('正在执行全量链路...');
     setLoading(true);
+    setActiveExecutionMode('all');
     setActiveStep(3);
+    const controller = new AbortController();
+    const executionId = createExecutionId();
+    activeExecutionControllerRef.current = controller;
+    activeExecutionIdRef.current = executionId;
     try {
       const executableScript = mergeScriptVariables(parsedScript, runOptions.environment_variables);
-      const data = await apiExecutionAPI.createBackgroundRun(executableScript, toRunRequestOptions(runOptions));
-      setBackgroundRunId(data.run_id);
-      setBackgroundRunStatus(data.status);
-      const queuedRun = await apiExecutionAPI.getRun(data.run_id);
-      setBackgroundRunStatus(queuedRun.status || data.status);
-      setRunReport(queuedRun);
+      const data = await apiExecutionAPI.runAllSteps(executableScript, { ...toRunRequestOptions(runOptions), execution_id: executionId, signal: controller.signal });
+      setBackgroundRunId('');
+      setBackgroundRunStatus('');
+      setCancellingRunId('');
+      setRunReport(data);
       setRunResult(null);
-      showSnackbar('执行已提交，正在后台运行', 'success');
+      showSnackbar(`全量链路执行完成：${data.passed || 0} 通过 / ${data.failed || 0} 失败`, data.status === 'passed' ? 'success' : 'error');
       fetchHistoryRef.current?.();
+      invalidateProjectRunState(data.execution_options?.project_id || runOptions.project_id);
       notifyDashboardRefresh();
     } catch (error) {
-      showSnackbar(error.message || '执行提交失败', 'error');
+      if (isAbortError(error, controller.signal)) {
+        showSnackbar('已强制停止当前全量链路执行等待', 'warning');
+      } else {
+        showSnackbar(error.message || '全量链路执行失败', 'error');
+      }
     } finally {
+      if (activeExecutionControllerRef.current === controller) {
+        activeExecutionControllerRef.current = null;
+        activeExecutionIdRef.current = '';
+      }
       setLoading(false);
+      setLoadingMessage('');
+      setActiveExecutionMode('');
     }
+  };
+
+  const forceStopActiveExecution = () => {
+    const controller = activeExecutionControllerRef.current;
+    const executionId = activeExecutionIdRef.current;
+    if (!controller) {
+      showSnackbar('当前没有正在等待的直接执行请求', 'info');
+      return;
+    }
+    if (executionId) {
+      apiExecutionAPI.cancelDirectRun(executionId).catch(() => {});
+    }
+    controller.abort();
+    activeExecutionControllerRef.current = null;
+    activeExecutionIdRef.current = '';
+    setLoading(false);
+    setLoadingMessage('');
+    setActiveExecutionMode('');
+    setBackgroundRunStatus('cancelled');
+    setRunReport((current) => {
+      if (!current || !ACTIVE_RUN_STATUSES.has(current.status)) return current;
+      return {
+        ...current,
+        status: 'cancelled',
+        failure_reason: '用户强制停止本地执行等待',
+        current_step_id: null,
+        current_step_name: null,
+      };
+    });
+    notifyDashboardRefresh();
   };
 
   const refreshBackgroundRun = async () => {
@@ -287,6 +373,9 @@ export const ExecutionProvider = ({ children }) => {
       setBackgroundRunStatus(data.status);
       setRunReport(data);
       fetchHistoryRef.current?.();
+      if (!ACTIVE_RUN_STATUSES.has(data.status)) {
+        invalidateProjectRunState(data.execution_options?.project_id);
+      }
       notifyDashboardRefresh();
     } catch (error) {
       showSnackbar(error.message || '后台执行状态查询失败', 'error');
@@ -294,16 +383,22 @@ export const ExecutionProvider = ({ children }) => {
   };
 
   const cancelBackgroundRun = async () => {
-    if (!backgroundRunId) return;
+    if (!backgroundRunId || cancellingRunId === backgroundRunId) return;
+    const targetRunId = backgroundRunId;
+    setCancellingRunId(targetRunId);
     try {
-      const data = await apiExecutionAPI.cancelRun(backgroundRunId);
+      const data = await apiExecutionAPI.cancelRun(targetRunId);
       setBackgroundRunStatus(data.status);
       setRunReport(data);
       fetchHistoryRef.current?.();
+      invalidateProjectRunState(data.execution_options?.project_id);
       notifyDashboardRefresh();
       showSnackbar(data.status === 'cancelled' ? '后台执行已取消' : '后台执行已结束', data.status === 'cancelled' ? 'info' : 'warning');
     } catch (error) {
-      showSnackbar(error.message || '取消后台执行失败', 'error');
+      await refreshBackgroundRun();
+      showSnackbar(error.code === 'TIMEOUT' ? '取消请求仍在处理中，已刷新当前状态；如仍显示执行中，请稍后再刷新或重试取消' : error.message || '取消后台执行失败', error.code === 'TIMEOUT' ? 'warning' : 'error');
+    } finally {
+      setCancellingRunId('');
     }
   };
 
@@ -333,6 +428,7 @@ export const ExecutionProvider = ({ children }) => {
       setRunReport(data);
       setRunResult(null);
       fetchHistoryRef.current?.();
+      invalidateProjectRunState(data.execution_options?.project_id || runOptions.project_id);
       notifyDashboardRefresh();
       showSnackbar(`失败步骤重跑完成：${data.passed} 通过 / ${data.failed} 失败`, data.status === 'passed' ? 'success' : 'error');
     } catch (error) {
@@ -342,19 +438,22 @@ export const ExecutionProvider = ({ children }) => {
     }
   };
 
-  const value = {
+  const value = useMemo(() => ({
     runResult, setRunResult,
     runReport, setRunReport,
     backgroundRunId, setBackgroundRunId,
     backgroundRunStatus, setBackgroundRunStatus,
+    cancellingRunId,
+    activeExecutionMode,
     continueOnFailure,
     runSelectedStep,
     runAllSteps,
+    forceStopActiveExecution,
     refreshBackgroundRun,
     cancelBackgroundRun,
     rerunFailedSteps,
     registerFetchHistory,
-  };
+  }), [runResult, runReport, backgroundRunId, backgroundRunStatus, cancellingRunId, activeExecutionMode, continueOnFailure, runSelectedStep, runAllSteps, forceStopActiveExecution, refreshBackgroundRun, cancelBackgroundRun, rerunFailedSteps]);
 
   return (
     <ExecutionContext.Provider value={value}>

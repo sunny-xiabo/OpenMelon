@@ -6,7 +6,11 @@ import { lazy } from 'react';
  * 如果重试全部失败，则刷新页面。
  */
 export default function lazyWithRetry(importFn, maxRetries = 3) {
-  return lazy(() => retryImport(importFn, maxRetries));
+  return lazy(() => loadWithRetry(importFn, maxRetries));
+}
+
+export function loadWithRetry(importFn, maxRetries = 3) {
+  return retryImport(importFn, maxRetries);
 }
 
 function retryImport(importFn, retries, delay = 1000) {

@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class ParseUrlRequest(BaseModel):
@@ -67,6 +67,10 @@ class APIProjectConfig(BaseModel):
     risk_overrides: dict[str, str] = {}
     operation_allowlist: list[str] = []
     operation_blocklist: list[str] = []
+    egress_allowlist: list[str] = []
+    auth_config: dict[str, Any] = {}
+    setup_steps: list[dict[str, Any]] = []
+    cleanup_steps: list[dict[str, Any]] = []
     schedule_cron: str = ""
     last_scheduled_run_at: Optional[str] = None
     last_spec_content_hash: str = ""
@@ -94,6 +98,10 @@ class APIProjectUpsertRequest(BaseModel):
     risk_overrides: dict[str, str] = {}
     operation_allowlist: list[str] = []
     operation_blocklist: list[str] = []
+    egress_allowlist: list[str] = []
+    auth_config: dict[str, Any] = {}
+    setup_steps: list[dict[str, Any]] = []
+    cleanup_steps: list[dict[str, Any]] = []
     schedule_cron: str = ""
     last_scheduled_run_at: Optional[str] = None
     last_spec_content_hash: str = ""
@@ -140,9 +148,160 @@ class DemoBootstrapResponse(BaseModel):
     spec: APISpecAsset
     project: APIProjectConfig
     environment: APIEnvironmentConfig
+    asset_diff_summary: dict[str, int] = {}
     seeded_run_ids: list[str] = []
     knowledge_item_count: int = 0
+    knowledge_candidate_count: int = 0
     pending_task_count: int = 0
+
+
+class APIAssetModule(BaseModel):
+    module_id: str
+    project_id: str
+    module_key: str
+    name: str
+    description: str = ""
+    status: str = "active"
+    sort_order: int = 100
+    source: str = "auto"
+    path_prefixes: list[str] = []
+    tag_aliases: list[str] = []
+    interface_count: int = 0
+    excluded_at: Optional[str] = None
+    excluded_by_user: bool = False
+    merged_into_module_id: Optional[str] = None
+    updated_at: str = ""
+
+
+class APIAssetInterface(BaseModel):
+    interface_id: str
+    project_id: str
+    module_id: str
+    module_key: str = ""
+    module_name: str = ""
+    interface_key: str
+    method: str
+    path: str
+    operation_id: str = ""
+    summary: str = ""
+    description: str = ""
+    tags: list[str] = []
+    risk_level: str = ""
+    status: str = "active"
+    current_spec_id: str = ""
+    current_hash: str = ""
+    last_seen_at: str = ""
+    source: str = "openapi"
+    change_state: str = "unchanged"
+    last_tested_at: str = ""
+    last_test_status: str = ""
+    last_status_code: int | None = None
+    last_failure_summary: str = ""
+    hidden: bool = False
+    excluded_at: Optional[str] = None
+    excluded_by_user: bool = False
+    operation: dict[str, Any] = {}
+
+
+class APISpecVersionRecord(BaseModel):
+    spec_version_id: str
+    project_id: str
+    spec_id: str
+    source_type: str = ""
+    source_url: str = ""
+    filename: str = ""
+    content_hash: str = ""
+    imported_at: str = ""
+    operation_count: int = 0
+    diff_summary: dict[str, int] = {}
+
+
+class APIAssetSyncResponse(BaseModel):
+    project_id: str
+    spec_id: str = ""
+    spec_version: APISpecVersionRecord | None = None
+    diff_summary: dict[str, int] = {}
+    modules: list[APIAssetModule] = []
+    interfaces: list[APIAssetInterface] = []
+
+
+class APIProjectAssetsResponse(BaseModel):
+    project: APIProjectConfig
+    modules: list[APIAssetModule] = []
+    interfaces: list[APIAssetInterface] = []
+    spec_versions: list[APISpecVersionRecord] = []
+    latest_diff_summary: dict[str, int] = {}
+
+
+class APIAssetImpactResponse(BaseModel):
+    project_id: str
+    spec_id: str = ""
+    diff_summary: dict[str, int] = {}
+    impacted_modules: list[APIAssetModule] = []
+    impacted_interfaces: list[APIAssetInterface] = []
+    suggested_interface_ids: list[str] = []
+    removed_interface_ids: list[str] = []
+    summary: str = ""
+
+
+class APIInterfaceListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[APIAssetInterface] = []
+    interfaces: list[APIAssetInterface] = []
+
+
+class APIAssetTestPlanRequest(BaseModel):
+    module_id: Optional[str] = None
+    interface_ids: list[str] = []
+    test_intent: str = "smoke"
+    include_high_risk: bool = False
+
+
+class APIAssetModuleCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class APIAssetModuleUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class APIAssetModuleRemoveRequest(BaseModel):
+    mode: str
+    target_module_id: Optional[str] = None
+
+
+class APIAssetModuleMergeRequest(BaseModel):
+    target_module_id: str
+
+
+class APIAssetInterfaceCreateRequest(BaseModel):
+    module_id: str
+    method: str
+    path: str
+    operation_id: Optional[str] = None
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    tags: list[str] = []
+    risk_level: str = "low"
+
+
+class APIAssetInterfaceUpdateRequest(BaseModel):
+    module_id: Optional[str] = None
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    risk_level: Optional[str] = None
+    status: Optional[str] = None
+    hidden: Optional[bool] = None
+    method: Optional[str] = None
+    path: Optional[str] = None
+    operation_id: Optional[str] = None
+    tags: Optional[list[str]] = None
 
 
 class APIAssertion(BaseModel):
@@ -183,6 +342,9 @@ class APITestStep(BaseModel):
     method: str
     path: str
     operation_id: str
+    module_id: str = ""
+    interface_id: str = ""
+    interface_key: str = ""
     headers: dict[str, Any] = {}
     query: dict[str, Any] = {}
     path_params: dict[str, Any] = {}
@@ -206,9 +368,71 @@ class APITestCaseDsl(BaseModel):
     ai_repair_source: str = ""
     ai_repair_applied_at: str = ""
     ai_repair_applied_operations: list[dict[str, Any]] = []
+    agent_source: str = ""
+    agent_test_intent: str = ""
+    agent_high_risk_approved: bool = False
+    agent_setup_applied: bool = False
+    agent_cleanup_applied: bool = False
+    auth_applied: bool = False
     variables: dict[str, Any] = {}
     steps: list[APITestStep] = []
+    cleanup_steps: list[APITestStep] = []
     setup_variables: list[VariableSetup] = []
+
+
+class APIAssetTestPlanResponse(BaseModel):
+    project_id: str
+    module_id: str = ""
+    test_intent: str = "smoke"
+    script: APITestCaseDsl | None = None
+    included_interfaces: list[APIAssetInterface] = []
+    skipped_interfaces: list[dict[str, Any]] = []
+    risk_summary: dict[str, int] = {}
+    recommendations: list[dict[str, Any]] = []
+    dependency_graph: list[dict[str, Any]] = []
+    orchestration_summary: str = ""
+    requires_high_risk_confirmation: bool = False
+    summary: str = ""
+
+
+class APIAgentAction(BaseModel):
+    action: str
+    label: str
+    description: str = ""
+    section: str = ""
+    scope_strategy: str = ""
+    module_id: str = ""
+    interface_ids: list[str] = []
+    intent: str = "smoke"
+
+
+class APIAgentContextResponse(BaseModel):
+    project_id: str
+    project_name: str = ""
+    readiness: dict[str, Any] = {}
+    asset_summary: dict[str, Any] = {}
+    risk_summary: dict[str, Any] = {}
+    skipped_reason_groups: list[dict[str, Any]] = []
+    recent_run: dict[str, Any] | None = None
+    pending_task_count: int = 0
+    recommendation: APIAgentAction
+    quick_actions: list[APIAgentAction] = []
+    summary: str = ""
+
+
+class APIAgentTestPlanRequest(BaseModel):
+    intent: str = "smoke"
+    scope_strategy: str = "auto"
+    module_id: Optional[str] = None
+    interface_ids: list[str] = []
+    include_high_risk: bool = False
+    business_goal: str = ""
+
+
+class APIAgentTestPlanResponse(APIAssetTestPlanResponse):
+    agent_summary: str = ""
+    next_action: APIAgentAction
+    skipped_reason_groups: list[dict[str, Any]] = []
 
 
 class ValidateDslRequest(BaseModel):
@@ -380,6 +604,38 @@ class SpecSyncResponse(BaseModel):
     items: list[SpecSyncItem] = []
 
 
+class StorageTableProfile(BaseModel):
+    table: str
+    label: str = ""
+    row_count: int = 0
+    data_bytes: int = 0
+    indexed_columns: list[str] = []
+    pg_strategy: str = ""
+    pg_jsonb_column: str = ""
+    invalid_json_rows: int = 0
+    empty_primary_keys: int = 0
+    duplicate_primary_keys: int = 0
+    time_format_issues: int = 0
+    max_data_bytes: int = 0
+    sensitive_keys: list[str] = []
+    json_hash: str = ""
+
+
+class StorageJsonRisk(BaseModel):
+    area: str
+    risk_level: str = "medium"
+    detail: str = ""
+    mitigation: str = ""
+
+
+class StorageRetentionPlan(BaseModel):
+    run_count: int = 0
+    event_log_count: int = 0
+    ai_call_log_count: int = 0
+    recommendation: str = ""
+    archive_strategy: list[str] = []
+
+
 class AutomationDefinition(BaseModel):
     definition_id: str
     automation_type: str = "api"
@@ -515,6 +771,7 @@ class KnowledgeStatusUpdateRequest(BaseModel):
 
 class RunScriptRequest(BaseModel):
     script: APITestCaseDsl
+    execution_id: str = ""
     step_id: Optional[str] = None
     step_ids: list[str] = []
     project_id: Optional[str] = None
@@ -528,6 +785,7 @@ class RunScriptRequest(BaseModel):
     max_steps: Optional[int] = None
     continue_on_failure: bool = True
     replace_run_id: Optional[str] = None
+    approved_high_risk: bool = False
     flow_template_id: str = ""
     flow_template_name: str = ""
     flow_template_tags: list[str] = []
@@ -535,6 +793,18 @@ class RunScriptRequest(BaseModel):
 
 class ExportScriptRequest(BaseModel):
     script: APITestCaseDsl
+
+
+class APIExecutionQueueStatus(BaseModel):
+    queue_mode: str = "single_process"
+    max_concurrent_runs: int = 2
+    queue_wait_timeout_s: int = 60
+    sse_queue_size: int = 100
+    active_task_count: int = 0
+    storage_queued_count: int = 0
+    storage_running_count: int = 0
+    sse_subscriber_count: int = 0
+    available_slots: int = 0
 
 
 class CreateRunResponse(BaseModel):
@@ -575,6 +845,7 @@ class APIStepRunResult(BaseModel):
     response: dict[str, Any] = {}
     error: Optional[str] = None
     diagnostics: list[FailureDiagnostic] = []
+    phase: str = "main"
 
 
 class APIRunReport(BaseModel):

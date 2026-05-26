@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     )
 
     LLM_PROVIDER: str = "openai_compat"
+    APP_ENV: str = "development"
+    DEBUG: bool = False
+    CORS_ALLOW_ORIGINS: str = ""
+    PROTECT_ADMIN_API: bool = False
+    ADMIN_API_KEYS: str = ""
+    ADMIN_JWT_SECRET: str = ""
     API_KEY: str = ""
     API_BASE_URL: str = ""
     CHAT_MODEL: str = ""
@@ -36,7 +42,26 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: str = ""
+    QDRANT_ENABLE_QUANTIZATION: bool = True
+    QDRANT_QUANTIZATION_TYPE: str = "scalar_int8"
+    QDRANT_FORCE_RECREATE_ON_QUANTIZATION: bool = True
     VECTOR_FALLBACK_TO_NEO4J: bool = True
+    NEO4J_WRITE_BATCH_SIZE: int = 500
+
+    POSTGRES_HEALTHCHECK_ENABLED: bool = False
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "openmelon"
+    POSTGRES_USER: str = "openmelon"
+    DATABASE_URL: str = ""
+    POSTGRES_POOL_MIN_SIZE: int = 1
+    POSTGRES_POOL_MAX_SIZE: int = 10
+    POSTGRES_POOL_TIMEOUT_S: float = 30.0
+
+    API_EXECUTION_MAX_CONCURRENT_RUNS: int = 2
+    API_EXECUTION_QUEUE_WAIT_TIMEOUT_S: int = 60
+    API_EXECUTION_SSE_QUEUE_SIZE: int = 100
+    API_EXECUTION_EGRESS_GUARD_ENABLED: bool = True
 
     RETRIEVAL_TOP_K: int = 5
     RETRIEVAL_DEPTH: int = 2
@@ -45,6 +70,12 @@ class Settings(BaseSettings):
 
     HYBRID_GRAPH_WEIGHT: float = 0.4
     HYBRID_VECTOR_WEIGHT: float = 0.6
+    RAG_RETRIEVAL_CHANNEL_TIMEOUT_S: float = 5.0
+    RAG_CACHE_ENABLED: bool = True
+    RAG_RETRIEVAL_CACHE_TTL_S: int = 300
+    RAG_ANSWER_CACHE_TTL_S: int = 120
+    RAG_RETRIEVAL_CACHE_MAX_ENTRIES: int = 256
+    RAG_ANSWER_CACHE_MAX_ENTRIES: int = 128
 
     GENERATION_TEMPERATURE: float = 0.3
     GENERATION_MAX_TOKENS: int = 2000
@@ -78,6 +109,8 @@ class Settings(BaseSettings):
         provider = normalize_provider(self.LLM_PROVIDER)
         defaults = get_provider_defaults(provider)
         self.LLM_PROVIDER = provider
+        if not self.DATABASE_URL.strip():
+            raise ValueError("DATABASE_URL is required for PostgreSQL-only runtime")
 
         if not self.API_BASE_URL:
             self.API_BASE_URL = defaults.api_base_url
@@ -93,6 +126,30 @@ class Settings(BaseSettings):
     @property
     def VECTOR_FALLBACK_TO_NEO(self) -> bool:
         return self.VECTOR_FALLBACK_TO_NEO4J
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.lower() in {"prod", "production"}
+
+    @property
+    def admin_api_keys(self) -> list[str]:
+        return [
+            key.strip()
+            for key in self.ADMIN_API_KEYS.split(",")
+            if key.strip()
+        ]
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        if self.CORS_ALLOW_ORIGINS.strip():
+            return [
+                origin.strip()
+                for origin in self.CORS_ALLOW_ORIGINS.split(",")
+                if origin.strip()
+            ]
+        if self.is_production:
+            return []
+        return ["*"]
 
 
 settings = Settings()

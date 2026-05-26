@@ -3,13 +3,13 @@ import asyncio
 import pytest
 from app.api.errors import InvalidRequestError
 
-from app.api_execution import routers
+from app.api_execution.services import run_service
 from app.api_execution.storage import APIExecutionStore
 
 
 def test_auto_repair_rerun_updates_existing_run_with_comparison(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
 
     run = _failed_run()
     store.save_run(run)
@@ -43,9 +43,9 @@ def test_auto_repair_rerun_updates_existing_run_with_comparison(tmp_path, monkey
             ],
         }
 
-    monkeypatch.setattr(routers, "run_all_steps", fake_run_all_steps)
+    monkeypatch.setattr(run_service, "run_all_steps", fake_run_all_steps)
 
-    updated = asyncio.run(routers.auto_repair_and_rerun("run-1"))
+    updated = asyncio.run(run_service.auto_repair_and_rerun_service("run-1"))
 
     assert updated["run_id"] == "run-1"
     assert updated["status"] == "passed"
@@ -58,13 +58,13 @@ def test_auto_repair_rerun_updates_existing_run_with_comparison(tmp_path, monkey
 
 def test_auto_repair_rerun_blocked_creates_pending_task(tmp_path, monkeypatch):
     store = APIExecutionStore(tmp_path)
-    monkeypatch.setattr(routers, "api_execution_store", store)
+    monkeypatch.setattr(run_service, "api_execution_store", store)
     run = _failed_run()
     run["execution_options"]["project_policy_snapshot"]["allow_ai_repair"] = False
     store.save_run(run)
 
     with pytest.raises(InvalidRequestError, match="项目未开启 AI 自动修复"):
-        asyncio.run(routers.auto_repair_and_rerun("run-1"))
+        asyncio.run(run_service.auto_repair_and_rerun_service("run-1"))
 
     tasks = store.list_automation_tasks()
     assert len(tasks) == 1
@@ -106,6 +106,7 @@ def _failed_run() -> dict:
                 "allow_ai_execution": True,
                 "allow_ai_repair": True,
                 "allow_overwrite_history": True,
+                "egress_allowlist": ["example.test"],
             },
             "base_url": "http://example.test",
             "timeout_ms": 30000,

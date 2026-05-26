@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Button, Stack, Typography, Collapse } from '@mui/material';
+import { Box, Button, Stack, Typography, Collapse, useTheme } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import SaveOutlined from '@mui/icons-material/SaveOutlined';
 import EmptyState from '../../../components/EmptyState';
 import { LinearProgress } from '@mui/material';
@@ -52,6 +53,7 @@ function buildProviderDraft(provider) {
 }
 
 export default function ConfigCenter() {
+  const theme = useTheme();
   const snackbar = useSnackbar();
   
   // 使用 TanStack Query 钩子替代原有的手动加载逻辑
@@ -126,17 +128,18 @@ export default function ConfigCenter() {
     setDraft({});
   };
 
-  if (isSchemaLoading && !schema) return <EmptyState variant="loading" title="正在加载配置..." />;
+  if (isSchemaLoading && !schema) return <EmptyState variant="loading" title="配置准备中..." />;
   if (!schema && !isSchemaLoading) return <EmptyState variant="error" title="配置不可用" onAction={() => refetchSchema()} />;
 
   const isSaving = saveConfigMutation.isPending || saveProviderMutation.isPending || deleteProviderMutation.isPending;
 
   return (
     <Box sx={{ 
-      p: { xs: 2, md: 4, lg: 6 }, 
+      p: { xs: 2, md: 3 }, 
       position: 'relative', 
       minHeight: '100%',
-      overflow: 'hidden'
+      overflow: 'auto',
+      bgcolor: 'transparent'
     }}>
       {/* Decorative Background Elements */}
       <Box sx={{ 
@@ -166,6 +169,7 @@ export default function ConfigCenter() {
             onSelect={(title) => { setActiveGroup(title); setSearchQuery(''); }} 
             onSearch={setSearchQuery}
             searchQuery={searchQuery}
+            status={status}
           />
 
           <Box sx={{ minWidth: 0 }}>

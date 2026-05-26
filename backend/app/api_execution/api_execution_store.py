@@ -1,11 +1,9 @@
-"""SQLite storage backend for API execution module.
+"""PostgreSQL storage backend for API execution module.
 
 Provides indexed queries, no record limits, and pagination support.
-Uses the shared SQLite connection from app.storage.sqlite_store.
 """
 
 import json
-import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -15,188 +13,29 @@ from typing import Any
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.storage.sqlite_store import BaseSQLiteStore
+from app.api_execution.api_execution_filters import build_ai_call_where, build_event_log_where
+from app.api_execution.api_execution_seed_import import import_json_seed_files
+from app.api_execution.api_execution_schema import API_EXECUTION_SCHEMA_SQL
+from app.storage.postgres_store import BasePostgresStore
 
-logger = logging.getLogger(__name__)
 
+class APIExecutionStoreBase(BasePostgresStore):
+    """PostgreSQL-backed storage for API execution. Same public API as APIExecutionStore."""
 
-class SQLiteStore(BaseSQLiteStore):
-    """SQLite-backed storage for API execution. Same public API as APIExecutionStore."""
-
+    storage_engine = "postgres"
     _EVENT_LOG_PRUNE_INTERVAL_SECONDS = 300
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, database_url: str) -> None:
         self._last_event_log_prune_at = 0.0
-        super().__init__(*args, **kwargs)
+        super().__init__(database_url)
 
     def _init_schema(self) -> None:
-        self._conn.executescript("""
-            CREATE TABLE IF NOT EXISTS runs (
-                run_id TEXT PRIMARY KEY,
-                status TEXT NOT NULL DEFAULT 'queued',
-                project_id TEXT DEFAULT '',
-                case_id TEXT DEFAULT '',
-                case_name TEXT DEFAULT '',
-                environment_name TEXT DEFAULT '',
-                run_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
-            CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
-            CREATE INDEX IF NOT EXISTS idx_runs_at ON runs(run_at);
-            CREATE INDEX IF NOT EXISTS idx_runs_status_at ON runs(status, run_at);
-            CREATE INDEX IF NOT EXISTS idx_runs_project_at ON runs(project_id, run_at);
-            CREATE INDEX IF NOT EXISTS idx_runs_project_status_at ON runs(project_id, status, run_at);
-
-            CREATE TABLE IF NOT EXISTS projects (
-                project_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL DEFAULT '',
-                updated_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS environments (
-                environment_id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL DEFAULT '',
-                updated_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_env_project ON environments(project_id);
-
-            CREATE TABLE IF NOT EXISTS specs (
-                spec_id TEXT PRIMARY KEY,
-                source_url TEXT DEFAULT '',
-                content_hash TEXT DEFAULT '',
-                parsed_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_specs_content_hash ON specs(content_hash);
-            CREATE INDEX IF NOT EXISTS idx_specs_source_url ON specs(source_url);
-
-            CREATE TABLE IF NOT EXISTS policy_audits (
-                audit_id TEXT PRIMARY KEY,
-                project_id TEXT DEFAULT '',
-                action TEXT DEFAULT '',
-                created_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_audits_project ON policy_audits(project_id);
-
-            CREATE TABLE IF NOT EXISTS automation_tasks (
-                task_id TEXT PRIMARY KEY,
-                status TEXT DEFAULT '',
-                project_id TEXT DEFAULT '',
-                updated_at TEXT DEFAULT '',
-                created_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_tasks_status ON automation_tasks(status);
-            CREATE INDEX IF NOT EXISTS idx_tasks_project ON automation_tasks(project_id);
-            CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON automation_tasks(status, updated_at);
-            CREATE INDEX IF NOT EXISTS idx_tasks_project_status_updated ON automation_tasks(project_id, status, updated_at);
-
-            CREATE TABLE IF NOT EXISTS automation_definitions (
-                definition_id TEXT PRIMARY KEY,
-                updated_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS automation_runs (
-                automation_run_id TEXT PRIMARY KEY,
-                run_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_automation_runs_at ON automation_runs(run_at);
-
-            CREATE TABLE IF NOT EXISTS run_stage_events (
-                event_id TEXT PRIMARY KEY,
-                created_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_stage_events_at ON run_stage_events(created_at);
-
-            CREATE TABLE IF NOT EXISTS artifact_meta (
-                artifact_id TEXT PRIMARY KEY,
-                created_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_artifact_at ON artifact_meta(created_at);
-
-            CREATE TABLE IF NOT EXISTS knowledge_items (
-                knowledge_id TEXT PRIMARY KEY,
-                item_type TEXT DEFAULT '',
-                project_id TEXT DEFAULT '',
-                status TEXT DEFAULT '',
-                created_at TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_knowledge_type ON knowledge_items(item_type);
-            CREATE INDEX IF NOT EXISTS idx_knowledge_project ON knowledge_items(project_id);
-
-            CREATE TABLE IF NOT EXISTS event_logs (
-                event_id TEXT PRIMARY KEY,
-                created_at TEXT DEFAULT '',
-                level TEXT DEFAULT '',
-                module TEXT DEFAULT '',
-                event_type TEXT DEFAULT '',
-                project_id TEXT DEFAULT '',
-                trace_id TEXT DEFAULT '',
-                source_id TEXT DEFAULT '',
-                title TEXT DEFAULT '',
-                message TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_event_logs_created_at ON event_logs(created_at);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_level ON event_logs(level);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_module ON event_logs(module);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_project ON event_logs(project_id);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_trace ON event_logs(trace_id);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_type ON event_logs(event_type);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_project_created ON event_logs(project_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_module_created ON event_logs(module, created_at);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_level_created ON event_logs(level, created_at);
-            CREATE INDEX IF NOT EXISTS idx_event_logs_project_module_created ON event_logs(project_id, module, created_at);
-
-            CREATE TABLE IF NOT EXISTS ai_call_logs (
-                call_id TEXT PRIMARY KEY,
-                created_at TEXT DEFAULT '',
-                feature TEXT DEFAULT '',
-                operation TEXT DEFAULT '',
-                provider TEXT DEFAULT '',
-                model TEXT DEFAULT '',
-                status TEXT DEFAULT '',
-                degraded INTEGER DEFAULT 0,
-                trace_id TEXT DEFAULT '',
-                source_id TEXT DEFAULT '',
-                latency_ms INTEGER DEFAULT 0,
-                prompt_chars INTEGER DEFAULT 0,
-                response_chars INTEGER DEFAULT 0,
-                input_tokens INTEGER DEFAULT 0,
-                output_tokens INTEGER DEFAULT 0,
-                total_tokens INTEGER DEFAULT 0,
-                failure_reason TEXT DEFAULT '',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_created_at ON ai_call_logs(created_at);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_feature ON ai_call_logs(feature);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_operation ON ai_call_logs(operation);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_model ON ai_call_logs(model);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_status ON ai_call_logs(status);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_trace ON ai_call_logs(trace_id);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_feature_created ON ai_call_logs(feature, created_at);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_status_created ON ai_call_logs(status, created_at);
-            CREATE INDEX IF NOT EXISTS idx_ai_call_logs_degraded_created ON ai_call_logs(degraded, created_at);
-
-            CREATE TABLE IF NOT EXISTS ai_debug_settings (
-                key TEXT PRIMARY KEY,
-                data TEXT NOT NULL
-            );
-        """)
+        self._conn.executescript(API_EXECUTION_SCHEMA_SQL)
         self._ensure_column("runs", "environment_name", "TEXT DEFAULT ''")
         self._conn.execute(
             """
             UPDATE runs
-            SET environment_name = COALESCE(json_extract(data, '$.execution_options.environment_snapshot.name'), '')
+            SET environment_name = COALESCE(data #>> '{execution_options,environment_snapshot,name}', '')
             WHERE environment_name = ''
             """
         )
@@ -205,7 +44,7 @@ class SQLiteStore(BaseSQLiteStore):
         self._conn.execute(
             """
             UPDATE knowledge_items
-            SET status = COALESCE(NULLIF(json_extract(data, '$.status'), ''), 'active')
+            SET status = COALESCE(NULLIF(data #>> '{status}', ''), 'active')
             WHERE status = ''
             """
         )
@@ -223,8 +62,7 @@ class SQLiteStore(BaseSQLiteStore):
         return max(1, min(int(limit or 1), max_limit)), max(0, int(offset or 0))
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
-        columns = {row["name"] for row in self._query(f"PRAGMA table_info({table})")}
-        if column not in columns:
+        if column not in self._table_columns(table):
             self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
             self._conn.commit()
 
@@ -266,6 +104,201 @@ class SQLiteStore(BaseSQLiteStore):
                 (source_url,),
             )
             return self._row_to_data(row)
+
+    # ---- API asset catalog ----
+
+    @staticmethod
+    def _module_index_columns(module: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "project_id": module.get("project_id", ""),
+            "module_key": module.get("module_key", ""),
+            "name": module.get("name", ""),
+            "status": module.get("status", "active"),
+            "sort_order": int(module.get("sort_order") or 100),
+            "updated_at": module.get("updated_at", ""),
+        }
+
+    @staticmethod
+    def _interface_index_columns(interface: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "project_id": interface.get("project_id", ""),
+            "module_id": interface.get("module_id", ""),
+            "interface_key": interface.get("interface_key", ""),
+            "method": interface.get("method", ""),
+            "path": interface.get("path", ""),
+            "operation_id": interface.get("operation_id", ""),
+            "summary": interface.get("summary", ""),
+            "risk_level": interface.get("risk_level", ""),
+            "status": interface.get("status", "active"),
+            "current_spec_id": interface.get("current_spec_id", ""),
+            "current_hash": interface.get("current_hash", ""),
+            "last_seen_at": interface.get("last_seen_at", ""),
+        }
+
+    @staticmethod
+    def _spec_version_index_columns(version: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "project_id": version.get("project_id", ""),
+            "spec_id": version.get("spec_id", ""),
+            "source_type": version.get("source_type", ""),
+            "source_url": version.get("source_url", ""),
+            "filename": version.get("filename", ""),
+            "content_hash": version.get("content_hash", ""),
+            "imported_at": version.get("imported_at", ""),
+            "operation_count": int(version.get("operation_count") or 0),
+        }
+
+    def save_api_module(self, module: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert("api_modules", "module_id", module["module_id"], self._module_index_columns(module), module)
+            return module
+
+    def get_api_module(self, module_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._row_to_data(self._query_one("SELECT data FROM api_modules WHERE module_id = ?", (module_id,)))
+
+    def get_api_module_by_key(self, project_id: str, module_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._query_one(
+                "SELECT data FROM api_modules WHERE project_id = ? AND module_key = ? LIMIT 1",
+                (project_id, module_key),
+            )
+            return self._row_to_data(row)
+
+    def delete_api_module(self, module_id: str) -> bool:
+        with self._lock:
+            existed = self._query_one("SELECT 1 FROM api_modules WHERE module_id = ?", (module_id,)) is not None
+            self._execute("DELETE FROM api_modules WHERE module_id = ?", (module_id,))
+            return existed
+
+    def list_api_modules(self, project_id: str, status: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            conditions = ["project_id = ?"]
+            params: list[Any] = [project_id]
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            rows = self._query(
+                f"SELECT data FROM api_modules WHERE {' AND '.join(conditions)} ORDER BY sort_order ASC, name ASC",
+                tuple(params),
+            )
+            return [json.loads(r["data"]) for r in rows]
+
+    def save_api_interface(self, interface: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert(
+                "api_interfaces",
+                "interface_id",
+                interface["interface_id"],
+                self._interface_index_columns(interface),
+                interface,
+            )
+            return interface
+
+    def get_api_interface(self, interface_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            return self._row_to_data(self._query_one("SELECT data FROM api_interfaces WHERE interface_id = ?", (interface_id,)))
+
+    def get_api_interface_by_key(self, project_id: str, interface_key: str) -> dict[str, Any] | None:
+        with self._lock:
+            row = self._query_one(
+                "SELECT data FROM api_interfaces WHERE project_id = ? AND interface_key = ? LIMIT 1",
+                (project_id, interface_key),
+            )
+            return self._row_to_data(row)
+
+    def delete_api_interface(self, interface_id: str) -> bool:
+        with self._lock:
+            existed = self._query_one("SELECT 1 FROM api_interfaces WHERE interface_id = ?", (interface_id,)) is not None
+            self._execute("DELETE FROM api_interfaces WHERE interface_id = ?", (interface_id,))
+            return existed
+
+    def list_api_interfaces(
+        self,
+        project_id: str,
+        *,
+        module_id: str | None = None,
+        status: str | None = None,
+        risk_level: str | None = None,
+        keyword: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=1000)
+        with self._lock:
+            conditions = ["project_id = ?"]
+            params: list[Any] = [project_id]
+            if module_id:
+                conditions.append("module_id = ?")
+                params.append(module_id)
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            if risk_level:
+                conditions.append("risk_level = ?")
+                params.append(risk_level)
+            if keyword:
+                kw = f"%{keyword.lower().strip()}%"
+                conditions.append("(LOWER(interface_key) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(operation_id) LIKE ?)")
+                params.extend([kw, kw, kw])
+            rows = self._query(
+                f"""
+                SELECT data FROM api_interfaces
+                WHERE {' AND '.join(conditions)}
+                ORDER BY module_id ASC, method ASC, path ASC
+                LIMIT ? OFFSET ?
+                """,
+                tuple(params) + (safe_limit, safe_offset),
+            )
+            return [json.loads(r["data"]) for r in rows]
+
+    def count_api_interfaces(
+        self,
+        project_id: str,
+        *,
+        module_id: str | None = None,
+        status: str | None = None,
+        risk_level: str | None = None,
+        keyword: str | None = None,
+    ) -> int:
+        with self._lock:
+            conditions = ["project_id = ?"]
+            params: list[Any] = [project_id]
+            if module_id:
+                conditions.append("module_id = ?")
+                params.append(module_id)
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+            if risk_level:
+                conditions.append("risk_level = ?")
+                params.append(risk_level)
+            if keyword:
+                kw = f"%{keyword.lower().strip()}%"
+                conditions.append("(LOWER(interface_key) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(operation_id) LIKE ?)")
+                params.extend([kw, kw, kw])
+            row = self._query_one(f"SELECT COUNT(*) AS count FROM api_interfaces WHERE {' AND '.join(conditions)}", tuple(params))
+            return int(row["count"] if row else 0)
+
+    def save_api_spec_version(self, version: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            self._upsert(
+                "api_spec_versions",
+                "spec_version_id",
+                version["spec_version_id"],
+                self._spec_version_index_columns(version),
+                version,
+            )
+            return version
+
+    def list_api_spec_versions(self, project_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        safe_limit, _ = self._safe_page(limit, max_limit=100)
+        with self._lock:
+            rows = self._query(
+                "SELECT data FROM api_spec_versions WHERE project_id = ? ORDER BY imported_at DESC LIMIT ?",
+                (project_id, safe_limit),
+            )
+            return [json.loads(r["data"]) for r in rows]
 
     # ---- runs ----
 
@@ -379,6 +412,9 @@ class SQLiteStore(BaseSQLiteStore):
         with self._lock:
             cursor = self._conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
             self._conn.execute("DELETE FROM environments WHERE project_id = ?", (project_id,))
+            self._conn.execute("DELETE FROM api_modules WHERE project_id = ?", (project_id,))
+            self._conn.execute("DELETE FROM api_interfaces WHERE project_id = ?", (project_id,))
+            self._conn.execute("DELETE FROM api_spec_versions WHERE project_id = ?", (project_id,))
             self._conn.commit()
             return cursor.rowcount > 0
 
@@ -720,7 +756,7 @@ class SQLiteStore(BaseSQLiteStore):
         end_at: str | None = None,
     ) -> list[dict[str, Any]]:
         safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=200)
-        where, params = self._event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
+        where, params = build_event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
         with self._lock:
             rows = self._query(
                 f"SELECT data FROM event_logs WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -739,7 +775,7 @@ class SQLiteStore(BaseSQLiteStore):
         start_at: str | None = None,
         end_at: str | None = None,
     ) -> int:
-        where, params = self._event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
+        where, params = build_event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
         with self._lock:
             row = self._query_one(f"SELECT COUNT(*) AS count FROM event_logs WHERE {where}", tuple(params))
             return int(row["count"] if row else 0)
@@ -782,7 +818,7 @@ class SQLiteStore(BaseSQLiteStore):
         start_at: str | None = None,
         end_at: str | None = None,
     ) -> dict[str, Any]:
-        where, params = self._event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
+        where, params = build_event_log_where(project_id, module, level, event_type, trace_id, keyword, start_at, end_at)
         with self._lock:
             total_row = self._query_one(f"SELECT COUNT(*) AS count FROM event_logs WHERE {where}", tuple(params))
             level_rows = self._query(
@@ -895,45 +931,6 @@ class SQLiteStore(BaseSQLiteStore):
         remaining = int(remaining_row["count"] if remaining_row else 0)
         return {"deleted": age_deleted + overflow_deleted, "age_deleted": age_deleted, "overflow_deleted": overflow_deleted, "remaining": remaining}
 
-    def _event_log_where(
-        self,
-        project_id: str | None,
-        module: str | None,
-        level: str | None,
-        event_type: str | None,
-        trace_id: str | None,
-        keyword: str | None,
-        start_at: str | None,
-        end_at: str | None,
-    ) -> tuple[str, list[Any]]:
-        conditions = ["1=1"]
-        params: list[Any] = []
-        filters = {
-            "project_id": project_id,
-            "module": module,
-            "level": level,
-            "event_type": event_type,
-            "trace_id": trace_id,
-        }
-        for column, value in filters.items():
-            if value:
-                conditions.append(f"{column} = ?")
-                params.append(value.strip())
-        if start_at:
-            conditions.append("created_at >= ?")
-            params.append(start_at.strip())
-        if end_at:
-            conditions.append("created_at <= ?")
-            params.append(end_at.strip())
-        if keyword:
-            kw = f"%{keyword.lower().strip()}%"
-            conditions.append(
-                "(LOWER(title) LIKE ? OR LOWER(message) LIKE ? OR LOWER(event_type) LIKE ? "
-                "OR LOWER(trace_id) LIKE ? OR LOWER(source_id) LIKE ? OR LOWER(project_id) LIKE ?)"
-            )
-            params.extend([kw, kw, kw, kw, kw, kw])
-        return " AND ".join(conditions), params
-
     # ---- AI call observability ----
 
     def save_ai_call_log(self, record: dict[str, Any]) -> dict[str, Any]:
@@ -976,7 +973,7 @@ class SQLiteStore(BaseSQLiteStore):
         end_at: str | None = None,
     ) -> list[dict[str, Any]]:
         safe_limit, safe_offset = self._safe_page(limit, offset, max_limit=200)
-        where, params = self._ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
+        where, params = build_ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
         with self._lock:
             rows = self._query(
                 f"SELECT data FROM ai_call_logs WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -995,7 +992,7 @@ class SQLiteStore(BaseSQLiteStore):
         start_at: str | None = None,
         end_at: str | None = None,
     ) -> int:
-        where, params = self._ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
+        where, params = build_ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
         with self._lock:
             row = self._query_one(f"SELECT COUNT(*) AS count FROM ai_call_logs WHERE {where}", tuple(params))
             return int(row["count"] if row else 0)
@@ -1011,7 +1008,7 @@ class SQLiteStore(BaseSQLiteStore):
         start_at: str | None = None,
         end_at: str | None = None,
     ) -> dict[str, Any]:
-        where, params = self._ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
+        where, params = build_ai_call_where(feature, operation, model, status, degraded, keyword, start_at, end_at)
         with self._lock:
             total_row = self._query_one(f"SELECT COUNT(*) AS count FROM ai_call_logs WHERE {where}", tuple(params))
             aggregate = self._query_one(
@@ -1067,46 +1064,6 @@ class SQLiteStore(BaseSQLiteStore):
                 "failure_reason_counts": [{"label": row["failure_reason"], "count": int(row["count"])} for row in failure_rows],
             }
 
-    def _ai_call_where(
-        self,
-        feature: str | None,
-        operation: str | None,
-        model: str | None,
-        status: str | None,
-        degraded: bool | None,
-        keyword: str | None,
-        start_at: str | None,
-        end_at: str | None,
-    ) -> tuple[str, list[Any]]:
-        conditions = ["1=1"]
-        params: list[Any] = []
-        for column, value in {
-            "feature": feature,
-            "operation": operation,
-            "model": model,
-            "status": status,
-        }.items():
-            if value:
-                conditions.append(f"{column} = ?")
-                params.append(value.strip())
-        if degraded is not None:
-            conditions.append("degraded = ?")
-            params.append(1 if degraded else 0)
-        if start_at:
-            conditions.append("created_at >= ?")
-            params.append(start_at.strip())
-        if end_at:
-            conditions.append("created_at <= ?")
-            params.append(end_at.strip())
-        if keyword:
-            kw = f"%{keyword.lower().strip()}%"
-            conditions.append(
-                "(LOWER(feature) LIKE ? OR LOWER(operation) LIKE ? OR LOWER(model) LIKE ? "
-                "OR LOWER(status) LIKE ? OR LOWER(failure_reason) LIKE ? OR LOWER(trace_id) LIKE ? OR LOWER(source_id) LIKE ?)"
-            )
-            params.extend([kw, kw, kw, kw, kw, kw, kw])
-        return " AND ".join(conditions), params
-
     def get_ai_debug_settings(self) -> dict[str, Any]:
         with self._lock:
             row = self._query_one("SELECT data FROM ai_debug_settings WHERE key = 'settings'")
@@ -1122,9 +1079,9 @@ class SQLiteStore(BaseSQLiteStore):
 
     def save_ai_debug_settings(self, settings_data: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO ai_debug_settings (key, data) VALUES ('settings', ?)",
-                (json.dumps(settings_data, ensure_ascii=False),),
+            self._replace(
+                "ai_debug_settings",
+                {"key": "settings", "data": json.dumps(settings_data, ensure_ascii=False)},
             )
             self._conn.commit()
             return settings_data
@@ -1195,112 +1152,8 @@ class SQLiteStore(BaseSQLiteStore):
     async def async_save_event_log(self, event: dict[str, Any]) -> dict[str, Any]:
         return await run_in_threadpool(self.save_event_log, event)
 
-    # ---- migration from JSON ----
-
-    def _migrate_one(self, table: str, id_col: str, entity_id: str, entity: dict) -> None:
-        """Insert a single entity with indexed columns populated."""
-        columns = self._extract_indexed_columns(table, entity)
-        self._upsert(table, id_col, entity_id, columns, entity)
-
-    def _extract_indexed_columns(self, table: str, entity: dict) -> dict[str, Any]:
-        if table == "runs":
-            opts = entity.get("execution_options") or {}
-            return {
-                "status": entity.get("status", "queued"),
-                "project_id": opts.get("project_id", ""),
-                "case_id": entity.get("case_id", ""),
-                "case_name": entity.get("case_name", ""),
-                "run_at": entity.get("run_at", ""),
-            }
-        if table == "projects":
-            return {
-                "name": entity.get("name", ""),
-                "updated_at": entity.get("updated_at") or entity.get("created_at") or "",
-            }
-        if table == "environments":
-            return {
-                "project_id": entity.get("project_id", ""),
-                "updated_at": entity.get("updated_at") or entity.get("created_at") or "",
-            }
-        if table == "specs":
-            return {
-                "source_url": entity.get("source_url", ""),
-                "content_hash": entity.get("content_hash", ""),
-                "parsed_at": entity.get("parsed_at", ""),
-            }
-        if table == "policy_audits":
-            return {
-                "project_id": entity.get("project_id", ""),
-                "action": entity.get("action", ""),
-                "created_at": entity.get("created_at", ""),
-            }
-        if table == "automation_tasks":
-            return {
-                "status": entity.get("status", ""),
-                "project_id": entity.get("project_id", ""),
-                "updated_at": entity.get("updated_at") or entity.get("created_at") or "",
-                "created_at": entity.get("created_at") or "",
-            }
-        if table == "automation_definitions":
-            return {
-                "updated_at": entity.get("updated_at") or entity.get("created_at") or "",
-            }
-        if table == "automation_runs":
-            return {"run_at": entity.get("run_at", "")}
-        if table == "run_stage_events":
-            return {"created_at": entity.get("created_at", "")}
-        if table == "artifact_meta":
-            return {"created_at": entity.get("created_at", "")}
-        if table == "knowledge_items":
-            return {
-                "item_type": entity.get("item_type", ""),
-                "project_id": entity.get("project_id", ""),
-                "created_at": entity.get("created_at", ""),
-            }
-        if table == "event_logs":
-            return {
-                "created_at": entity.get("created_at", ""),
-                "level": entity.get("level", ""),
-                "module": entity.get("module", ""),
-                "event_type": entity.get("event_type", ""),
-                "project_id": entity.get("project_id", ""),
-                "trace_id": entity.get("trace_id", ""),
-                "source_id": entity.get("source_id", ""),
-                "title": entity.get("title", ""),
-                "message": entity.get("message", ""),
-            }
-        return {}
+    # ---- legacy JSON seed import ----
 
     def migrate_from_json(self, json_dir: Path) -> int:
-        """Import all JSON data files into SQLite. Returns count of imported records."""
-        total = 0
-        table_file_map = [
-            ("runs", "api_runs.json", "run_id"),
-            ("projects", "projects.json", "project_id"),
-            ("environments", "environments.json", "environment_id"),
-            ("specs", "api_specs.json", "spec_id"),
-            ("policy_audits", "policy_audits.json", "audit_id"),
-            ("automation_tasks", "automation_tasks.json", "task_id"),
-            ("automation_definitions", "automation_definitions.json", "definition_id"),
-            ("automation_runs", "automation_runs.json", "automation_run_id"),
-            ("run_stage_events", "run_stage_events.json", "event_id"),
-            ("artifact_meta", "artifact_meta.json", "artifact_id"),
-            ("knowledge_items", "knowledge_items.json", "knowledge_id"),
-            ("event_logs", "event_logs.json", "event_id"),
-        ]
-        for table, filename, id_col in table_file_map:
-            filepath = json_dir / filename
-            if not filepath.exists():
-                continue
-            try:
-                data = json.loads(filepath.read_text(encoding="utf-8"))
-                if not isinstance(data, dict):
-                    continue
-                for entity_id, entity in data.items():
-                    self._migrate_one(table, id_col, entity_id, entity)
-                    total += 1
-                self._conn.commit()
-                logger.info("Migrated %d records from %s to SQLite", len(data), filename)
-            except Exception as exc:
-                logger.warning("Failed to migrate %s: %s", filename, exc)
-        return total
+        """Import all JSON data files into PostgreSQL. Returns count of imported records."""
+        return import_json_seed_files(json_dir, self._upsert, self._conn.commit)

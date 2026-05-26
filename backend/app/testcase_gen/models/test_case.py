@@ -1,30 +1,28 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
 class TestCaseStatus(str, Enum):
+    __test__ = False
+
     PASS = "pass"
     FAIL = "fail"
     BLOCKED = "blocked"
     NOT_RUN = "not_run"
 
 class TestStep(BaseModel):
+    __test__ = False
+
     step_number: int
     description: str
     expected_result: str
     
 class TestCase(BaseModel):
-    id: Optional[str] = None
-    title: str
-    description: str
-    preconditions: Optional[str] = None
-    steps: List[TestStep]
-    priority: Optional[str] = None
-    created_at: Optional[datetime] = None
-    
-    class Config:
-        json_schema_extra = {
+    __test__ = False
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "id": "TC-001",
                 "title": "Verify login functionality",
@@ -51,11 +49,24 @@ class TestCase(BaseModel):
                 "created_at": "2025-05-12T10:00:00"
             }
         }
+    )
 
+    id: Optional[str] = None
+    title: str
+    description: str
+    preconditions: Optional[str] = None
+    steps: List[TestStep]
+    priority: Optional[str] = None
+    created_at: Optional[datetime] = None
+    
 class TestCaseRequest(BaseModel):
+    __test__ = False
+
     context: str
     requirements: str
     
 class TestCaseResponse(BaseModel):
+    __test__ = False
+
     test_cases: List[TestCase]
     excel_url: Optional[str] = None

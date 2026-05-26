@@ -4,9 +4,13 @@ import { useSnackbar } from '../../../components/SnackbarProvider';
 
 export const EXEC_KEYS = {
   projects: ['exec', 'projects'],
+  agentContext: (projectId) => ['exec', 'agent-context', projectId],
+  assets: (projectId) => ['exec', 'assets', projectId],
   environments: (projectId) => ['exec', 'environments', projectId],
+  flowTemplates: (projectId) => ['exec', 'flow-templates', projectId],
   history: (params) => ['exec', 'history', params],
   tasks: (projectId) => ['exec', 'tasks', 'pending', projectId],
+  recommendations: (projectId) => ['exec', 'recommendations', projectId || 'all'],
 };
 
 /**
@@ -32,6 +36,48 @@ export function useExecEnvironments(projectId) {
       if (!projectId) return [];
       const data = await apiExecutionAPI.listEnvironments(projectId);
       return data.environments || [];
+    },
+    enabled: !!projectId,
+  });
+}
+
+/**
+ * 获取项目 API 资产台账
+ */
+export function useProjectAssets(projectId) {
+  return useQuery({
+    queryKey: EXEC_KEYS.assets(projectId),
+    queryFn: async () => {
+      if (!projectId) return null;
+      return apiExecutionAPI.getProjectAssets(projectId);
+    },
+    enabled: !!projectId,
+  });
+}
+
+/**
+ * 获取 API Agent 工作台上下文
+ */
+export function useAgentContext(projectId) {
+  return useQuery({
+    queryKey: EXEC_KEYS.agentContext(projectId),
+    queryFn: async () => {
+      if (!projectId) return null;
+      return apiExecutionAPI.getAgentContext(projectId);
+    },
+    enabled: !!projectId,
+  });
+}
+
+/**
+ * 获取项目测试任务/流程模板
+ */
+export function useFlowTemplates(projectId) {
+  return useQuery({
+    queryKey: EXEC_KEYS.flowTemplates(projectId || ''),
+    queryFn: async () => {
+      const data = await apiExecutionAPI.listFlowTemplates({ projectId: projectId || '', limit: 100 });
+      return data.items || data.templates || [];
     },
     enabled: !!projectId,
   });
@@ -69,6 +115,17 @@ export function usePendingTasks(projectId) {
       });
       return data.items || data.tasks || [];
     },
+  });
+}
+
+/**
+ * 获取 API 自动化闭环建议
+ */
+export function useAPIExecutionRecommendations(projectId) {
+  return useQuery({
+    queryKey: EXEC_KEYS.recommendations(projectId),
+    queryFn: () => apiExecutionAPI.getRecommendations({ projectId }),
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -118,7 +175,7 @@ export function useSaveEnvironmentMutation(projectId) {
       ? apiExecutionAPI.updateEnvironment(envId, payload)
       : apiExecutionAPI.saveEnvironment(projectId, payload),
     '环境已保存',
-    [EXEC_KEYS.environments(projectId)]
+    [EXEC_KEYS.environments(projectId), EXEC_KEYS.agentContext(projectId)]
   );
 }
 
@@ -126,7 +183,7 @@ export function useDeleteEnvironmentMutation(projectId) {
   return useExecMutation(
     (envId) => apiExecutionAPI.deleteEnvironment(envId),
     '环境已删除',
-    [EXEC_KEYS.environments(projectId)]
+    [EXEC_KEYS.environments(projectId), EXEC_KEYS.agentContext(projectId)]
   );
 }
 
@@ -165,4 +222,3 @@ export function useParseSpecMutation() {
     }
   });
 }
-
