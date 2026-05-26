@@ -5,6 +5,21 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore';
 
+const tooltipProps = {
+  arrow: true,
+  enterDelay: 300,
+  componentsProps: {
+    tooltip: {
+      sx: {
+        maxWidth: 360,
+        fontSize: 11,
+        lineHeight: 1.6,
+        whiteSpace: 'normal',
+      },
+    },
+  },
+};
+
 export default function NodeTypeCardGrid({
   items,
   nodeTypeOverrides,
@@ -24,6 +39,8 @@ export default function NodeTypeCardGrid({
         const currentBg = nodeTypeOverrides[type]?.bg || color.bg;
         const currentBorder = nodeTypeOverrides[type]?.border || color.border;
         const currentSize = nodeTypeOverrides[type]?.size ?? size;
+        const defaultSummary = `系统默认: ${color.bg} / ${color.border} / 尺寸 ${size}`;
+        const constraintSummary = constraints?.length ? constraints.join(' ') : '暂无 Neo4j 拓扑约束属性限制说明。';
 
         return (
           <Paper
@@ -64,9 +81,15 @@ export default function NodeTypeCardGrid({
                       flexShrink: 0 
                     }} 
                   />
-                  <Typography variant="body2" sx={{ fontWeight: 900, color: 'slate.900', wordBreak: 'break-all' }}>
-                    {type}
-                  </Typography>
+                  <Tooltip title={type} {...tooltipProps}>
+                    <Typography
+                      variant="body2"
+                      noWrap
+                      sx={{ fontWeight: 900, color: 'slate.900', minWidth: 0, maxWidth: 150 }}
+                    >
+                      {type}
+                    </Typography>
+                  </Tooltip>
                 </Box>
                 <Stack direction="row" spacing={0.5} flexWrap="wrap" justifyContent="flex-end">
                   {locked && (
@@ -98,19 +121,35 @@ export default function NodeTypeCardGrid({
               </Box>
 
               {/* Sub-details */}
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600, fontSize: '10px' }}>
-                系统默认: {color.bg} / {color.border} / 尺寸 {size}
-              </Typography>
+              <Tooltip title={defaultSummary} {...tooltipProps}>
+                <Typography
+                  variant="caption"
+                  noWrap
+                  sx={{
+                    color: 'text.secondary',
+                    display: 'block',
+                    fontWeight: 600,
+                    fontSize: '10px',
+                    maxWidth: '100%',
+                    cursor: 'help',
+                  }}
+                >
+                  {defaultSummary}
+                </Typography>
+              </Tooltip>
               
-              <Tooltip title={constraints?.length ? constraints.join(' ') : '暂无 Neo4j 拓扑约束属性限制说明。'} arrow enterDelay={300}>
+              <Tooltip title={constraintSummary} {...tooltipProps}>
                 <Typography 
                   variant="caption" 
+                  component="p"
                   style={{ WebkitBoxOrient: 'vertical' }}
                   sx={{ 
                     color: 'text.secondary', 
                     display: '-webkit-box', 
-                    mt: 1, 
-                    minHeight: 40,
+                    m: 0,
+                    mt: 0.75,
+                    minHeight: 33,
+                    maxHeight: 33,
                     fontSize: '11px',
                     fontWeight: 500,
                     lineHeight: 1.5,
@@ -120,7 +159,7 @@ export default function NodeTypeCardGrid({
                     cursor: 'help'
                   }}
                 >
-                  {constraints?.length ? constraints.join(' ') : '暂无 Neo4j 拓扑约束属性限制说明。'}
+                  {constraintSummary}
                 </Typography>
               </Tooltip>
             </Box>
