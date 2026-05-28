@@ -4,6 +4,7 @@ from fastapi.responses import Response
 from app.api.deps import require_production_auth
 from app.api.errors import InvalidRequestError
 from app.config_center import service
+from app.config_center.service import _has_llm_endpoint_changes, _read_env_values, validate_llm_endpoint
 from app.config_center.schemas import (
     ConfigInitializeRequest,
     ConfigPreviewResponse,
@@ -79,7 +80,15 @@ async def delete_config_provider(provider_key: str):
     dependencies=[Depends(require_production_auth)],
 )
 async def save_config_values(request: ConfigSaveRequest):
-    return service.save_values(request.values)
+    result = service.save_values(request.values)
+    # Run endpoint reachability check when LLM-related keys changed
+    changed_keys = result.get("changed_keys", [])
+    if _has_llm_endpoint_changes(changed_keys):
+        env_vals = _read_env_values()
+        api_base_url = env_vals.get("API_BASE_URL", "")
+        api_key = env_vals.get("API_KEY", "")
+        result["endpoint_validation"] = await validate_llm_endpoint(api_base_url, api_key)
+    return result
 
 
 @router.post(
@@ -111,3 +120,12 @@ async def import_config(request: Request):
         return service.import_config(content)
     except ValueError as e:
         raise InvalidRequestError(message=str(e))
+
+
+@router.post("/validate-endpoint", dependencies=[Depends(require_production_auth)])
+async def validate_endpoint(request: Request):
+    """Ping the configured LLM endpoint and return reachability status."""
+    body = await request.json()
+    api_base_url = body.get("api_base_url", "")
+    api_key = body.get("api_key", "")
+    return await validate_llm_endpoint(api_base_url, api_key)

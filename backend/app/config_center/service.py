@@ -3,10 +3,12 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import status
 
 from app.api.errors import AppError, InvalidRequestError, NotFoundError
@@ -24,6 +26,7 @@ from app.llm_provider_registry import (
     provider_to_metadata,
     upsert_custom_provider,
 )
+
 from app.runtime_config import HOT_RELOAD_KEYS, refresh_hot_runtime_settings
 
 
@@ -371,6 +374,45 @@ def save_values(values: dict[str, Any], env_path: Path = ENV_PATH, example_path:
         "backup_path": str(backup_path),
         "restart_required": any(CONFIG_FIELD_REGISTRY[key].apply_mode != "hot" for key in changed),
     }
+
+
+LLM_ENDPOINT_KEYS = {"API_KEY", "API_BASE_URL", "CHAT_MODEL"}
+
+
+async def validate_llm_endpoint(api_base_url: str, api_key: str) -> dict[str, Any]:
+    """Check if LLM endpoint is reachable.
+
+    Returns a dict with ``reachable`` (bool | None), ``latency_ms`` (int | None),
+    and ``error`` (str | None).
+    """
+    if not api_base_url or not api_key:
+        return {"reachable": None, "latency_ms": None, "error": "URL or API key not configured"}
+
+    url = api_base_url.rstrip("/") + "/models"
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=headers)
+            latency = round((time.monotonic() - started) * 1000)
+            if resp.status_code < 500:
+                return {"reachable": True, "latency_ms": latency, "error": None}
+            return {"reachable": False, "latency_ms": latency, "error": f"HTTP {resp.status_code}"}
+    except httpx.TimeoutException:
+        return {"reachable": False, "latency_ms": 5000, "error": "连接超时 (5s)"}
+    except Exception as exc:
+        return {"reachable": False, "latency_ms": None, "error": str(exc)[:100]}
+
+
+def _has_llm_endpoint_changes(changed_keys: list[str]) -> bool:
+    """Return True when *changed_keys* includes any LLM-endpoint-related key."""
+    for key in changed_keys:
+        if key in LLM_ENDPOINT_KEYS:
+            return True
+        if key.startswith("TC_") and key.endswith(("_API_KEY", "_API_BASE_URL")):
+            return True
+    return False
 
 
 def initialize_env(

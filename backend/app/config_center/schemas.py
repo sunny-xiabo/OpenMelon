@@ -55,6 +55,7 @@ class ConfigSaveResponse(BaseModel):
     sensitive_keys: list[str] = Field(default_factory=list)
     backup_path: str = ""
     restart_required: bool = True
+    endpoint_validation: dict[str, Any] | None = None
 
 
 class ConfigInitializeRequest(BaseModel):
