@@ -149,3 +149,41 @@ export const fetchStream = async (url, options = {}) => {
 export const fetchBlob = async (url, options = {}) => {
   return request(url, options, { responseType: 'blob', timeoutMs: options.timeoutMs ?? DEFAULT_API_TIMEOUT_MS });
 };
+
+export const fetchFormData = async (url, formData, { timeoutMs = 0 } = {}) => {
+  const requestId = createRequestId();
+  const timeoutController = new AbortController();
+  const signal = timeoutMs > 0
+    ? mergeSignals(null, timeoutController.signal)
+    : timeoutController.signal;
+  const timer = timeoutMs > 0
+    ? setTimeout(() => timeoutController.abort(new DOMException('timeout', 'TimeoutError')), timeoutMs)
+    : null;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: { 'X-Request-ID': requestId },
+      signal,
+    });
+    if (!response.ok) {
+      const body = await parseErrorBody(response);
+      const error = toAPIError({ response, body, requestId, url, method: 'POST' });
+      emitAPIError(error);
+      throw error;
+    }
+    return response;
+  } catch (error) {
+    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+      const timeoutError = new APIError('请求超时', { status: 0, code: 'TIMEOUT', requestId, url, method: 'POST' });
+      emitAPIError(timeoutError);
+      throw timeoutError;
+    }
+    if (error instanceof APIError) throw error;
+    const networkError = new APIError(error.message || '网络请求失败', { status: 0, code: 'NETWORK_ERROR', requestId, url, method: 'POST', details: error });
+    emitAPIError(networkError);
+    throw networkError;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
