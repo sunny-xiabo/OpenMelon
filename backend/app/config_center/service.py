@@ -492,46 +492,155 @@ def _build_testcase_llm_summary(env_values: dict[str, str]) -> dict[str, dict[st
     main_provider = str(main_effective["provider"])
     main_base_url = str(main_effective["base_url"] or "")
     main_chat_model = str(main_effective["chat_model"] or "")
+
+    # --- 新三槽位: 优先从数据库读取 ---
+    try:
+        from app.testcase_gen.tc_llm_slot_store import tc_llm_slot_store
+
+        slots = tc_llm_slot_store.get_all_slots()
+        result: dict[str, dict[str, str | bool]] = {}
+
+        # 1. 解析文本槽位
+        text_slot = slots.get("text", {})
+        text_mode = text_slot.get("mode", "global")
+        if text_mode == "independent":
+            text_model = text_slot.get("model") or main_chat_model
+            tc_base_url = env_values.get("TC_TEXT_API_BASE_URL") or main_base_url
+            result["text"] = _llm_summary_item(
+                text_slot.get("provider") or main_provider,
+                "用例生成及评审 槽位独立配置",
+                "slot_text",
+                text_model,
+                tc_base_url,
+                "使用 TC_TEXT_API_BASE_URL" if env_values.get("TC_TEXT_API_BASE_URL") else "复用主模块 API_BASE_URL",
+                False,
+            )
+        else:
+            # 兼容回退: CUSTOM / DEEPSEEK 优先级链 (deprecated)
+            if env_values.get("CUSTOM_API_KEY"):
+                custom_model = env_values.get("CUSTOM_MODEL_NAME") or "qwen-plus"
+                custom_base_url = env_values.get("CUSTOM_BASE_URL") or main_base_url or "https://one-api.miotech.com/v1"
+                custom_base_label = _base_url_label(env_values.get("CUSTOM_BASE_URL"), main_base_url, "CUSTOM_BASE_URL", "OpenAI-compatible 默认 Base URL")
+                result["text"] = _llm_summary_item(
+                    "custom", "testcase_gen 自定义配置 (deprecated)", "custom",
+                    custom_model, custom_base_url, custom_base_label, False
+                )
+            elif env_values.get("DEEPSEEK_API_KEY"):
+                deepseek_model = env_values.get("DEEPSEEK_MODEL_NAME") or main_chat_model or "qwen-plus"
+                deepseek_base_url = env_values.get("DEEPSEEK_BASE_URL") or main_base_url or "https://api.deepseek.com/v1"
+                deepseek_base_label = _base_url_label(env_values.get("DEEPSEEK_BASE_URL"), main_base_url, "DEEPSEEK_BASE_URL", "DeepSeek 默认 Base URL")
+                result["text"] = _llm_summary_item(
+                    "deepseek", "testcase_gen DeepSeek 独立配置 (deprecated)", "deepseek",
+                    deepseek_model, deepseek_base_url, deepseek_base_label, False
+                )
+            else:
+                result["text"] = _llm_summary_item(
+                    main_provider, "回退 OpenMelon 主模块配置", "main",
+                    main_chat_model, main_base_url, "使用主模块 API_BASE_URL", False,
+                )
+
+        # 2. 解析视觉槽位
+        vision_slot = slots.get("vision", {})
+        vision_mode = vision_slot.get("mode", "same_as_text")
+        
+        resolved_vision_mode = vision_mode
+        if vision_mode == "same_as_text":
+            resolved_vision_mode = text_mode
+
+        if resolved_vision_mode == "independent":
+            if vision_mode == "same_as_text":
+                text_model = text_slot.get("model") or main_chat_model
+                tc_base_url = env_values.get("TC_TEXT_API_BASE_URL") or main_base_url
+                result["vision"] = _llm_summary_item(
+                    text_slot.get("provider") or main_provider,
+                    "跟随文本槽位配置", "slot_text", text_model,
+                    tc_base_url, "跟随文本槽位 Base URL", True,
+                )
+            else:
+                vision_model = vision_slot.get("model") or main_chat_model
+                tc_base_url = env_values.get("TC_VISION_API_BASE_URL") or main_base_url
+                result["vision"] = _llm_summary_item(
+                    vision_slot.get("provider") or main_provider,
+                    "视觉场景理解 槽位独立配置", "slot_vision", vision_model,
+                    tc_base_url, "使用 TC_VISION_API_BASE_URL" if env_values.get("TC_VISION_API_BASE_URL") else "复用主模块 API_BASE_URL",
+                    True,
+                )
+        else:
+            # 兼容回退: CUSTOM / QWEN 优先级链 (deprecated)
+            if env_values.get("CUSTOM_API_KEY"):
+                custom_model = env_values.get("CUSTOM_MODEL_NAME") or "qwen-vl-max"
+                custom_base_url = env_values.get("CUSTOM_BASE_URL") or main_base_url or "https://one-api.miotech.com/v1"
+                custom_base_label = _base_url_label(env_values.get("CUSTOM_BASE_URL"), main_base_url, "CUSTOM_BASE_URL", "OpenAI-compatible 默认 Base URL")
+                result["vision"] = _llm_summary_item(
+                    "custom", "testcase_gen 自定义配置 (deprecated)", "custom",
+                    custom_model, custom_base_url, custom_base_label, True
+                )
+            elif env_values.get("QWEN_API_KEY"):
+                qwen_model = env_values.get("QWEN_MODEL_NAME") or "qwen-vl-max"
+                qwen_base_url = env_values.get("QWEN_BASE_URL") or main_base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                qwen_base_label = _base_url_label(env_values.get("QWEN_BASE_URL"), main_base_url, "QWEN_BASE_URL", "DashScope 默认 Base URL")
+                result["vision"] = _llm_summary_item(
+                    "qwen", "testcase_gen Qwen 独立配置 (deprecated)", "qwen",
+                    qwen_model, qwen_base_url, qwen_base_label, True
+                )
+            else:
+                result["vision"] = _llm_summary_item(
+                    main_provider, "回退 OpenMelon 主模块配置", "main",
+                    main_chat_model, main_base_url, "使用主模块 API_BASE_URL", True,
+                )
+
+        # 3. 解析向量嵌入槽位
+        emb_slot = slots.get("embedding", {})
+        emb_mode = emb_slot.get("mode", "global")
+        emb_model = str(main_effective.get("embedding_model") or "")
+        emb_dim = main_effective.get("embedding_dim", 1024)
+        if emb_mode == "independent":
+            emb_model = emb_slot.get("model") or emb_model
+            emb_dim = emb_slot.get("dim") or emb_dim
+        result["embedding"] = {
+            "mode": emb_mode,
+            "model": emb_model,
+            "dimension": emb_dim,
+            "provider": emb_slot.get("provider") or main_provider if emb_mode == "independent" else main_provider,
+            "source": "slot_embedding" if emb_mode == "independent" else "main",
+            "source_label": "嵌入槽位独立配置" if emb_mode == "independent" else "跟随全局配置",
+        }
+
+        if not env_values.get("API_KEY") and not any(
+            env_values.get(k) for k in ("TC_TEXT_API_KEY", "TC_VISION_API_KEY", "CUSTOM_API_KEY", "QWEN_API_KEY", "DEEPSEEK_API_KEY")
+        ):
+            for key in ("vision", "text"):
+                result[key]["source"] = "missing"
+                result[key]["source_label"] = "未配置"
+
+        return result
+    except Exception:
+        pass
+
+    # --- 兼容回退: 旧 CUSTOM/QWEN/DEEPSEEK 逻辑 ---
     qwen_model = env_values.get("QWEN_MODEL_NAME") or "qwen-vl-max"
     deepseek_model = env_values.get("DEEPSEEK_MODEL_NAME") or main_chat_model or "qwen-plus"
 
     if env_values.get("CUSTOM_API_KEY"):
         custom_model = env_values.get("CUSTOM_MODEL_NAME") or "qwen-plus"
         custom_base_url = env_values.get("CUSTOM_BASE_URL") or main_base_url or "https://one-api.miotech.com/v1"
-        custom_base_label = _base_url_label(
-            env_values.get("CUSTOM_BASE_URL"),
-            main_base_url,
-            "CUSTOM_BASE_URL",
-            "OpenAI-compatible 默认 Base URL",
-        )
+        custom_base_label = _base_url_label(env_values.get("CUSTOM_BASE_URL"), main_base_url, "CUSTOM_BASE_URL", "OpenAI-compatible 默认 Base URL")
         return {
-            "vision": _llm_summary_item("custom", "testcase_gen 自定义配置", "custom", env_values.get("CUSTOM_MODEL_NAME") or "qwen-vl-max", custom_base_url, custom_base_label, True),
-            "text": _llm_summary_item("custom", "testcase_gen 自定义配置", "custom", custom_model, custom_base_url, custom_base_label, False),
+            "vision": _llm_summary_item("custom", "testcase_gen 自定义配置 (deprecated)", "custom", env_values.get("CUSTOM_MODEL_NAME") or "qwen-vl-max", custom_base_url, custom_base_label, True),
+            "text": _llm_summary_item("custom", "testcase_gen 自定义配置 (deprecated)", "custom", custom_model, custom_base_url, custom_base_label, False),
         }
 
     vision = (
-        _llm_summary_item(
-            "qwen",
-            "testcase_gen Qwen 独立配置",
-            "qwen",
-            qwen_model,
+        _llm_summary_item("qwen", "testcase_gen Qwen 独立配置 (deprecated)", "qwen", qwen_model,
             env_values.get("QWEN_BASE_URL") or main_base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            _base_url_label(env_values.get("QWEN_BASE_URL"), main_base_url, "QWEN_BASE_URL", "DashScope 默认 Base URL"),
-            True,
-        )
+            _base_url_label(env_values.get("QWEN_BASE_URL"), main_base_url, "QWEN_BASE_URL", "DashScope 默认 Base URL"), True)
         if env_values.get("QWEN_API_KEY")
         else _llm_summary_item(main_provider, "回退 OpenMelon 主模块配置", "main", qwen_model, main_base_url, "使用主模块 API_BASE_URL", True)
     )
     text = (
-        _llm_summary_item(
-            "deepseek",
-            "testcase_gen DeepSeek 独立配置",
-            "deepseek",
-            deepseek_model,
+        _llm_summary_item("deepseek", "testcase_gen DeepSeek 独立配置 (deprecated)", "deepseek", deepseek_model,
             env_values.get("DEEPSEEK_BASE_URL") or main_base_url or "https://api.deepseek.com/v1",
-            _base_url_label(env_values.get("DEEPSEEK_BASE_URL"), main_base_url, "DEEPSEEK_BASE_URL", "DeepSeek 默认 Base URL"),
-            False,
-        )
+            _base_url_label(env_values.get("DEEPSEEK_BASE_URL"), main_base_url, "DEEPSEEK_BASE_URL", "DeepSeek 默认 Base URL"), False)
         if env_values.get("DEEPSEEK_API_KEY")
         else _llm_summary_item(main_provider, "回退 OpenMelon 主模块配置", "main", deepseek_model, main_base_url, "使用主模块 API_BASE_URL", False)
     )
