@@ -31,20 +31,34 @@ import {
   useExportTestCases 
 } from '../features/TestCase/hooks/useTestCase';
 
+// 表单草稿 localStorage 键
+const DRAFT_KEY = 'openmelon_tc_draft';
+
+const loadDraft = () => {
+  try {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return null;
+};
+
 export default function TestCasePage({ isActive = true }) {
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
   const showSnackbar = useSnackbar();
+
+  // 表单草稿（仅加载一次）
+  const draft = useMemo(() => loadDraft(), []);
   
-  // 表单状态
-  const [mode, setMode] = useState('file');
-  const [context, setContext] = useState('');
-  const [requirements, setRequirements] = useState('');
-  const [moduleName, setModuleName] = useState('');
+  // 表单状态（优先从草稿恢复）
+  const [mode, setMode] = useState(draft?.mode || 'file');
+  const [context, setContext] = useState(draft?.context || '');
+  const [requirements, setRequirements] = useState(draft?.requirements || '');
+  const [moduleName, setModuleName] = useState(draft?.moduleName || '');
   const [file, setFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [dragOver, setDragOver] = useState(false);
-  const [useVector, setUseVector] = useState(true);
+  const [useVector, setUseVector] = useState(draft?.useVector ?? true);
 
   // 生成过程状态
   const [generating, setGenerating] = useState(false);
@@ -90,6 +104,24 @@ export default function TestCasePage({ isActive = true }) {
     templateOptions,
   } = usePromptHubOptions({ isActive, showSnackbar });
 
+  // 自动保存表单草稿到 localStorage
+  useEffect(() => {
+    const draftData = { mode, context, requirements, moduleName, useVector, styleId, selectedSkillIds };
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData));
+    } catch {}
+  }, [mode, context, requirements, moduleName, useVector, styleId, selectedSkillIds]);
+
+  // 从草稿恢复 hook 管理的字段（styleId / selectedSkillIds）
+  useEffect(() => {
+    if (draft) {
+      if (draft.styleId) setStyleId(draft.styleId);
+      if (draft.selectedSkillIds?.length) setSelectedSkillIds(draft.selectedSkillIds);
+    }
+    // 仅在挂载时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleReset = () => {
     setContext('');
     setRequirements('');
@@ -100,6 +132,7 @@ export default function TestCasePage({ isActive = true }) {
     setStreamingContent('');
     setParsedTestCases([]);
     setViewMode('list');
+    localStorage.removeItem(DRAFT_KEY);
   };
 
   const handleFileSelect = useCallback((f) => {
@@ -163,6 +196,7 @@ export default function TestCasePage({ isActive = true }) {
 
       if (parsed.length > 0) {
         setParsedTestCases(parsed);
+        localStorage.removeItem(DRAFT_KEY);
         showSnackbar(`成功解析 ${parsed.length} 个测试用例`, { severity: 'success' });
       } else {
         showSnackbar('生成完成，但未能解析出标准格式用例', { severity: 'warning' });
