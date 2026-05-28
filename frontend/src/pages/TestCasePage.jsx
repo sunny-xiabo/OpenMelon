@@ -59,6 +59,20 @@ export default function TestCasePage({ isActive = true }) {
   const [exportAnchorEl, setExportAnchorEl] = useState(null);
 
   const fileRef = useRef(null);
+  const abortRef = useRef(null);
+  const readerRef = useRef(null);
+
+  // 取消正在执行的生成流程：同时终止 HTTP 请求和活跃的流读取器
+  const handleCancel = async () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (readerRef.current) {
+      await readerRef.current.cancel().catch(() => {});
+      readerRef.current = null;
+    }
+  };
 
   // 使用 TanStack Query 钩子
   const { data: vectorStatus } = useVectorStatus(isActive);
@@ -109,7 +123,9 @@ export default function TestCasePage({ isActive = true }) {
   const generate = async () => {
     if (!context.trim() || !requirements.trim()) return;
     if (mode === 'file' && !file) return;
-    
+
+    const controller = new AbortController();
+    abortRef.current = controller;
     setGenerating(true);
     setGenerationError('');
     setStreamingContent('');
@@ -121,17 +137,23 @@ export default function TestCasePage({ isActive = true }) {
 
     try {
       let fullText = '';
+      const signal = controller.signal;
       const resp = mode === 'file' && file
-        ? await testCaseAPI.generateFromFile(file, context, requirements, moduleName, useVector, styleId, selectedSkillIds)
-        : await testCaseAPI.generateFromContext(context, requirements, moduleName, useVector, styleId, selectedSkillIds);
-      
+        ? await testCaseAPI.generateFromFile(file, context, requirements, moduleName, useVector, styleId, selectedSkillIds, { signal })
+        : await testCaseAPI.generateFromContext(context, requirements, moduleName, useVector, styleId, selectedSkillIds, { signal });
+
       const reader = resp.body.getReader();
+      readerRef.current = reader;
       const dec = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fullText += dec.decode(value, { stream: true });
-        setStreamingContent(fullText);
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullText += dec.decode(value, { stream: true });
+          setStreamingContent(fullText);
+        }
+      } finally {
+        readerRef.current = null;
       }
 
       const parsed = parseTestCasesFromMarkdown(fullText).map((item) => ({
@@ -146,11 +168,17 @@ export default function TestCasePage({ isActive = true }) {
         showSnackbar('生成完成，但未能解析出标准格式用例', { severity: 'warning' });
       }
     } catch (e) {
+      if (e.name === 'AbortError') {
+        showSnackbar('生成已取消', { severity: 'info' });
+        return;
+      }
       const message = e.message || '测试用例生成失败';
       showSnackbar('生成失败: ' + message, { severity: 'error' });
       setGenerationError(message);
     } finally {
       setGenerating(false);
+      abortRef.current = null;
+      readerRef.current = null;
     }
   };
 
@@ -191,6 +219,7 @@ export default function TestCasePage({ isActive = true }) {
         fileRef={fileRef}
         generate={generate}
         generating={generating}
+        handleCancel={handleCancel}
         handleFileSelect={handleFileSelect}
         handleReset={handleReset}
         isNarrow={isNarrow}
@@ -231,6 +260,7 @@ export default function TestCasePage({ isActive = true }) {
           <ResultActionBar
             exportAnchorEl={exportAnchorEl}
             exportExcel={() => exportMutation.mutate({ type: 'excel', data: filteredTestCases })}
+            exportMarkdown={() => exportMutation.mutate({ type: 'markdown', data: streamingContent })}
             exportXMind={() => exportMutation.mutate({ type: 'xmind', data: filteredTestCases })}
             generating={generating}
             hasResult={hasResult}

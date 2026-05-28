@@ -12,7 +12,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { AutoFixHigh, DescriptionOutlined, UploadFile } from '@mui/icons-material';
+import { AutoFixHigh, DescriptionOutlined, UploadFile, StopCircleOutlined } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
 import PageHeader from '../../../components/PageHeader';
 import FileDropZone from './FileDropZone';
@@ -26,6 +26,7 @@ export default function GenerationPanel({
   fileRef,
   generate,
   generating,
+  handleCancel,
   handleFileSelect,
   handleReset,
   isNarrow,
@@ -234,6 +235,29 @@ export default function GenerationPanel({
           >
             清空重置
           </Button>
+          {generating && (
+            <Button
+              variant="outlined"
+              color="warning"
+              size="small"
+              onClick={handleCancel}
+              startIcon={<StopCircleOutlined />}
+              sx={{
+                mt: 0.5,
+                minWidth: 100,
+                fontWeight: 600,
+                borderRadius: 2,
+                borderColor: 'warning.main',
+                color: 'warning.dark',
+                '&:hover': {
+                  borderColor: 'warning.dark',
+                  bgcolor: (theme) => theme.palette.warning.main + '14',
+                },
+              }}
+            >
+              取消生成
+            </Button>
+          )}
           <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
             生成会流式输出，完成后可切换列表/导图并导出。
           </Typography>

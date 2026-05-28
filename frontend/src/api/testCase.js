@@ -1,7 +1,7 @@
 import { API_BASE, fetchJSON, fetchBlob, fetchStream } from './client';
 
 export const testCaseAPI = {
-  generateFromFile: (file, context, requirements, module = '', use_vector = false, style_id = '', skill_ids = []) => {
+  generateFromFile: (file, context, requirements, module = '', use_vector = false, style_id = '', skill_ids = [], { signal } = {}) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('context', context);
@@ -13,10 +13,11 @@ export const testCaseAPI = {
     return fetchStream(`${API_BASE}/test-cases/generate`, {
       method: 'POST',
       body: formData,
+      ...(signal ? { signal } : {}),
     });
   },
 
-  generateFromContext: (context, requirements, module = '', use_vector = false, style_id = '', skill_ids = []) => {
+  generateFromContext: (context, requirements, module = '', use_vector = false, style_id = '', skill_ids = [], { signal } = {}) => {
     const formData = new FormData();
     formData.append('context', context);
     formData.append('requirements', requirements);
@@ -27,6 +28,7 @@ export const testCaseAPI = {
     return fetchStream(`${API_BASE}/test-cases/generate-from-context`, {
       method: 'POST',
       body: formData,
+      ...(signal ? { signal } : {}),
     });
   },
 

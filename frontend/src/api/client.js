@@ -83,10 +83,12 @@ const mergeSignals = (signalA, signalB) => {
 const request = async (url, options = {}, { responseType = 'json', timeoutMs = DEFAULT_API_TIMEOUT_MS } = {}) => {
   const requestId = options.requestId || createRequestId();
   const method = String(options.method || 'GET').toUpperCase();
+  const { requestId: _requestId, timeoutMs: _timeoutMs, signal: userSignal, ...fetchOptions } = options;
   const timeoutController = new AbortController();
-  const signal = mergeSignals(options.signal, timeoutController.signal);
   const timer = timeoutMs > 0 ? setTimeout(() => timeoutController.abort(new DOMException('timeout', 'TimeoutError')), timeoutMs) : null;
-  const { requestId: _requestId, timeoutMs: _timeoutMs, ...fetchOptions } = options;
+  // 用户显式传递的信号直接挂到 fetch，中止时抛出原生 AbortError（name='AbortError'），
+  // 与超时抛出的 APIError（code='TIMEOUT'）可区分，便于上层分别处理。
+  const signal = userSignal || timeoutController.signal;
   try {
     const response = await fetch(url, {
       ...fetchOptions,
@@ -105,7 +107,8 @@ const request = async (url, options = {}, { responseType = 'json', timeoutMs = D
     if (response.status === 204) return null;
     return response.json();
   } catch (error) {
-    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+    // 超时信号抛出的 AbortError 包装为 TIMEOUT；用户显式取消抛出原生 AbortError 直接透传。
+    if (error.name === 'TimeoutError' || (error.name === 'AbortError' && !userSignal)) {
       const timeoutError = new APIError('请求超时，请稍后重试', {
         status: 0,
         code: 'TIMEOUT',
