@@ -32,6 +32,15 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = ""
     EMBEDDING_DIM: int = 1024
 
+    # Testcase Generation independent slot credentials (optional, fallback to global)
+    TC_TEXT_API_KEY: str = ""
+    TC_TEXT_API_BASE_URL: str = ""
+    TC_VISION_API_KEY: str = ""
+    TC_VISION_API_BASE_URL: str = ""
+    TC_EMBEDDING_API_KEY: str = ""
+    TC_EMBEDDING_API_BASE_URL: str = ""
+    TC_EMBEDDING_DIM: int = 0
+
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "password"
@@ -103,6 +112,10 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int = 10
     EVENT_LOG_RETENTION_DAYS: int = 90
     EVENT_LOG_MAX_ROWS: int = 50000
+
+    REVIEW_QUALITY_THRESHOLD: float = 0.75
+    REVIEW_MAX_HIGH_ISSUES: int = 1
+    REVIEW_MAX_REVISION_ROUNDS: int = 2
 
     @model_validator(mode="after")
     def apply_provider_defaults(self) -> "Settings":
