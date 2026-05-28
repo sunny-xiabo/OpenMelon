@@ -1,7 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Box,
   Button,
+  Chip,
+  IconButton,
   TextField,
   Typography,
   Paper,
@@ -10,18 +13,21 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { graphAPI } from '../services/api';
+import { AttachFileOutlined } from '@mui/icons-material';
+import { graphAPI, chatAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 
 // Hooks
-import { 
-  useSessions, 
-  useChatHistory, 
-  useGraphStatus, 
-  useChatQuery, 
-  useSessionActions 
+import {
+  useSessions,
+  useChatHistory,
+  useGraphStatus,
+  useChatQuery,
+  useSessionActions,
+  useFeedbacks,
+  QA_KEYS,
 } from '../features/QA/hooks/useQA';
 import { useGraphFilters } from '../features/Graph/hooks/useGraph';
 import { useNodeTypeLegend } from '../features/NodeType/hooks/useNodeTypes';
@@ -38,6 +44,7 @@ export default function QAPage({ isActive = true }) {
   const theme = useTheme();
   const showSnackbar = useSnackbar();
   const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
+  const queryClient = useQueryClient();
   
   // 1. UI 交互状态 (找回被遗漏的状态)
   const [inputText, setInputText] = useState('');
@@ -45,6 +52,11 @@ export default function QAPage({ isActive = true }) {
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [includeHistory, setIncludeHistory] = useState(true);
   const [sessionListExpanded, setSessionListExpanded] = useState(true);
+  const [streamingContent, setStreamingContent] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortRef = useRef(null);
+  const [attachedFiles, setAttachedFiles] = useState([]);
+  const fileInputRef = useRef(null);
   
   // 对话框/编辑状态
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, sessionId: null, title: '' });
@@ -80,6 +92,14 @@ export default function QAPage({ isActive = true }) {
   const chatMutation = useChatQuery();
   const { deleteSession, renameSession } = useSessionActions();
 
+  // 反馈状态
+  const { data: feedbackData } = useFeedbacks(currentSessionId);
+  const feedbackMap = useMemo(() => {
+    const map = {};
+    (feedbackData?.feedbacks || []).forEach(f => { map[f.message_index] = f.feedback; });
+    return map;
+  }, [feedbackData]);
+
   const graphReady = !!status?.has_data;
 
   // 3. 核心逻辑处理
@@ -87,6 +107,77 @@ export default function QAPage({ isActive = true }) {
     setTimeout(() => {
       if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }, 100);
+  };
+
+  // 反馈处理
+  const handleFeedback = async (messageIndex, feedback) => {
+    try {
+      await chatAPI.setFeedback(currentSessionId, messageIndex, feedback);
+      queryClient.invalidateQueries({ queryKey: QA_KEYS.feedbacks(currentSessionId) });
+    } catch (e) {
+      showSnackbar('反馈失败: ' + (e.message || '未知错误'), { severity: 'error' });
+    }
+  };
+
+  // 重试处理
+  const handleRetry = async (messageIndex) => {
+    const userMsg = messages[messageIndex - 1];
+    if (!userMsg || userMsg.role !== 'user') return;
+    const question = userMsg.content;
+
+    setMessages(prev => {
+      const next = [...prev];
+      next[messageIndex] = { role: 'assistant', content: '' };
+      return next;
+    });
+    setStreamingContent('');
+    setIsStreaming(true);
+    scrollDown();
+
+    try {
+      const resp = await chatAPI.queryStream(question, currentSessionId, includeHistory);
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += dec.decode(value, { stream: true });
+        setMessages(prev => {
+          const next = [...prev];
+          next[messageIndex] = { role: 'assistant', content: fullText };
+          return next;
+        });
+        scrollDown();
+      }
+
+      queryClient.invalidateQueries({ queryKey: QA_KEYS.sessions });
+      if (currentSessionId) queryClient.invalidateQueries({ queryKey: QA_KEYS.history(currentSessionId) });
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        showSnackbar('重试失败: ' + (e.message || '未知错误'), { severity: 'error' });
+      }
+    } finally {
+      setIsStreaming(false);
+      scrollDown();
+    }
+  };
+
+  // 引用点击（Task 8 将实现图谱节点高亮）
+  const handleCitationClick = (citationIndex) => {
+    console.log('Citation clicked:', citationIndex);
+  };
+
+  // 文件选择
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'));
+    setAttachedFiles(prev => [...prev, ...files]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (index) => {
+    setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   // 同步历史记录到消息列表
@@ -244,21 +335,56 @@ export default function QAPage({ isActive = true }) {
   }, [isActive]);
 
   const handleSendMessage = async () => {
-    if (!inputText.trim() || chatMutation.isPending) return;
+    if (!inputText.trim() || isStreaming) return;
     const q = inputText;
     setInputText('');
     const sid = currentSessionId || `new_${Date.now()}`;
-    
+
     // 乐观更新 UI
     setMessages(prev => [...prev, { role: 'user', content: q }]);
+    setStreamingContent('');
+    setIsStreaming(true);
     scrollDown();
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const r = await chatMutation.mutateAsync({ question: q, sessionId: sid, includeHistory });
-      if (!currentSessionId) setCurrentSessionId(r.session_id);
-      if (r.graph_data?.nodes?.length > 0) renderGraph(r.graph_data);
+      const resp = attachedFiles.length > 0
+        ? await chatAPI.queryStreamWithFiles(q, attachedFiles, sid, includeHistory)
+        : await chatAPI.queryStream(q, sid, includeHistory);
+
+      setAttachedFiles([]);
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let fullText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += dec.decode(value, { stream: true });
+        setStreamingContent(fullText);
+        scrollDown();
+      }
+
+      // 流结束，将完整回答加入消息列表
+      if (fullText) {
+        setMessages(prev => [...prev, { role: 'assistant', content: fullText }]);
+      }
+      setStreamingContent('');
+
+      if (!currentSessionId) setCurrentSessionId(sid);
+      queryClient.invalidateQueries({ queryKey: QA_KEYS.sessions });
+      queryClient.invalidateQueries({ queryKey: QA_KEYS.history(sid) });
     } catch (e) {
-      console.warn('Chat request failed:', e);
+      if (e.name !== 'AbortError') {
+        console.warn('Chat stream failed:', e);
+        showSnackbar('查询失败: ' + (e.message || '未知错误'), { severity: 'error' });
+      }
+    } finally {
+      setIsStreaming(false);
+      abortRef.current = null;
+      scrollDown();
     }
   };
 
@@ -355,22 +481,57 @@ export default function QAPage({ isActive = true }) {
             {messages.length === 0 ? (
               <EmptyState variant="chat" title="开始新的对话" description="您可以询问关于项目架构、API 定义或业务逻辑的问题。" />
             ) : (
-              messages.map((m, i) => <MessageBubble key={i} message={m} />)
+              messages.map((m, i) => (
+                <MessageBubble
+                  key={i}
+                  message={m}
+                  feedback={feedbackMap[i]}
+                  onRetry={() => handleRetry(i)}
+                  onFeedback={(fb) => handleFeedback(i, fb)}
+                  onCitationClick={handleCitationClick}
+                />
+              ))
             )}
-            {chatMutation.isPending && <MessageBubble message={{ role: 'assistant', content: 'AI 正在思考中...', loading: true }} />}
+            {messages.map((m, i) => (
+              <MessageBubble
+                key={i}
+                message={m}
+                feedback={feedbackMap[i]}
+                onRetry={() => handleRetry(i)}
+                onFeedback={(fb) => handleFeedback(i, fb)}
+                onCitationClick={handleCitationClick}
+              />
+            ))}
+            {isStreaming && streamingContent && <MessageBubble message={{ role: 'assistant', content: streamingContent }} />}
+            {isStreaming && !streamingContent && <MessageBubble message={{ role: 'assistant', content: 'AI 正在思考中...', loading: true }} />}
           </Box>
 
           <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+            {attachedFiles.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+                {attachedFiles.map((f, i) => (
+                  <Chip key={i} label={`${f.name} (${(f.size / 1024).toFixed(0)} KB)`}
+                    onDelete={() => removeFile(i)} size="small"
+                    sx={{ bgcolor: '#eff6ff' }} />
+                ))}
+              </Box>
+            )}
+            <input type="file" ref={fileInputRef} accept="image/*" multiple
+              style={{ display: 'none' }} onChange={handleFileSelect} />
             <Box sx={{ display: 'flex', gap: 1 }}>
+              <IconButton onClick={() => fileInputRef.current?.click()} disabled={isStreaming}
+                sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                <AttachFileOutlined fontSize="small" />
+              </IconButton>
               <TextField
                 fullWidth size="small" placeholder="输入您的问题..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                disabled={chatMutation.isPending}
+                disabled={isStreaming}
                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5 } }}
               />
-              <Button variant="contained" onClick={handleSendMessage} disabled={chatMutation.isPending || !inputText.trim()} sx={{ borderRadius: 2.5, px: 3 }}>
+              <Button variant="contained" onClick={handleSendMessage} disabled={isStreaming || !inputText.trim()} sx={{ borderRadius: 2.5, px: 3 }}>
                 发送
               </Button>
             </Box>

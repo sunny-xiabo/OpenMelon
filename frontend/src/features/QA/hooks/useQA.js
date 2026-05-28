@@ -6,6 +6,7 @@ export const QA_KEYS = {
   sessions: ['qa', 'sessions'],
   history: (sid) => ['qa', 'history', sid],
   graphStatus: ['qa', 'graph-status'],
+  feedbacks: (sid) => ['qa', 'feedbacks', sid],
 };
 
 /**
@@ -45,6 +46,17 @@ export function useGraphStatus() {
     queryKey: QA_KEYS.graphStatus,
     queryFn: () => graphAPI.getStatus(),
     refetchInterval: 30000, // 每 30 秒轮询一次图谱状态
+  });
+}
+
+/**
+ * 获取消息反馈状态
+ */
+export function useFeedbacks(sessionId) {
+  return useQuery({
+    queryKey: QA_KEYS.feedbacks(sessionId),
+    queryFn: () => chatAPI.getFeedback(sessionId),
+    enabled: !!sessionId,
   });
 }
 
