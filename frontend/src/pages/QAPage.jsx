@@ -466,6 +466,20 @@ export default function QAPage({ isActive = true }) {
     }
   };
 
+  const handleExportGraph = useCallback(() => {
+    if (!networkRef.current?.body) return;
+    try {
+      const canvas = containerRef.current?.querySelector('canvas');
+      if (!canvas) return;
+      const link = document.createElement('a');
+      link.download = `openmelon-graph-${Date.now()}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (e) {
+      showSnackbar('导出图谱失败: ' + (e.message || '未知错误'), { severity: 'error' });
+    }
+  }, [showSnackbar]);
+
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <PageHeader title="智能问答" subtitle="基于 RAG 架构的图谱增强问答系统，支持多维线索回溯。" />
@@ -571,6 +585,7 @@ export default function QAPage({ isActive = true }) {
           loadFullGraph={loadFullGraph}
           checkGraphStatus={refetchGraphStatus}
           isNarrow={isNarrow}
+          onExport={handleExportGraph}
         />
       </Box>
     </Box>

@@ -12,7 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { AccountTree } from '@mui/icons-material';
+import { AccountTree, DownloadOutlined } from '@mui/icons-material';
 import EmptyState from '../../../components/EmptyState';
 
 export default function GraphInsightPanel({
@@ -27,6 +27,7 @@ export default function GraphInsightPanel({
   legend,
   loadFullGraph,
   moduleFilter,
+  onExport,
   searchEntity,
   searchText,
   setDocType,
@@ -78,6 +79,11 @@ export default function GraphInsightPanel({
             搜索
           </Button>
           <Button size="small" variant="outlined" onClick={loadFullGraph} disabled={!graphReady} sx={{ borderRadius: 2 }}>全图</Button>
+          {onExport && (
+            <Button size="small" variant="outlined" onClick={onExport} disabled={!graphReady} startIcon={<DownloadOutlined fontSize="small" />} sx={{ borderRadius: 2, fontWeight: 600, fontSize: 11 }}>
+              导出图片
+            </Button>
+          )}
           {!graphReady && (
             <Button size="small" variant="outlined" onClick={checkGraphStatus} sx={{ borderRadius: 2 }}>刷新数据</Button>
           )}
