@@ -48,4 +48,12 @@ export const configCenterAPI = {
       method: 'POST',
       body: JSON.stringify({ content }),
     }),
+  listBackups: () =>
+    fetchJSON(`${API_BASE}/config-center/backups`),
+  readBackup: (filename) =>
+    fetchJSON(`${API_BASE}/config-center/backups/${encodeURIComponent(filename)}`),
+  restoreBackup: (filename) =>
+    fetchJSON(`${API_BASE}/config-center/backups/${encodeURIComponent(filename)}/restore`, {
+      method: 'POST',
+    }),
 };

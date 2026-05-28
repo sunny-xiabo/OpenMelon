@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
 from app.api.deps import require_production_auth
-from app.api.errors import InvalidRequestError
+from app.api.errors import InvalidRequestError, NotFoundError
 from app.config_center import service
 from app.config_center.service import _has_llm_endpoint_changes, _read_env_values, validate_llm_endpoint
 from app.config_center.schemas import (
@@ -129,3 +129,29 @@ async def validate_endpoint(request: Request):
     api_base_url = body.get("api_base_url", "")
     api_key = body.get("api_key", "")
     return await validate_llm_endpoint(api_base_url, api_key)
+
+
+@router.get("/backups")
+async def list_backups():
+    return {"backups": service.list_backups()}
+
+
+@router.get("/backups/{filename}")
+async def read_backup(filename: str):
+    try:
+        content = service.read_backup(filename)
+        return {"filename": filename, "content": content}
+    except FileNotFoundError:
+        raise NotFoundError(message=f"备份文件不存在: {filename}")
+    except ValueError as e:
+        raise InvalidRequestError(message=str(e))
+
+
+@router.post("/backups/{filename}/restore", dependencies=[Depends(require_production_auth)])
+async def restore_backup(filename: str):
+    try:
+        return service.restore_backup(filename)
+    except FileNotFoundError:
+        raise NotFoundError(message=f"备份文件不存在: {filename}")
+    except ValueError as e:
+        raise InvalidRequestError(message=str(e))

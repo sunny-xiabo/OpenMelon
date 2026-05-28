@@ -5,7 +5,10 @@ import { alpha } from '@mui/material/styles';
 import SaveOutlined from '@mui/icons-material/SaveOutlined';
 import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
 import FileUploadOutlined from '@mui/icons-material/FileUploadOutlined';
+import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
+import RestoreOutlined from '@mui/icons-material/RestoreOutlined';
 import EmptyState from '../../../components/EmptyState';
+import ConfirmDialog from '../../../components/ConfirmDialog';
 import { LinearProgress } from '@mui/material';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 
@@ -69,6 +72,13 @@ export default function ConfigCenter() {
   const [searchQuery, setSearchQuery] = useState('');
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importContent, setImportContent] = useState('');
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [backups, setBackups] = useState([]);
+  const [selectedBackup, setSelectedBackup] = useState(null);
+  const [backupContent, setBackupContent] = useState('');
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState(null);
 
   // 突变操作钩子
   const saveConfigMutation = useSaveConfig();
@@ -163,6 +173,64 @@ export default function ConfigCenter() {
     }
   };
 
+  const handleOpenHistory = async () => {
+    setHistoryDialogOpen(true);
+    setLoadingBackups(true);
+    try {
+      const data = await configCenterAPI.listBackups();
+      setBackups(data.backups || []);
+    } catch (e) {
+      snackbar('获取备份列表失败: ' + e.message, { severity: 'error' });
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
+  const handleViewBackup = async (filename) => {
+    setLoadingContent(true);
+    setSelectedBackup(filename);
+    try {
+      const data = await configCenterAPI.readBackup(filename);
+      setBackupContent(data.content || '');
+    } catch (e) {
+      snackbar('读取备份失败: ' + e.message, { severity: 'error' });
+      setBackupContent('');
+    } finally {
+      setLoadingContent(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!confirmRestore) return;
+    try {
+      await configCenterAPI.restoreBackup(confirmRestore);
+      setConfirmRestore(null);
+      setSelectedBackup(null);
+      setBackupContent('');
+      setHistoryDialogOpen(false);
+      snackbar('配置已恢复，部分配置可能需重启生效', { severity: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['config', 'schema'] });
+    } catch (e) {
+      snackbar('恢复失败: ' + e.message, { severity: 'error' });
+    }
+  };
+
+  const formatTimestamp = (ts) => {
+    if (!ts || ts.length < 15) return ts;
+    const y = ts.slice(0, 4);
+    const m = ts.slice(4, 6);
+    const d = ts.slice(6, 8);
+    const h = ts.slice(9, 11);
+    const mi = ts.slice(11, 13);
+    const s = ts.slice(13, 15);
+    return `${y}-${m}-${d} ${h}:${mi}:${s}`;
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  };
+
   if (isSchemaLoading && !schema) return <EmptyState variant="loading" title="配置准备中..." />;
   if (!schema && !isSchemaLoading) return <EmptyState variant="error" title="配置不可用" onAction={() => refetchSchema()} />;
 
@@ -232,6 +300,15 @@ export default function ConfigCenter() {
                   sx={{ borderRadius: 2, fontWeight: 600, fontSize: '12px', textTransform: 'none' }}
                 >
                   导入配置
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<HistoryOutlined />}
+                  onClick={handleOpenHistory}
+                  sx={{ borderRadius: 2, fontWeight: 600, fontSize: '12px', textTransform: 'none' }}
+                >
+                  配置历史
                 </Button>
               </Stack>
             </Box>
@@ -384,6 +461,108 @@ export default function ConfigCenter() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Config History Dialog */}
+      <Dialog
+        open={historyDialogOpen}
+        onClose={() => { setHistoryDialogOpen(false); setSelectedBackup(null); setBackupContent(''); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>配置历史版本</DialogTitle>
+        <DialogContent>
+          {loadingBackups ? (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">加载中...</Typography>
+            </Box>
+          ) : backups.length === 0 ? (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">暂无历史备份</Typography>
+            </Box>
+          ) : selectedBackup ? (
+            <Box>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Button size="small" onClick={() => { setSelectedBackup(null); setBackupContent(''); }}>
+                    返回列表
+                  </Button>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    {formatTimestamp(selectedBackup.replace('.env.bak.', ''))}
+                  </Typography>
+                </Stack>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="warning"
+                  startIcon={<RestoreOutlined />}
+                  onClick={() => setConfirmRestore(selectedBackup)}
+                >
+                  恢复此版本
+                </Button>
+              </Stack>
+              {loadingContent ? (
+                <Typography variant="body2" color="text.secondary">加载内容中...</Typography>
+              ) : (
+                <Box
+                  component="pre"
+                  sx={{
+                    p: 2, borderRadius: 2, fontSize: '12px', fontFamily: 'monospace',
+                    bgcolor: 'grey.50', border: '1px solid', borderColor: 'grey.200',
+                    maxHeight: 400, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                  }}
+                >
+                  {backupContent}
+                </Box>
+              )}
+            </Box>
+          ) : (
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              {backups.map((backup) => (
+                <Box
+                  key={backup.filename}
+                  onClick={() => handleViewBackup(backup.filename)}
+                  sx={{
+                    p: 2, borderRadius: 2, cursor: 'pointer',
+                    border: '1px solid', borderColor: 'grey.200',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    transition: 'all 0.2s',
+                    '&:hover': { bgcolor: 'grey.50', borderColor: 'primary.light' },
+                  }}
+                >
+                  <Stack>
+                    <Typography variant="body2" sx={{ fontWeight: 700, fontFamily: 'monospace' }}>
+                      {formatTimestamp(backup.timestamp)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {backup.filename}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatSize(backup.size_bytes)}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => { setHistoryDialogOpen(false); setSelectedBackup(null); setBackupContent(''); }}>
+            关闭
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Restore Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!confirmRestore}
+        title="确认恢复配置"
+        message={`即将使用历史版本 ${confirmRestore ? formatTimestamp(confirmRestore.replace('.env.bak.', '')) : ''} 覆盖当前 .env 配置。\n\n当前配置会自动备份，恢复后部分配置可能需重启生效。`}
+        confirmText="确认恢复"
+        cancelText="取消"
+        danger
+        onConfirm={handleRestore}
+        onCancel={() => setConfirmRestore(null)}
+      />
     </Box>
   );
 }

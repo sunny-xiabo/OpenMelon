@@ -860,6 +860,50 @@ def _backup_env(path: Path) -> Path:
     return backup_path
 
 
+def list_backups(env_path: Path = ENV_PATH) -> list[dict[str, Any]]:
+    """List all .env.bak.* files, newest first."""
+    backup_dir = env_path.parent
+    backups: list[dict[str, Any]] = []
+    for f in sorted(backup_dir.glob(".env.bak.*"), reverse=True):
+        ts_str = f.name.replace(".env.bak.", "")
+        backups.append({
+            "filename": f.name,
+            "timestamp": ts_str,
+            "size_bytes": f.stat().st_size,
+        })
+    return backups
+
+
+def read_backup(filename: str, env_path: Path = ENV_PATH) -> str:
+    """Read a specific backup file's content (sensitive values masked)."""
+    if ".." in filename or "/" in filename:
+        raise ValueError("Invalid backup filename")
+    backup_path = env_path.parent / filename
+    if not backup_path.exists():
+        raise FileNotFoundError(f"Backup not found: {filename}")
+    content = backup_path.read_text(encoding="utf-8")
+    sensitive_keys = {k for k, v in CONFIG_FIELD_REGISTRY.items() if v.sensitive}
+    for key in sensitive_keys:
+        pattern = re.compile(rf"^({re.escape(key)}=).*$", re.MULTILINE)
+        content = pattern.sub(r"\1***", content)
+    return content
+
+
+def restore_backup(filename: str, env_path: Path = ENV_PATH) -> dict[str, Any]:
+    """Restore .env from a backup file."""
+    if ".." in filename or "/" in filename:
+        raise ValueError("Invalid backup filename")
+    backup_path = env_path.parent / filename
+    if not backup_path.exists():
+        raise FileNotFoundError(f"Backup not found: {filename}")
+    _backup_env(env_path)
+    content = backup_path.read_text(encoding="utf-8")
+    env_path.write_text(content, encoding="utf-8")
+    os.chmod(env_path, 0o600)
+    refresh_hot_runtime_settings(env_path=env_path)
+    return {"success": True, "restored_from": filename}
+
+
 def _minimal_env_text(values: dict[str, Any]) -> str:
     defaults = {
         "NEO4J_URI": "bolt://localhost:7687",
