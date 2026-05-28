@@ -1,4 +1,6 @@
 import time
+import base64
+from pathlib import Path
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 import logging
 import uuid
@@ -77,6 +79,33 @@ async def _retrieve_with_cache(
     return result
 
 
+async def _describe_image(image_bytes: bytes, filename: str) -> str:
+    """Use vision model to describe an uploaded image."""
+    from app.testcase_gen.utils.llms import get_model_client, get_model_display_name
+    b64 = base64.b64encode(image_bytes).decode()
+    ext = Path(filename).suffix.lower().lstrip(".")
+    mime_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
+    mime = mime_map.get(ext, "image/png")
+    client = get_model_client(use_vision=True)
+    model_name = get_model_display_name(use_vision=True)
+    try:
+        resp = await client.chat.completions.create(
+            model=model_name,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "请详细描述这张图片的内容，包括文字、图表、界面元素等所有可见信息。"},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                ],
+            }],
+            max_tokens=1000,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning("Vision model failed for %s: %s", filename, e)
+        return f"[图片: {filename} - 无法分析内容]"
+
+
 @router.get("/query/cache/status")
 async def query_cache_status():
     return get_rag_cache_status()
@@ -110,7 +139,6 @@ async def get_feedback(session_id: str, req: Request):
 
 @router.post("/query/stream")
 async def query_stream(
-    request: QueryRequest,
     req: Request,
     intent_router = Depends(get_intent_router),
     retriever = Depends(get_retriever),
@@ -118,19 +146,39 @@ async def query_stream(
     session_manager = Depends(get_session_manager),
     metrics_collector = Depends(get_metrics_collector),
 ):
-    """流式问答端点：检索阶段完成后，以纯文本流逐块返回回答。"""
-    session_id = req.query_params.get("session_id") or None
+    """流式问答端点：检索阶段完成后，以纯文本流逐块返回回答。支持 JSON 和 multipart/form-data。"""
+    content_type = req.headers.get("content-type", "")
+
+    if "multipart/form-data" in content_type:
+        form = await req.form()
+        question = str(form.get("question", ""))
+        include_history = str(form.get("include_history", "true")).lower() == "true"
+        session_id = str(form.get("session_id") or "") or None
+        files = form.getlist("files")
+        image_descriptions = []
+        for f in files:
+            data = await f.read()
+            desc = await _describe_image(data, f.filename)
+            image_descriptions.append(f"[图片 {f.filename}]: {desc}")
+        if image_descriptions:
+            question = question + "\n\n" + "\n".join(image_descriptions)
+    else:
+        body = await req.json()
+        question = body.get("question", "")
+        include_history = body.get("include_history", True)
+        session_id = req.query_params.get("session_id") or None
+
     trace_id = session_id or f"query_{uuid.uuid4().hex}"
     start_time = time.time()
 
     try:
         history_messages = (
             session_manager.get_history(session_id)[-6:]
-            if session_id and request.include_history
+            if session_id and include_history
             else []
         )
 
-        intent_result = await intent_router.process(request.question)
+        intent_result = await intent_router.process(question)
         intent = intent_result["intent"]
         entities = intent_result["entities"]
 
@@ -139,7 +187,7 @@ async def query_stream(
             metrics_collector,
             intent=intent,
             entities=entities,
-            question=request.question,
+            question=question,
         )
 
         if intent == "visualization":
@@ -162,7 +210,7 @@ async def query_stream(
                 metrics_collector,
                 intent="vector_query",
                 entities=entities,
-                question=request.question,
+                question=question,
             )
             context = retrieval_result.get("context_text", "")
             intent = "vector_query"
@@ -170,14 +218,14 @@ async def query_stream(
         async def _stream_generator():
             full_answer = ""
             async for text_chunk in generator.generate_answer_stream(
-                request.question, context, intent, history_messages
+                question, context, intent, history_messages
             ):
                 full_answer += text_chunk
                 yield text_chunk
 
             # 流结束后保存会话历史
             if session_id and full_answer:
-                session_manager.add_message(session_id, "user", request.question)
+                session_manager.add_message(session_id, "user", question)
                 session_manager.add_message(session_id, "assistant", full_answer)
 
             duration_ms = round((time.time() - start_time) * 1000)
