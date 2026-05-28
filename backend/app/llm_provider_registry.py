@@ -35,7 +35,7 @@ BUILTIN_PROVIDER_REGISTRY: dict[str, LLMProviderDefaults] = {
     "openai_compat": LLMProviderDefaults(
         key="openai_compat",
         label="OpenAI-compatible 网关",
-        api_base_url="https://one-api.miotech.com/v1",
+        api_base_url="https://api.openai.com/v1",
         chat_model="qwen-plus",
         embedding_model="text-embedding-v3",
         aliases=("openai-compatible", "openai_compatible"),

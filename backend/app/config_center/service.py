@@ -796,7 +796,7 @@ def _minimal_env_text(values: dict[str, Any]) -> str:
         "NEO4J_WRITE_BATCH_SIZE": "500",
         "LLM_PROVIDER": "openai_compat",
         "API_KEY": "",
-        "API_BASE_URL": "https://one-api.miotech.com/v1",
+        "API_BASE_URL": "",
         "CHAT_MODEL": "qwen-plus",
         "EMBEDDING_MODEL": "text-embedding-v3",
         "EMBEDDING_DIM": "1024",

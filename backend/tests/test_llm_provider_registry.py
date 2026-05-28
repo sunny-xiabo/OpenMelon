@@ -67,7 +67,7 @@ def test_provider_alias_normalizes_to_openai_compat():
     settings = _settings(LLM_PROVIDER="openai-compatible")
 
     assert settings.LLM_PROVIDER == "openai_compat"
-    assert settings.API_BASE_URL == "https://one-api.miotech.com/v1"
+    assert settings.API_BASE_URL == "https://api.openai.com/v1"
     assert settings.CHAT_MODEL == "qwen-plus"
     assert settings.EMBEDDING_MODEL == "text-embedding-v3"
 
@@ -118,7 +118,7 @@ def test_unknown_provider_keeps_stage_one_compatibility_fallback():
     settings = _settings(LLM_PROVIDER="not-a-provider")
 
     assert settings.LLM_PROVIDER == "openai_compat"
-    assert settings.API_BASE_URL == "https://one-api.miotech.com/v1"
+    assert settings.API_BASE_URL == "https://api.openai.com/v1"
 
 
 def test_registry_can_register_future_provider_without_strict_mode():
