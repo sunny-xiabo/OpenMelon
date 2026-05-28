@@ -33,4 +33,10 @@ export const configCenterAPI = {
     fetchJSON(`${API_BASE}/config-center/providers/${encodeURIComponent(providerKey)}`, {
       method: 'DELETE',
     }),
+  getSlotConfig: () => fetchJSON(`${API_BASE}/test-cases/model-presets/slot-config`),
+  saveSlotConfig: (slots) =>
+    fetchJSON(`${API_BASE}/test-cases/model-presets/slot-config`, {
+      method: 'PUT',
+      body: JSON.stringify({ slots }),
+    }),
 };
