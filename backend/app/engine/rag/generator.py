@@ -1,9 +1,10 @@
 from openai import AsyncOpenAI
 from app.config import settings
-from typing import List, Dict, Any
+from typing import List, Dict, Any, AsyncGenerator
 import time
 
 from app.api.ai_observability_service import build_usage_from_response, safe_record_ai_call
+from app.engine.llm_retry import call_llm_with_retry
 
 
 class RAGGenerator:
@@ -25,7 +26,8 @@ class RAGGenerator:
             model_name = settings.CHAT_MODEL
             temperature = settings.GENERATION_TEMPERATURE
             max_tokens = settings.GENERATION_MAX_TOKENS
-            response = await self.openai_client.chat.completions.create(
+            response = await call_llm_with_retry(
+                self.openai_client,
                 model=model_name,
                 messages=[
                     {"role": "system", "content": prompt["system"]},
@@ -76,6 +78,78 @@ class RAGGenerator:
 
         return {"answer": answer}
 
+    async def generate_answer_stream(
+        self,
+        question: str,
+        context: str,
+        intent: str,
+        chat_history: List[Dict[str, Any]] | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """流式生成回答，逐块 yield 文本内容。"""
+        prompt = self.build_prompt(question, context, intent, chat_history or [])
+        started_at = time.perf_counter()
+        prompt_chars = len(prompt["system"]) + len(prompt["user"])
+        model_name = settings.CHAT_MODEL
+
+        full_answer = ""
+        try:
+            stream = await self.openai_client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {"role": "system", "content": prompt["system"]},
+                    {"role": "user", "content": prompt["user"]},
+                ],
+                temperature=settings.GENERATION_TEMPERATURE,
+                max_tokens=settings.GENERATION_MAX_TOKENS,
+                stream=True,
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    full_answer += delta.content
+                    yield delta.content
+
+            usage = {}
+            if hasattr(stream, "get_final_response"):
+                try:
+                    final = await stream.get_final_response()
+                    usage = build_usage_from_response(final)
+                except Exception:
+                    pass
+
+            safe_record_ai_call(
+                feature="rag",
+                operation="generate_answer_stream",
+                provider=settings.LLM_PROVIDER,
+                model=model_name,
+                status="success",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=prompt_chars,
+                response_chars=len(full_answer),
+                debug_snapshot={
+                    "system": prompt["system"],
+                    "user": prompt["user"],
+                    "context": context[:2000],
+                    "response": full_answer[:2000],
+                },
+                **usage,
+            )
+        except Exception as e:
+            safe_record_ai_call(
+                feature="rag",
+                operation="generate_answer_stream",
+                provider=settings.LLM_PROVIDER,
+                model=model_name,
+                status="failed",
+                latency_ms=round((time.perf_counter() - started_at) * 1000),
+                prompt_chars=prompt_chars,
+                response_chars=len(full_answer),
+                degraded=True,
+                failure_reason=str(e),
+            )
+            if not full_answer:
+                yield f"Error generating answer: {str(e)}"
+
     def build_prompt(
         self,
         question: str,
@@ -98,7 +172,9 @@ class RAGGenerator:
             "Always cite your sources by mentioning the filename and document type when possible. "
             "When conversation history is provided, use it only as supplemental context to resolve references such as pronouns or omitted subjects. "
             "If conversation history conflicts with retrieved context, prefer the retrieved context. "
-            "Keep answers concise and accurate."
+            "Keep answers concise and accurate. "
+            "When citing sources, use numbered references [1], [2], [3] in your answer text. "
+            "The numbers correspond to the order of Retrieved Context sections provided."
         )
 
         history_section = (

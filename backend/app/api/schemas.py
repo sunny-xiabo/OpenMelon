@@ -18,6 +18,8 @@ class Citation(BaseModel):
     filename: Optional[str] = None
     doc_type: Optional[str] = None
     chunk_index: Optional[int] = None
+    index: Optional[int] = None
+    content_preview: Optional[str] = None
 
 
 class ContextChunk(BaseModel):
