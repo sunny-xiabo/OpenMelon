@@ -4,13 +4,47 @@ import {
   Button,
   Chip,
   Collapse,
+  IconButton,
   Typography,
 } from '@mui/material';
+import { ThumbUpOutlined, ThumbDownOutlined } from '@mui/icons-material';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { METHOD_LABELS } from '../constants';
 
-export default function MessageBubble({ msg, message, onPush }) {
+function MessageActions({ content, feedback, onCopy, onRetry, onFeedback }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      onCopy?.();
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+
+  return (
+    <Box sx={{
+      display: 'flex', alignItems: 'center', gap: 0.5, mt: 1, pt: 0.75,
+      borderTop: '1px solid', borderColor: 'divider',
+      opacity: 0.5, '&:hover': { opacity: 1 }, transition: 'opacity 0.2s',
+    }}>
+      <Chip size="small" label={copied ? '已复制' : '复制'} onClick={handleCopy} variant="outlined" sx={{ fontSize: 11, height: 24 }} />
+      <Chip size="small" label="重试" onClick={onRetry} variant="outlined" sx={{ fontSize: 11, height: 24 }} />
+      <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5 }}>
+        <IconButton size="small" onClick={() => onFeedback?.(feedback === 'up' ? null : 'up')} sx={{ color: feedback === 'up' ? 'success.main' : 'text.secondary' }}>
+          <ThumbUpOutlined sx={{ fontSize: 16 }} />
+        </IconButton>
+        <IconButton size="small" onClick={() => onFeedback?.(feedback === 'down' ? null : 'down')} sx={{ color: feedback === 'down' ? 'error.main' : 'text.secondary' }}>
+          <ThumbDownOutlined sx={{ fontSize: 16 }} />
+        </IconButton>
+      </Box>
+    </Box>
+  );
+}
+
+export default function MessageBubble({ msg, message, onPush, onCopy, onRetry, onFeedback, onCitationClick, feedback }) {
   const bubbleMessage = msg || message;
   const [expanded, setExpanded] = useState(false);
   const [contextExpanded, setContextExpanded] = useState(false);
@@ -36,7 +70,29 @@ export default function MessageBubble({ msg, message, onPush }) {
   return (
     <Box sx={{ alignSelf: 'flex-start', maxWidth: '80%', bgcolor: '#ffffff', borderRadius: '20px 20px 20px 4px', px: 2.25, py: 1.5, fontSize: 13.5, lineHeight: 1.6, boxShadow: '0 12px 32px rgba(15,23,42,0.06), 0 2px 4px rgba(15,23,42,0.02)', border: '1px solid rgba(226,232,240,0.6)' }}>
       <Box className="chat-markdown" sx={{ '& p': { m: '0 0 0.5em' }, '& p:last-child': { mb: 0 }, '& img': { maxWidth: '100%', height: 'auto', borderRadius: 2 }, fontSize: 13, lineHeight: 1.65, wordBreak: 'break-word' }}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{bubbleMessage.content}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            text({ children }) {
+              if (typeof children !== 'string') return children;
+              const parts = children.split(/(\[\d+\])/g);
+              if (parts.length === 1) return children;
+              return parts.map((part, i) => {
+                const match = part.match(/^\[(\d+)\]$/);
+                if (match) {
+                  const idx = parseInt(match[1], 10);
+                  return (
+                    <sup key={i} onClick={() => onCitationClick?.(idx)}
+                      style={{ color: '#6366f1', cursor: 'pointer', fontWeight: 700, fontSize: '0.7em' }}>
+                      [{idx}]
+                    </sup>
+                  );
+                }
+                return part;
+              });
+            },
+          }}
+        >{bubbleMessage.content}</ReactMarkdown>
       </Box>
       <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
         {bubbleMessage.retrieval_method && METHOD_LABELS[bubbleMessage.retrieval_method] && (
@@ -106,6 +162,13 @@ export default function MessageBubble({ msg, message, onPush }) {
           推送到企微
         </Button>
       </Box>
+      <MessageActions
+        content={bubbleMessage.content}
+        feedback={feedback}
+        onCopy={onCopy}
+        onRetry={onRetry}
+        onFeedback={onFeedback}
+      />
     </Box>
   );
 }
