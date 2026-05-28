@@ -409,6 +409,46 @@ def initialize_env(
     }
 
 
+def export_config(env_path: Path = ENV_PATH) -> str:
+    """Export current .env content with sensitive values masked.
+
+    Reads the raw file to preserve comments and structure, then replaces
+    values of keys marked ``sensitive=True`` in the registry with ``***``.
+    Returns an empty string when the file does not exist.
+    """
+    if not env_path.exists():
+        return ""
+    content = env_path.read_text(encoding="utf-8")
+    sensitive_keys = {k for k, v in CONFIG_FIELD_REGISTRY.items() if v.sensitive}
+    for key in sensitive_keys:
+        pattern = re.compile(rf"^({re.escape(key)}=).*$", re.MULTILINE)
+        content = pattern.sub(r"\1***", content)
+    return content
+
+
+def import_config(content: str, env_path: Path = ENV_PATH) -> dict[str, Any]:
+    """Import a .env configuration string.
+
+    Validates each non-comment, non-blank line contains an ``=`` sign,
+    creates a timestamped backup of the current file, writes the new
+    content, and triggers a hot-reload of runtime settings.
+    """
+    lines = [
+        line.strip()
+        for line in content.strip().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    for line in lines:
+        if "=" not in line:
+            raise ValueError(f"Invalid .env line: {line}")
+    if env_path.exists():
+        _backup_env(env_path)
+    env_path.write_text(content, encoding="utf-8")
+    os.chmod(env_path, 0o600)
+    refresh_hot_runtime_settings(env_path=env_path)
+    return {"success": True, "imported_lines": len(lines)}
+
+
 def _build_field(key: str, example_value: str, comments: list[str], env_values: dict[str, str]) -> ConfigField:
     meta = CONFIG_FIELD_REGISTRY[key]
     default_values = _settings_default_values()

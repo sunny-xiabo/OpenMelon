@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Button, Stack, Typography, Collapse, useTheme } from '@mui/material';
+import { useQueryClient } from '@tanstack/react-query';
+import { Box, Button, Stack, Typography, Collapse, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import SaveOutlined from '@mui/icons-material/SaveOutlined';
+import FileDownloadOutlined from '@mui/icons-material/FileDownloadOutlined';
+import FileUploadOutlined from '@mui/icons-material/FileUploadOutlined';
 import EmptyState from '../../../components/EmptyState';
 import { LinearProgress } from '@mui/material';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 
 // Hooks
-import { 
-  useConfigSchema, 
-  useConfigPreview, 
-  useSaveConfig, 
-  useSaveProvider, 
-  useDeleteProvider 
+import {
+  useConfigSchema,
+  useConfigPreview,
+  useSaveConfig,
+  useSaveProvider,
+  useDeleteProvider
 } from '../hooks/useConfig';
+import { configCenterAPI } from '../../../api/configCenter';
 
 // Sub-components
 import ConfigSidebar from './ConfigSidebar';
@@ -55,6 +59,7 @@ function buildProviderDraft(provider) {
 export default function ConfigCenter() {
   const theme = useTheme();
   const snackbar = useSnackbar();
+  const queryClient = useQueryClient();
   
   // 使用 TanStack Query 钩子替代原有的手动加载逻辑
   const { data: schema, isLoading: isSchemaLoading, refetch: refetchSchema } = useConfigSchema();
@@ -62,6 +67,8 @@ export default function ConfigCenter() {
   const [draft, setDraft] = useState({});
   const [providerDraft, setProviderDraft] = useState(emptyProviderDraft);
   const [searchQuery, setSearchQuery] = useState('');
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importContent, setImportContent] = useState('');
 
   // 突变操作钩子
   const saveConfigMutation = useSaveConfig();
@@ -128,6 +135,34 @@ export default function ConfigCenter() {
     setDraft({});
   };
 
+  const handleExport = async () => {
+    try {
+      const content = await configCenterAPI.exportConfig();
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'openmelon-config.env';
+      a.click();
+      URL.revokeObjectURL(url);
+      snackbar('配置导出成功', { severity: 'success' });
+    } catch (e) {
+      snackbar('导出失败: ' + e.message, { severity: 'error' });
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      await configCenterAPI.importConfig(importContent);
+      setImportDialogOpen(false);
+      setImportContent('');
+      snackbar('配置导入成功', { severity: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['config', 'schema'] });
+    } catch (e) {
+      snackbar('导入失败: ' + e.message, { severity: 'error' });
+    }
+  };
+
   if (isSchemaLoading && !schema) return <EmptyState variant="loading" title="配置准备中..." />;
   if (!schema && !isSchemaLoading) return <EmptyState variant="error" title="配置不可用" onAction={() => refetchSchema()} />;
 
@@ -178,6 +213,27 @@ export default function ConfigCenter() {
                 {active?.display_title || active?.title}
               </Typography>
               <ConfigGuide activeTitle={active?.title} isProviderPanel={active?.title === providerGroupTitle} />
+
+              <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FileDownloadOutlined />}
+                  onClick={handleExport}
+                  sx={{ borderRadius: 2, fontWeight: 600, fontSize: '12px', textTransform: 'none' }}
+                >
+                  导出配置
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FileUploadOutlined />}
+                  onClick={() => setImportDialogOpen(true)}
+                  sx={{ borderRadius: 2, fontWeight: 600, fontSize: '12px', textTransform: 'none' }}
+                >
+                  导入配置
+                </Button>
+              </Stack>
             </Box>
 
             <Box sx={{ position: 'relative' }}>
@@ -295,6 +351,39 @@ export default function ConfigCenter() {
           </Box>
         </Box>
       </Box>
+      {/* Import Configuration Dialog */}
+      <Dialog
+        open={importDialogOpen}
+        onClose={() => setImportDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>导入配置</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            粘贴 .env 文件内容，将覆盖当前配置（原文件会自动备份）。
+          </Typography>
+          <TextField
+            multiline
+            rows={12}
+            fullWidth
+            placeholder={"LLM_PROVIDER=openai_compat\nAPI_KEY=your-key\nAPI_BASE_URL=https://..."}
+            value={importContent}
+            onChange={(e) => setImportContent(e.target.value)}
+            sx={{ fontFamily: 'monospace' }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setImportDialogOpen(false)}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={handleImport}
+            disabled={!importContent.trim()}
+          >
+            确认导入
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -1,4 +1,4 @@
-import { API_BASE, fetchJSON } from './client';
+import { API_BASE, fetchJSON, fetchStream } from './client';
 
 export const configCenterAPI = {
   getSchema: () => fetchJSON(`${API_BASE}/config-center/schema`),
@@ -38,5 +38,14 @@ export const configCenterAPI = {
     fetchJSON(`${API_BASE}/test-cases/model-presets/slot-config`, {
       method: 'PUT',
       body: JSON.stringify({ slots }),
+    }),
+  exportConfig: async () => {
+    const resp = await fetchStream(`${API_BASE}/config-center/export`);
+    return resp.text();
+  },
+  importConfig: (content) =>
+    fetchJSON(`${API_BASE}/config-center/import`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
     }),
 };

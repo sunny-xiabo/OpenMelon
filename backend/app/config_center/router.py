@@ -1,6 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
 
 from app.api.deps import require_production_auth
+from app.api.errors import InvalidRequestError
 from app.config_center import service
 from app.config_center.schemas import (
     ConfigInitializeRequest,
@@ -87,3 +89,25 @@ async def save_config_values(request: ConfigSaveRequest):
 )
 async def initialize_config(request: ConfigInitializeRequest):
     return service.initialize_env(request.mode, request.values)
+
+
+@router.get("/export")
+async def export_config():
+    content = service.export_config()
+    return Response(
+        content=content,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=openmelon-config.env"},
+    )
+
+
+@router.post("/import", dependencies=[Depends(require_production_auth)])
+async def import_config(request: Request):
+    body = await request.json()
+    content = body.get("content", "")
+    if not content.strip():
+        raise InvalidRequestError(message="配置内容不能为空")
+    try:
+        return service.import_config(content)
+    except ValueError as e:
+        raise InvalidRequestError(message=str(e))
