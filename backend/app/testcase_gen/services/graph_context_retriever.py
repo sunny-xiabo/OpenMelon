@@ -80,6 +80,22 @@ class GraphContextRetriever:
 
         return header + "\n\n---\n\n".join(sections)
 
+    async def retrieve_existing_case_names(self, module: str) -> list:
+        if not module:
+            return []
+        cypher = """
+            MATCH (m:Module {name: $module})-[:CONTAINS]->(t:TestCase)
+            RETURN t.name AS name
+            ORDER BY t.name
+        """
+        rows = await _with_retry(
+            lambda: self._graph_ops.run_cypher(cypher, {"module": module}),
+            f"查询已有用例名 [{module}]",
+        )
+        if not rows:
+            return []
+        return [r["name"] for r in rows if r.get("name")]
+
     # ------------------------------------------------------------------
     # 内部构建方法
     # ------------------------------------------------------------------

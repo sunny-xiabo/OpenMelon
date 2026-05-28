@@ -7,6 +7,7 @@ import {
 import { useTheme } from '@mui/material/styles';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { testCaseAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import StageOutput from '../components/StageOutput';
@@ -278,13 +279,21 @@ export default function TestCasePage({ isActive = true }) {
             viewMode === 'stages' ? (
               <StageOutput content={streamingContent} isComplete />
             ) : viewMode === 'mindmap' && parsedTestCases.length > 0 ? (
-              <TestCaseMindMap testCases={filteredTestCases} />
+              <TestCaseMindMap
+                testCases={filteredTestCases}
+                viewMode={viewMode}
+                setViewMode={setViewMode}
+                exportExcel={() => exportMutation.mutate({ type: 'excel', data: filteredTestCases })}
+                exportXMind={() => exportMutation.mutate({ type: 'xmind', data: filteredTestCases })}
+                storeToVector={() => storeMutation.mutate({ testCases: filteredTestCases, moduleName })}
+                storingVector={storeMutation.isPending}
+              />
             ) : parsedTestCases.length > 0 ? (
               <TestCaseListView testCases={filteredTestCases} />
             ) : (
               <Paper variant="outlined" sx={{ flex: 1, p: 1.75, overflow: 'auto', borderRadius: 2.5, bgcolor: '#fbfcff' }}>
                 <Box className="chat-markdown" sx={{ fontSize: 13, lineHeight: 1.6, '& pre': { whiteSpace: 'pre-wrap' } }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{streamingContent}</ReactMarkdown>
                 </Box>
               </Paper>
             )

@@ -526,11 +526,11 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
       open={Boolean(selectedLog)} 
       onClose={onClose} 
       PaperProps={{ 
-        sx: { 
-          width: { xs: '100%', sm: 540 }, 
-          bgcolor: '#090d16',
-          borderLeft: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: '-20px 0 50px rgba(0,0,0,0.4)',
+        sx: {
+          width: { xs: '100%', sm: 540 },
+          bgcolor: '#f8fafc',
+          borderLeft: '1px solid rgba(0,0,0,0.08)',
+          boxShadow: '-20px 0 50px rgba(0,0,0,0.12)',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column'
@@ -539,13 +539,13 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
     >
       {/* macOS styled Drawer Header */}
       <Box 
-        sx={{ 
-          p: 2.5, 
-          bgcolor: '#141c2c', 
-          display: 'flex', 
-          alignItems: 'center', 
+        sx={{
+          p: 2.5,
+          bgcolor: '#fff',
+          display: 'flex',
+          alignItems: 'center',
           justifyContent: 'space-between',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          borderBottom: '1px solid rgba(0,0,0,0.06)',
           flexShrink: 0
         }}
       >
@@ -557,15 +557,15 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
             <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#10b981' }} />
           </Stack>
           <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 900, color: '#fff', fontSize: '13px' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 900, color: '#1e293b', fontSize: '13px' }}>
               系统诊断 Ledger
             </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace', display: 'block', mt: 0.15, fontSize: '10px' }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mt: 0.15, fontSize: '10px' }}>
               ID: {selectedLog?.id}
             </Typography>
           </Box>
         </Stack>
-        <IconButton onClick={onClose} sx={{ color: 'rgba(255,255,255,0.4)', '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.05)' } }}>
+        <IconButton onClick={onClose} sx={{ color: 'text.secondary', '&:hover': { color: 'text.primary', bgcolor: 'rgba(0,0,0,0.04)' } }}>
           <CloseOutlined fontSize="small" />
         </IconButton>
       </Box>
@@ -577,8 +577,8 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
           flex: 1, 
           overflow: 'auto',
           '&::-webkit-scrollbar': { width: '5px' },
-          '&::-webkit-scrollbar-track': { background: '#090d16' },
-          '&::-webkit-scrollbar-thumb': { background: '#1e293b', borderRadius: '3px' },
+          '&::-webkit-scrollbar-track': { background: '#f1f5f9' },
+          '&::-webkit-scrollbar-thumb': { background: '#cbd5e1', borderRadius: '3px' },
         }}
       >
         {selectedLog && (
@@ -597,7 +597,7 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
 
             {/* Event reference Tags */}
             <Box>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', mb: 1 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', mb: 1 }}>
                 关联标识事件引脚 (Refs Tags)
               </Typography>
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }} useFlexGap>
@@ -611,21 +611,21 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
                       fontSize: '10.5px', 
                       fontFamily: 'monospace', 
                       fontWeight: 700,
-                      bgcolor: 'rgba(255,255,255,0.06)',
-                      color: 'rgba(255,255,255,0.7)',
-                      border: '1px solid rgba(255,255,255,0.04)'
+                      bgcolor: 'rgba(0,0,0,0.04)',
+                      color: 'text.primary',
+                      border: '1px solid rgba(0,0,0,0.06)'
                     }} 
                   />
                 ))}
                 {!selectedLog.refs?.length && (
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>暂无关联引脚</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>暂无关联引脚</Typography>
                 )}
               </Stack>
             </Box>
 
             {/* Related Event ledger flow */}
             <Box>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', mb: 1 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', mb: 1 }}>
                 相关上下文关联事件 (Related Events)
               </Typography>
               <Stack spacing={1.5}>
@@ -641,12 +641,12 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
                       key={log.id} 
                       sx={{ 
                         p: 1.75, 
-                        border: '1px solid rgba(255,255,255,0.04)', 
-                        bgcolor: 'rgba(255,255,255,0.015)',
+                        border: '1px solid rgba(0,0,0,0.06)', 
+                        bgcolor: 'rgba(0,0,0,0.015)',
                         borderRadius: 3.5,
                         transition: 'all 0.2s',
                         '&:hover': {
-                          bgcolor: 'rgba(255,255,255,0.04)',
+                          bgcolor: 'rgba(0,0,0,0.04)',
                           borderColor: alpha(relatedTone, 0.3)
                         }
                       }}
@@ -666,52 +666,52 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
                             color: relatedTone
                           }} 
                         />
-                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>
                           {formatRunTime(log.time) || '未记录'}
                         </Typography>
                       </Stack>
-                      <Typography variant="body2" sx={{ fontWeight: 800, color: '#e2e8f0', fontSize: '12px' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 800, color: 'text.primary', fontSize: '12px' }}>
                         {log.title}
                       </Typography>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', display: 'block', mt: 0.5, fontSize: '10px' }}>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: '10px' }}>
                         {log.moduleLabel} · {log.type}
                       </Typography>
                     </Box>
                   );
                 }) : (
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>暂无上下文相关事件</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.disabled', fontStyle: 'italic' }}>暂无上下文相关事件</Typography>
                 )}
               </Stack>
             </Box>
 
             {/* macOS styled Dark Terminal Box for Raw JSON payload */}
             <Box>
-              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.35)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', mb: 1 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', mb: 1 }}>
                 原始事件遥测负载数据 (Raw JSON Payload)
               </Typography>
               
               <Box 
                 sx={{ 
-                  borderRadius: 3.5, 
-                  bgcolor: '#05070c', 
-                  border: '1px solid rgba(255,255,255,0.06)', 
+                  borderRadius: 3.5,
+                  bgcolor: '#f1f5f9',
+                  border: '1px solid rgba(0,0,0,0.08)',
                   overflow: 'hidden',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.35)'
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)'
                 }}
               >
                 {/* Mini terminal title */}
                 <Box 
                   sx={{ 
-                    px: 2, 
-                    py: 0.75, 
-                    bgcolor: '#141c2c', 
-                    display: 'flex', 
+                    px: 2,
+                    py: 0.75,
+                    bgcolor: '#e2e8f0',
+                    display: 'flex',
                     alignItems: 'center',
-                    borderBottom: '1px solid rgba(255,255,255,0.03)'
+                    borderBottom: '1px solid rgba(0,0,0,0.06)'
                   }}
                 >
                   <TerminalOutlined sx={{ fontSize: 13, color: '#60a5fa', mr: 0.75 }} />
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontFamily: 'Consolas, monospace', fontSize: '9.5px', fontWeight: 700 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'Consolas, monospace', fontSize: '9.5px', fontWeight: 700 }}>
                     payload.json (Read-Only)
                   </Typography>
                 </Box>
@@ -723,8 +723,8 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
                     maxHeight: 280, 
                     overflow: 'auto',
                     '&::-webkit-scrollbar': { width: '5px' },
-                    '&::-webkit-scrollbar-track': { background: '#05070c' },
-                    '&::-webkit-scrollbar-thumb': { background: '#1e293b', borderRadius: '3px' },
+                    '&::-webkit-scrollbar-track': { background: '#f1f5f9' },
+                    '&::-webkit-scrollbar-thumb': { background: '#cbd5e1', borderRadius: '3px' },
                   }}
                 >
                   {lines.map((line, idx) => (
@@ -732,7 +732,7 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
                       <Typography 
                         variant="caption" 
                         sx={{ 
-                          color: 'rgba(255,255,255,0.14)', 
+                          color: 'text.disabled', 
                           fontFamily: 'Consolas, monospace', 
                           userSelect: 'none',
                           minWidth: '2.5em',
@@ -745,7 +745,7 @@ export function LogDetailDrawer({ selectedLog, relatedLogs, onClose }) {
                       <Typography 
                         variant="body2" 
                         sx={{ 
-                          color: '#94a3b8', 
+                          color: '#334155', 
                           fontFamily: 'Consolas, Courier New, monospace', 
                           fontSize: '11px',
                           whiteSpace: 'pre',

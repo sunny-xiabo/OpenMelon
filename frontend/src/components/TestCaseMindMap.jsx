@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Typography, Paper, IconButton, Tooltip } from '@mui/material';
-import { ZoomIn, ZoomOut, FitScreen, Download, Fullscreen, FullscreenExit } from '@mui/icons-material';
+import { Box, Typography, Paper, IconButton, Tooltip, Button, alpha } from '@mui/material';
+import { ZoomIn, ZoomOut, FitScreen, Download, Fullscreen, FullscreenExit, SaveAlt, Schema, ViewList, AccountTree, ViewAgendaOutlined } from '@mui/icons-material';
 
 const loadMarkmapEngine = () => Promise.all([
   import('markmap-lib'),
@@ -65,7 +65,7 @@ function toMarkdown(data, level = 1) {
   return md;
 }
 
-export default function TestCaseMindMap({ testCases }) {
+export default function TestCaseMindMap({ testCases, viewMode, setViewMode, exportExcel, exportXMind, storeToVector, storingVector }) {
   const svgRef = useRef(null);
   const mmRef = useRef(null);
   const markmapRef = useRef(null);
@@ -168,8 +168,55 @@ export default function TestCaseMindMap({ testCases }) {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 1.75, py: 1, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
-        <Typography variant="body2" fontWeight={600}>测试用例思维导图</Typography>
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="body2" fontWeight={600}>测试用例思维导图</Typography>
+          {setViewMode && (
+            <Box sx={{ display: 'flex', gap: 0.25, ml: 1 }}>
+              {[
+                { mode: 'stages', icon: <ViewAgendaOutlined sx={{ fontSize: 16 }} />, label: '阶段' },
+                { mode: 'list', icon: <ViewList sx={{ fontSize: 16 }} />, label: '列表' },
+                { mode: 'mindmap', icon: <AccountTree sx={{ fontSize: 16 }} />, label: '导图' },
+              ].map(({ mode, icon, label }) => (
+                <Button
+                  key={mode}
+                  size="small"
+                  variant={viewMode === mode ? 'contained' : 'outlined'}
+                  onClick={() => setViewMode(mode)}
+                  startIcon={icon}
+                  sx={{
+                    minWidth: 0, px: 1.25, py: 0.3, fontSize: 11, fontWeight: 600,
+                    textTransform: 'none',
+                    ...(viewMode === mode ? {} : { borderColor: 'divider', color: 'text.secondary' }),
+                  }}
+                >
+                  {label}
+                </Button>
+              ))}
+            </Box>
+          )}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+          {exportExcel && (
+            <Tooltip title="导出 Excel">
+              <IconButton size="small" onClick={exportExcel}>
+                <SaveAlt fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {exportXMind && (
+            <Tooltip title="导出 XMind">
+              <IconButton size="small" onClick={exportXMind}>
+                <Download fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {storeToVector && (
+            <Tooltip title="存入向量库">
+              <IconButton size="small" onClick={storeToVector} disabled={storingVector}>
+                <Schema fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="放大">
             <IconButton size="small" onClick={zoomIn}>
               <ZoomIn fontSize="small" />

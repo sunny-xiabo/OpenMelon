@@ -38,6 +38,8 @@ class GraphNode(BaseModel):
     label: str
     group: str
     title: Optional[str] = None
+    labels: list[str] = []
+    properties: dict[str, Any] = {}
 
 
 class GraphRel(BaseModel):

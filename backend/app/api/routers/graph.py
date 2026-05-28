@@ -38,6 +38,32 @@ router = APIRouter(prefix="/graph", tags=["graph"])
 _virtual_node_cache = {}
 
 
+def _serialize_props(props: dict) -> dict:
+    result = {}
+    for key, value in (props or {}).items():
+        if hasattr(value, 'isoformat'):
+            result[key] = value.isoformat()
+        elif hasattr(value, 'to_native'):
+            native = value.to_native()
+            result[key] = native.isoformat() if hasattr(native, 'isoformat') else str(native)
+        elif isinstance(value, (int, float, str, bool, type(None))):
+            result[key] = value
+        elif isinstance(value, (list, tuple)):
+            converted = []
+            for v in value:
+                if hasattr(v, 'isoformat'):
+                    converted.append(v.isoformat())
+                elif hasattr(v, 'to_native'):
+                    n = v.to_native()
+                    converted.append(n.isoformat() if hasattr(n, 'isoformat') else str(n))
+                else:
+                    converted.append(v)
+            result[key] = converted
+        else:
+            result[key] = str(value)
+    return result
+
+
 def _log_graph_event(level: str, event_type: str, title: str, message: str = "", **kwargs):
     return safe_log_event(level, "graph", event_type, title, message, **kwargs)
 
@@ -68,6 +94,8 @@ async def graph_full(
                 id=n.id,
                 label=n.properties.get("name", n.id),
                 group=get_primary_node_type(n.labels),
+                labels=list(n.labels),
+                properties=_serialize_props(n.properties),
             )
             for n in subgraph.nodes
         ]
@@ -319,6 +347,8 @@ async def graph_entity(
                     id=n.id,
                     label=n.properties.get("name", n.id),
                     group=get_primary_node_type(n.labels),
+                    labels=list(n.labels),
+                    properties=_serialize_props(n.properties),
                 )
                 for n in subgraph.nodes
             ]
@@ -355,6 +385,14 @@ async def graph_entity(
                             label=chunk.get("filename", "文档")[:20],
                             group=DOCUMENT_CHUNK_NODE_TYPE,
                             title=f"{chunk.get('filename', '')} - {chunk.get('chunk_index', 0) + 1}\\n{content_preview}...",
+                            labels=[DOCUMENT_CHUNK_NODE_TYPE],
+                            properties={
+                                "filename": chunk.get("filename", ""),
+                                "chunk_index": chunk.get("chunk_index", 0),
+                                "doc_type": chunk.get("doc_type", ""),
+                                "module": chunk.get("module", ""),
+                                "content": chunk.get("content", ""),
+                            },
                         )
                     )
                     _virtual_node_cache[chunk_id] = {

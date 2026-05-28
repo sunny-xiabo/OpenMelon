@@ -5,6 +5,17 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.8.9] - 2026-05-28
+
+### 修复 (Fixed)
+- **日志中心视察抽屉可读性**：日志详情视察抽屉由深色主题（`#090d16` 背景、低透明度白字）改为浅色主题（`#f8fafc` 背景、MUI 文本 token），提升文字对比度和可读性。
+- **索引治理任务监控进度异常**：修复后台治理任务完成后进度条显示 0% 的问题。根因是任务成功时后端未同步 `total` 字段，且 Neo4j 记录缺少 embedding 导致 `processed` 远小于 `total`。后端成功路径强制 `total = processed`，前端对终态（`succeeded`/`cancelled`）直接显示 100%。
+- **索引治理重建后一致性问题未根治**：修复三个根因——(1) 重建仅 UPSERT 不清除孤儿向量，现在重建成功后自动执行 `cleanup-orphans`；(2) 所有 Neo4j 查询缺少 `ORDER BY`，`LIMIT 5000` 下重建和扫描看到不同数据切片，统一加上 `ORDER BY chunk_id` / `ORDER BY vector_id`；(3) 扫描和计数查询未过滤 `embedding IS NULL` 的节点，导致无 embedding 的 chunk 永远被标记为缺失（重建无法为其创建向量），所有扫描和计数查询统一加上 `WHERE c.embedding IS NOT NULL`。
+- **索引治理重建后资产健康数据不刷新**：修复重建任务完成后资产健康百分比仍显示旧值的问题。根因是 `rebuildQdrantMutation.onSuccess` 在任务创建时（非完成时）触发刷新，任务完成后无人通知资产查询重新获取。现在加入 `useEffect` 监听任务从运行中变为全部终态时自动刷新 `assetsQuery` / `summaryQuery` / `diagnosticsQuery`。
+- **testcase_gen AI 调用消耗数据丢失**：修复三个问题——(1) `safe_record_ai_call` 静默吞异常，写入失败毫无痕迹，现改为记录 warning 日志；(2) `testcase_gen` 未传递 `input_tokens` / `output_tokens` / `total_tokens`，导致消耗显示全为 0；(3) autogen 流式调用内部丢弃了 `CreateResult.usage`。通过 monkey-patch `OpenAIChatCompletionClient.create_stream` 启用 `include_usage` 并累积 token 用量，上层 `ai_service` 读取后传入观测服务。
+- **测试用例步骤换行显示**：修复生成用例中编号步骤挤在同一行的问题。提示词要求 LLM 步骤间用 `<br>` 换行，前端 `ReactMarkdown` 加 `rehype-raw` 渲染，`formatSteps()` 兜底自动补 `<br>`；解析器 `_split_merged_steps` 将合并步骤拆为独立条目，保证列表页表格和 Excel 导出逐行显示。
+- **testcase_gen 推理引擎预设动态化**：模型预设从硬编码改为 API 驱动。新增 `GET/PUT /api/model-presets` 端点，预设和弃用标识存 JSON 文件，前端从 API 拉取，加/弃/删模型无需改代码部署。新增 `deepseek-v4-pro`、`deepseek-v4-flash` 预设，`deepseek-chat` 和 `deepseek-reasoner` 标记弃用标识。
+
 ## [0.2.8.8] - 2026-05-26
 
 ### 变更 (Changed)

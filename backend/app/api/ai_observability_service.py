@@ -122,6 +122,9 @@ def safe_record_ai_call(**kwargs: Any) -> dict[str, Any] | None:
     try:
         return record_ai_call(**kwargs)
     except Exception:
+        import logging
+        _log = logging.getLogger("ai_observability")
+        _log.warning("AI call recording failed for feature=%s operation=%s", kwargs.get("feature", "?"), kwargs.get("operation", "?"), exc_info=True)
         return None
 
 

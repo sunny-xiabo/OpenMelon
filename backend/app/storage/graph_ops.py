@@ -282,9 +282,9 @@ class GraphOperations:
                     RETURN nodes, rels
                 """
         else:
-            where_clause = (
-                "WHERE NOT 'DocumentChunk' IN labels(n)" if not include_chunks else ""
-            )
+            where_clause = "WHERE NOT 'TestCaseVector' IN labels(n)"
+            if not include_chunks:
+                where_clause += " AND NOT 'DocumentChunk' IN labels(n)"
             query = f"""
                 MATCH (n)
                 {where_clause}

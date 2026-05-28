@@ -512,6 +512,7 @@ async def _get_neo4j_counts(request: Request) -> dict[str, int | None]:
             doc_result = await session.run(
                 """
                 MATCH (c:DocumentChunk)
+                WHERE c.embedding IS NOT NULL
                 RETURN
                   sum(CASE WHEN c.doc_type = 'api_execution_knowledge' THEN 1 ELSE 0 END) AS api_knowledge,
                   sum(CASE WHEN c.doc_type <> 'api_execution_knowledge' OR c.doc_type IS NULL THEN 1 ELSE 0 END) AS documents
@@ -521,7 +522,7 @@ async def _get_neo4j_counts(request: Request) -> dict[str, int | None]:
             if doc_record:
                 counts["documents"] = int(doc_record.get("documents") or 0)
                 counts["api_knowledge"] = int(doc_record.get("api_knowledge") or 0)
-            tc_result = await session.run("MATCH (tc:TestCaseVector) RETURN count(tc) AS count")
+            tc_result = await session.run("MATCH (tc:TestCaseVector) WHERE tc.embedding IS NOT NULL RETURN count(tc) AS count")
             tc_record = await tc_result.single()
             counts["test_cases"] = int(tc_record.get("count") or 0) if tc_record else 0
     except Exception:
@@ -540,7 +541,9 @@ async def _get_neo4j_ids(request: Request) -> dict[str, set[str] | None]:
             doc_result = await session.run(
                 """
                 MATCH (c:DocumentChunk)
+                WHERE c.embedding IS NOT NULL
                 RETURN c.chunk_id AS id, c.doc_type AS doc_type
+                ORDER BY c.chunk_id
                 LIMIT $limit
                 """,
                 limit=MAX_DETAIL_SCAN,
@@ -555,7 +558,7 @@ async def _get_neo4j_ids(request: Request) -> dict[str, set[str] | None]:
                     ids["documents"].add(chunk_id)
 
             tc_result = await session.run(
-                "MATCH (tc:TestCaseVector) RETURN tc.vector_id AS vector_id LIMIT $limit",
+                "MATCH (tc:TestCaseVector) WHERE tc.embedding IS NOT NULL RETURN tc.vector_id AS vector_id ORDER BY tc.vector_id LIMIT $limit",
                 limit=MAX_DETAIL_SCAN,
             )
             async for record in tc_result:
@@ -759,6 +762,7 @@ async def _run_rebuild_qdrant_task(request: Any, task_id: str) -> None:
         task_manager.update(
             task_id,
             status="succeeded",
+            total=rebuilt,
             processed=rebuilt,
             message=f"已从 Neo4j 重建 {asset['name']} Qdrant 向量 {rebuilt} 条",
             result={"rebuilt": rebuilt},
@@ -771,6 +775,23 @@ async def _run_rebuild_qdrant_task(request: Any, task_id: str) -> None:
             refs=[task.asset_key, task_id],
             data={"asset_key": task.asset_key, "task_id": task_id, "rebuilt": rebuilt},
         )
+        # 自动清理重建后残留的孤儿向量（Qdrant 中有但 Neo4j 中已不存在的记录）
+        try:
+            diff = await _get_asset_diff(request, task.asset_key)
+            orphan_ids = sorted(diff.get("orphan_in_qdrant") or [])
+            if orphan_ids:
+                deleted = await _delete_qdrant_ids(request, task.asset_key, orphan_ids)
+                task_manager.update(task_id, result={"rebuilt": rebuilt, "cleaned_orphans": deleted})
+                _log_index_governance_event(
+                    "warning",
+                    "index_governance_qdrant_rebuild_orphans_cleaned",
+                    "索引治理 Qdrant 重建孤儿清理",
+                    f"重建 {asset['name']} 后自动清理孤儿向量 {deleted} 条",
+                    refs=[task.asset_key, task_id, *orphan_ids[:SAMPLE_SIZE]],
+                    data={"asset_key": task.asset_key, "task_id": task_id, "rebuilt": rebuilt, "cleaned_orphans": deleted},
+                )
+        except Exception:
+            pass  # 孤儿清理失败不影响重建结果
         if rebuilt > 0:
             bump_rag_cache_version("qdrant_rebuilt")
     except Exception as exc:
@@ -910,6 +931,7 @@ async def _load_document_chunks_for_rebuild(request: Request, key: str) -> list[
                c.block_type AS block_type,
                c.status AS status,
                c.embedding AS embedding
+        ORDER BY c.chunk_id
         LIMIT $limit
     """
     async with driver.session() as session:
@@ -931,6 +953,7 @@ async def _load_test_case_vectors_for_rebuild(request: Request) -> list[dict[str
                tc.module AS module,
                tc.priority AS priority,
                tc.embedding AS embedding
+        ORDER BY tc.vector_id
         LIMIT $limit
     """
     async with driver.session() as session:

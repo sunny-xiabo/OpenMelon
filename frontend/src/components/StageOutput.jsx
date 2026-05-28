@@ -12,11 +12,19 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import QueryBuilderIcon from '@mui/icons-material/QueryBuilder';
 import { keyframes } from '@mui/system';
 import { alpha } from '@mui/material/styles';
+
+// 兜底：当 LLM 未按提示词要求在每个编号步骤间插入 <br> 时，自动补上换行
+const reMergeStep = /([。；;])\s*(?=\d+[.\)、]\s)/g;
+function formatSteps(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text.replace(reMergeStep, '$1<br>');
+}
 
 const pulse = keyframes`
   0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.4); }
@@ -27,6 +35,8 @@ const pulse = keyframes`
 const STAGES = [
   { key: 'analysis', marker: '# 需求分析阶段', label: '需求分析过程', stage: 'Stage 1', color: '#1a73e8' },
   { key: 'testcases', marker: '# 测试用例生成阶段', label: '用例生成过程', stage: 'Stage 2', color: '#9c27b0' },
+  { key: 'cross_review', marker: '# 交叉评审阶段', label: '交叉评审过程', stage: '交叉评审', color: '#e65100' },
+  { key: 'quality_eval', marker: '# 质量评估', label: '质量评估与修订', stage: '评估修订', color: '#00838f' },
   { key: 'review', marker: '# 测试用例评审阶段', label: '用例评审过程', stage: 'Stage 3', color: '#1e8e3e' },
 ];
 
@@ -56,12 +66,12 @@ function getStageStatus(stageKey, stageContents, currentStage, isComplete) {
 
 export default function StageOutput({ content, isComplete = false }) {
   const endRef = useRef(null);
-  const [stageContents, setStageContents] = useState({ analysis: '', testcases: '', review: '', final: '' });
+  const [stageContents, setStageContents] = useState({ analysis: '', testcases: '', cross_review: '', quality_eval: '', review: '', final: '' });
   const [currentStage, setCurrentStage] = useState('analysis');
   const [expanded, setExpanded] = useState(() =>
     isComplete
-      ? { analysis: true, testcases: true, review: true, final: true }
-      : { analysis: true, testcases: false, review: false, final: false }
+      ? { analysis: true, testcases: true, cross_review: true, quality_eval: true, review: true, final: true }
+      : { analysis: true, testcases: false, cross_review: false, quality_eval: false, review: false, final: false }
   );
   const stageOrder = STAGES.map(stage => stage.key).concat(['final']);
 
@@ -70,8 +80,10 @@ export default function StageOutput({ content, isComplete = false }) {
     setExpanded(prev => {
       const next = { ...prev };
       if (currentStage === 'testcases') next.analysis = false;
-      if (currentStage === 'review') { next.analysis = false; next.testcases = false; }
-      if (currentStage === 'final') { next.analysis = false; next.testcases = false; next.review = false; }
+      if (currentStage === 'cross_review') { next.analysis = false; next.testcases = false; }
+      if (currentStage === 'quality_eval') { next.analysis = false; next.testcases = false; next.cross_review = false; }
+      if (currentStage === 'review') { next.analysis = false; next.testcases = false; next.cross_review = false; next.quality_eval = false; }
+      if (currentStage === 'final') { next.analysis = false; next.testcases = false; next.cross_review = false; next.quality_eval = false; next.review = false; }
       next[currentStage] = true;
       return next;
     });
@@ -98,50 +110,44 @@ export default function StageOutput({ content, isComplete = false }) {
 
   useEffect(() => {
     if (!content) {
-      setStageContents({ analysis: '', testcases: '', review: '', final: '' });
+      setStageContents({ analysis: '', testcases: '', cross_review: '', quality_eval: '', review: '', final: '' });
       return;
     }
 
-    // 使用更健壮的正则搜索
     const analysisIdx = content.search(/#\s*需求分析阶段/);
     const tcIdx = content.search(/#\s*测试用例生成阶段/);
+    const crossReviewIdx = content.search(/#\s*交叉评审阶段/);
+    const qualityEvalIdx = content.search(/#\s*质量评估/);
     const reviewIdx = content.search(/#\s*测试用例评审阶段/);
-    
-    // FINAL_MARKER 可能带有不同的空格或加粗方式，使用正则搜索
+
     const finalMarkerPattern = /\*\*[:\s]*=?==最终测试用例=?==[:\s]*\*\*/;
     const finalMatch = content.match(finalMarkerPattern);
     const finalIdx = finalMatch ? finalMatch.index : -1;
 
-    let analysisText = '';
-    let tcText = '';
-    let reviewText = '';
-    let finalText = '';
+    const endOf = (idx) => idx !== -1 ? idx : content.length;
 
-    if (reviewIdx !== -1) {
-      const reviewStart = reviewIdx;
-      const reviewPartEnd = finalIdx !== -1 ? finalIdx : content.length;
-      analysisText = analysisIdx !== -1 ? content.substring(analysisIdx, tcIdx !== -1 ? tcIdx : reviewIdx) : '';
-      tcText = tcIdx !== -1 ? content.substring(tcIdx, reviewIdx) : '';
-      reviewText = content.substring(reviewStart, reviewPartEnd);
-      finalText = finalIdx !== -1 ? content.substring(finalIdx + finalMatch[0].length) : '';
-      setCurrentStage(finalIdx !== -1 ? 'final' : 'review');
-    } else if (tcIdx !== -1) {
-      analysisText = analysisIdx !== -1 ? content.substring(analysisIdx, tcIdx) : '';
-      tcText = content.substring(tcIdx);
-      setCurrentStage('testcases');
-    } else if (analysisIdx !== -1) {
-      analysisText = content.substring(analysisIdx);
-      setCurrentStage('analysis');
-    } else {
-      analysisText = content;
-      setCurrentStage('analysis');
-    }
+    // Helper: extract text between two indices, return '' if start === -1
+    const slice = (start, end) => {
+      if (start === -1) return '';
+      return content.substring(start, endOf(end));
+    };
+
+    // Determine current stage
+    if (finalIdx !== -1) setCurrentStage('final');
+    else if (reviewIdx !== -1) setCurrentStage('review');
+    else if (qualityEvalIdx !== -1) setCurrentStage('quality_eval');
+    else if (crossReviewIdx !== -1) setCurrentStage('cross_review');
+    else if (tcIdx !== -1) setCurrentStage('testcases');
+    else if (analysisIdx !== -1) setCurrentStage('analysis');
+    else setCurrentStage('analysis');
 
     setStageContents({
-      analysis: analysisText,
-      testcases: tcText,
-      review: reviewText,
-      final: finalText,
+      analysis: slice(analysisIdx, tcIdx),
+      testcases: slice(tcIdx, crossReviewIdx),
+      cross_review: slice(crossReviewIdx, qualityEvalIdx),
+      quality_eval: slice(qualityEvalIdx, reviewIdx),
+      review: slice(reviewIdx, finalIdx),
+      final: finalIdx !== -1 ? content.substring(finalIdx + finalMatch[0].length) : '',
     });
   }, [content]);
 
@@ -276,7 +282,9 @@ export default function StageOutput({ content, isComplete = false }) {
           if (!text) return null;
         const isCurrent = !isComplete && currentStage === s.key
           && (s.key === 'analysis' ? !stageContents.testcases
-            : s.key === 'testcases' ? !stageContents.review
+            : s.key === 'testcases' ? !stageContents.cross_review
+            : s.key === 'cross_review' ? !stageContents.quality_eval
+            : s.key === 'quality_eval' ? !stageContents.review
             : !stageContents.final);
         return (
           <Paper
@@ -350,7 +358,7 @@ export default function StageOutput({ content, isComplete = false }) {
                     <Box sx={{ flex: 1 }}>
                       <LinearProgress sx={{ height: 4, borderRadius: 2, bgcolor: `${s.color}15`, '& .MuiLinearProgress-bar': { bgcolor: s.color } }} />
                       <Typography variant="caption" sx={{ color: s.color, fontWeight: 600, mt: 0.5, display: 'block' }}>
-                        {s.key === 'analysis' ? '正在分析需求...' : s.key === 'testcases' ? '正在生成测试用例...' : '正在评审测试用例...'}
+                        {s.key === 'analysis' ? '正在分析需求...' : s.key === 'testcases' ? '正在生成测试用例...' : s.key === 'cross_review' ? '正在交叉评审...' : s.key === 'quality_eval' ? '正在评估质量与修订...' : '正在评审测试用例...'}
                       </Typography>
                     </Box>
                   </Box>
@@ -380,7 +388,7 @@ export default function StageOutput({ content, isComplete = false }) {
                     '& blockquote': { borderLeft: `4px solid ${s.color}44`, m: '0 0 16px', pl: 2, color: 'text.secondary', fontStyle: 'italic' }
                   }}
                 >
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{stripMarker(text)}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{formatSteps(stripMarker(text))}</ReactMarkdown>
                 </Box>
               </Box>
             </Collapse>
@@ -471,7 +479,7 @@ export default function StageOutput({ content, isComplete = false }) {
                 '& th': { bgcolor: 'slate.50', p: 1.25, border: '1px solid', borderColor: 'slate.200', textAlign: 'left', fontWeight: 700, color: 'slate.600' },
                 '& td': { p: 1.25, border: '1px solid', borderColor: 'slate.200' }
               }}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{stageContents.final}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>{formatSteps(stageContents.final)}</ReactMarkdown>
               </Box>
               {isComplete && (
                 <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'slate.100', textAlign: 'center' }}>

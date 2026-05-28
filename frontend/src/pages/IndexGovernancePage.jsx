@@ -571,6 +571,19 @@ export default function IndexGovernancePage({ isActive }) {
     tasksQuery.refetch();
   };
 
+  // 监听后台任务完成，自动刷新资产和诊断数据
+  const prevActiveRef = React.useRef(false);
+  const hasActive = tasks.some((t) => ['queued', 'running'].includes(t.status));
+  React.useEffect(() => {
+    if (prevActiveRef.current && !hasActive) {
+      // 任务刚从运行中变为全部完成，刷新资产数据
+      summaryQuery.refetch();
+      assetsQuery.refetch();
+      diagnosticsQuery.refetch();
+    }
+    prevActiveRef.current = hasActive;
+  }, [hasActive, summaryQuery, assetsQuery, diagnosticsQuery]);
+
   const filteredAssets = React.useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return assets.filter((asset) => {
@@ -958,7 +971,11 @@ export default function IndexGovernancePage({ isActive }) {
                       const taskStatus = taskStatusConfig[task.status] || taskStatusConfig.queued;
                       const total = Number(task.total || 0);
                       const processed = Number(task.processed || 0);
-                      const progress = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : (task.status === 'succeeded' ? 100 : 6);
+                      const progress = ['succeeded', 'cancelled'].includes(task.status)
+                        ? 100
+                        : total > 0
+                          ? Math.min(100, Math.round((processed / total) * 100))
+                          : 6;
                       const asset = assets.find((item) => item.key === task.asset_key);
                       return (
                         <Box 

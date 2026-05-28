@@ -10,12 +10,12 @@ import {
 } from '../features/Graph/utils/graphRendering';
 
 // Hooks
-import { 
-  useGraphStatus, 
-  useGraphFilters, 
-  useFullGraph, 
-  useGetNodeDetail, 
-  useSearchEntity 
+import {
+  useGraphStatus,
+  useGraphFilters,
+  useFullGraph,
+  useGetNodeDetail,
+  useSearchEntity
 } from '../features/Graph/hooks/useGraph';
 import { useNodeTypeLegend } from '../features/NodeType/hooks/useNodeTypes';
 
@@ -29,8 +29,8 @@ export default function GraphPage({ isActive = true }) {
   const renderGraphRef = useRef(null);
   const [graphEngineLoading, setGraphEngineLoading] = useState(false);
   const [graphEngineReady, setGraphEngineReady] = useState(false);
-  
-  // 筛选与交互状态
+
+  // filter and interaction state
   const [searchText, setSearchText] = useState('');
   const [docType, setDocType] = useState('');
   const [moduleFilter, setModuleFilter] = useState('');
@@ -39,19 +39,19 @@ export default function GraphPage({ isActive = true }) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailCollapsed, setDetailCollapsed] = useState(false);
 
-  // 使用 TanStack Query
+  // TanStack Query hooks
   const { data: status, refetch: refetchStatus } = useGraphStatus();
   const { data: filters = { doc_types: [], modules: [] } } = useGraphFilters();
   const { data: legend = [] } = useNodeTypeLegend();
-  
+
   const graphReady = !!status?.has_data;
   const graphParams = useMemo(() => ({ doc_type: docType, module: moduleFilter, include_chunks: showChunks }), [docType, moduleFilter, showChunks]);
-  
+
   const { data: graphData, isLoading: isGraphLoading, error: graphError, refetch: refetchGraph } = useFullGraph(graphParams, graphReady && isActive);
   const { mutateAsync: getNodeDetail } = useGetNodeDetail();
   const searchEntityMutation = useSearchEntity();
 
-  // 只有图谱页激活且确实有数据时才加载 vis-network。
+  // load vis-network only when graph tab is active and data exists
   useEffect(() => {
     let cancelled = false;
     async function initNetwork() {
@@ -69,7 +69,7 @@ export default function GraphPage({ isActive = true }) {
         interaction: { hover: false, tooltipDelay: 0, zoomView: true, dragView: true, hideEdgesOnDrag: true },
         edges: { smooth: false, color: '#cbd5e1' },
       };
-      
+
       const network = new Network(containerRef.current, { nodes: new DataSet([]), edges: new DataSet([]) }, options);
       networkRef.current = network;
       setGraphEngineReady(true);
@@ -104,7 +104,7 @@ export default function GraphPage({ isActive = true }) {
       setGraphEngineReady(false);
       setGraphEngineLoading(false);
     });
-    
+
     return () => {
       cancelled = true;
       if (networkRef.current) {
@@ -120,7 +120,7 @@ export default function GraphPage({ isActive = true }) {
   const renderGraph = useCallback((data, focusLabel) => {
     const DataSet = graphLibRef.current?.DataSet;
     if (!networkRef.current || !networkRef.current.body || !DataSet || !data) return;
-    
+
     try {
       if (graphDataRef.current !== data) {
         graphDataRef.current = data;
@@ -159,13 +159,19 @@ export default function GraphPage({ isActive = true }) {
     renderGraphRef.current = renderGraph;
   }, [renderGraph]);
 
-  // 数据变化时重新渲染
+  // re-render when graph data changes
   useEffect(() => {
-    // 只有当元数据和图谱数据都就绪，且渲染引擎 body 存在时才渲染
     if (graphData && graphEngineReady && networkRef.current?.body) {
       renderGraph(graphData);
     }
   }, [graphData, graphEngineReady, isActive, renderGraph]);
+
+  // ensure graph re-fetches when filter params change
+  useEffect(() => {
+    if (graphReady && isActive) {
+      refetchGraph();
+    }
+  }, [graphParams, graphReady, isActive, refetchGraph]);
 
   const handleSearch = async () => {
     if (!searchText.trim()) return;
@@ -182,7 +188,6 @@ export default function GraphPage({ isActive = true }) {
     setDocType('');
     setModuleFilter('');
     setShowChunks(false);
-    refetchGraph();
   };
 
   return (
@@ -214,7 +219,7 @@ export default function GraphPage({ isActive = true }) {
               </Typography>
             </Box>
           )}
-          
+
           {graphReady && (
             <Box
               ref={containerRef}

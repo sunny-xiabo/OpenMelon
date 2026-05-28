@@ -134,49 +134,79 @@ class TestCaseParser:
             return None
 
     @staticmethod
+    def _split_merged_steps(steps: List[Dict]) -> List[Dict]:
+        """拆分同一单元格中合并的多个编号步骤（如 \"1. xxx 2. xxx\" 或 \"1. xxx<br>2. xxx\"）。"""
+        if not steps:
+            return steps
+        _RE_NUMBERED = re.compile(r'(?:^|(?:<br\s*/?>|\n))\s*(\d+)[.\)、]\s*')
+        result: list[Dict] = []
+        for step in steps:
+            desc = (step.get("description") or "").strip()
+            expected = (step.get("expected_result") or "").strip()
+            # 按 <br> 或编号前缀拆分描述
+            matches = list(_RE_NUMBERED.finditer(desc))
+            if len(matches) < 2:
+                result.append(step)
+                continue
+            split_descs: list[str] = []
+            for i, m in enumerate(matches):
+                start = m.start()
+                end = matches[i + 1].start() if i + 1 < len(matches) else len(desc)
+                # 取整段并清理首尾空白和 <br> 残留
+                chunk = desc[start:end].strip().rstrip("<br").rstrip("<br/").rstrip("<br />").strip()
+                if chunk:
+                    split_descs.append(chunk)
+            # 对预期结果做同样的拆分尝试
+            expected_matches = list(_RE_NUMBERED.finditer(expected))
+            split_expected: list[str] = []
+            if len(expected_matches) >= 2:
+                for i, m in enumerate(expected_matches):
+                    start = m.start()
+                    end = expected_matches[i + 1].start() if i + 1 < len(expected_matches) else len(expected)
+                    chunk = expected[start:end].strip().rstrip("<br").rstrip("<br/").rstrip("<br />").strip()
+                    if chunk:
+                        split_expected.append(chunk)
+            else:
+                split_expected = [expected] * len(split_descs)
+            for idx, sd in enumerate(split_descs):
+                result.append({
+                    "step_number": len(result) + 1,
+                    "description": sd,
+                    "expected_result": split_expected[idx] if idx < len(split_expected) else expected,
+                })
+        for i, s in enumerate(result):
+            s["step_number"] = i + 1
+        return result
+
+    @staticmethod
     def _parse_test_steps(content: str) -> List[Dict]:
-        """解析测试步骤表格"""
-        steps = []
-        # 查找表格 (更灵活的模式)
+        """解析测试步骤表格，自动拆分同一单元格中合并的多个编号步骤。"""
+        steps_raw: list[Dict] = []
         lines = content.split('\n')
-        in_table = False
-        
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            
-            # 分隔行
             if re.match(r'^\|[\s\-:|]+\|$', line):
-                in_table = True
                 continue
-                
             if "|" in line:
                 cells = [c.strip() for c in line.split('|')]
-                cells = [c for c in cells if c] # 移除空串
-                
+                cells = [c for c in cells if c]
                 if len(cells) >= 2:
-                    # 跳过表头
                     header_check = "".join(cells).lower()
                     if any(kw in header_check for kw in ["步骤", "预期", "expected", "result", "#"]):
                         continue
-                        
-                    step_num = len(steps) + 1
+                    step_num = len(steps_raw) + 1
                     try:
                         step_num = int(re.sub(r'[^\d]', '', cells[0]))
                     except (ValueError, IndexError):
                         pass
-                    
-                    steps.append({
-                        'step_number': step_num,
-                        'description': cells[1] if len(cells) > 1 else "",
-                        'expected_result': cells[2] if len(cells) > 2 else "操作成功"
+                    steps_raw.append({
+                        "step_number": step_num,
+                        "description": cells[1] if len(cells) > 1 else "",
+                        "expected_result": cells[2] if len(cells) > 2 else "操作成功",
                     })
-            elif in_table:
-                # 遇到非表格行通常意味着表格结束
-                pass
-
-        return [s for s in steps if s['description']]
+        return TestCaseParser._split_merged_steps([s for s in steps_raw if s["description"]])
 
     @staticmethod
     def to_json(test_cases: List[Dict], indent: int = 2) -> str:

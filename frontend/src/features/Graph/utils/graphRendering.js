@@ -4,8 +4,8 @@ const CLUSTER_GROUP_MIN_SIZE = 8;
 
 const DEFAULT_VISUAL = {
   color: {
-    bg: '#94a3b8',
-    border: '#64748b',
+    bg: '#64748b',
+    border: '#475569',
   },
   size: 20,
 };
@@ -57,7 +57,7 @@ export function getGraphOptions(mode) {
     },
     edges: {
       smooth: isFull ? { type: 'curvedCW', roundness: 0.2 } : false,
-      color: '#cbd5e1',
+      color: '#94a3b8',
     },
     nodes: {
       shape: 'dot',
@@ -91,6 +91,8 @@ export function buildGraphRenderState(data, legend = [], expandedClusterKeys = n
         color: '#fff',
         size: mode === 'full' ? 12 : 11,
         face: 'Inter, system-ui, sans-serif',
+        strokeWidth: 2,
+        strokeColor: '#1e293b',
       },
       borderWidth: 1,
       shape: 'dot',
@@ -160,6 +162,8 @@ export function buildGraphRenderState(data, legend = [], expandedClusterKeys = n
         color: '#0f172a',
         size: 12,
         face: 'Inter, system-ui, sans-serif',
+        strokeWidth: 1,
+        strokeColor: '#f8fafc',
       },
       borderWidth: 1,
       shape: 'database',
@@ -196,12 +200,14 @@ export function buildGraphRenderState(data, legend = [], expandedClusterKeys = n
       font: {
         align: 'middle',
         size: mode === 'full' ? 11 : 10,
-        color: '#64748b',
+        color: '#334155',
+        strokeWidth: 2,
+        strokeColor: '#ffffff',
       },
       color: {
-        color: '#cbd5e1',
-        highlight: '#94a3b8',
-        hover: '#94a3b8',
+        color: '#94a3b8',
+        highlight: '#64748b',
+        hover: '#64748b',
       },
     });
   }

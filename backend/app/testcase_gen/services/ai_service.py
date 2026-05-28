@@ -7,16 +7,14 @@ from typing import List, Dict, Any, AsyncGenerator, Optional
 import time
 
 from app.api.ai_observability_service import safe_record_ai_call
-from app.testcase_gen.utils.llms import get_model_runtime_info, get_testcase_llm_summary
+from app.testcase_gen.utils.llms import get_model_runtime_info, get_testcase_llm_summary, get_token_usage, reset_token_usage
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.utils.performance_optimizer import (
     response_cache,
     Timer,
 )
 
-from app.testcase_gen.agents.requirement_analyzer import requirement_analyzer
-from app.testcase_gen.agents.test_case_generator import test_case_generator
-from app.testcase_gen.agents.test_case_reviewer import test_case_reviewer
+from app.testcase_gen.services.collaboration_controller import CollaborationController
 from app.testcase_gen.services.neo4j_writer import neo4j_writer
 from app.testcase_gen.services.graph_context_retriever import (
     get_graph_context_retriever,
@@ -114,8 +112,6 @@ class AIService:
                         return
 
                 # 收集各阶段结果
-                analysis_result = ""
-                test_cases_result = ""
                 full_response = ""
 
                 # 检索图谱知识
@@ -138,47 +134,19 @@ class AIService:
                 if vector_context:
                     enriched_context = f"## 语义相似度参考知识\n{vector_context}\n\n{enriched_context}"
 
-                # ==================== 阶段1：需求分析 ====================
-                logger.info("阶段1/3: 需求分析")
-                async for chunk in requirement_analyzer.analyze_requirements_stream(
-                    file_path, enriched_context, requirements, graph_context=graph_context
-                ):
-                    yield chunk
-                    analysis_result += chunk
-                    full_response += chunk
-                    response_chars += len(chunk)
-
-                if prompt_config:
-                    logger.info(
-                        "阶段一配置 - style_id=%s, skill_ids=%s, use_vector=%s",
-                        prompt_config.get("style_id"),
-                        ",".join(prompt_config.get("skill_ids", [])) or "<none>",
-                        use_vector,
-                    )
-
-                # ==================== 阶段2：测试用例生成 ====================
-                logger.info("阶段2/3: 测试用例生成")
-                async for chunk in test_case_generator.generate_test_cases_stream(
-                    file_path,
-                    enriched_context,
-                    requirements,
-                    analysis_result,
-                    graph_context=graph_context,
+                # ==================== Phase 1-3: Delegate to CollaborationController ====================
+                reset_token_usage()
+                controller = CollaborationController()
+                async for chunk in controller.run(
+                    file_path=file_path,
+                    context=context,
+                    requirements=requirements,
+                    module=module,
+                    vector_context=vector_context,
+                    use_vector=use_vector,
                     prompt_config=prompt_config,
-                ):
-                    yield chunk
-                    test_cases_result += chunk
-                    full_response += chunk
-                    response_chars += len(chunk)
-
-                # ==================== 阶段3：测试用例评审 ====================
-                logger.info("阶段3/3: 测试用例评审")
-                async for chunk in test_case_reviewer.review_test_cases_stream(
-                    test_cases_result,
-                    analysis_result,
-                    requirements,
                     graph_context=graph_context,
-                    prompt_config=prompt_config,
+                    enriched_context=enriched_context,
                 ):
                     yield chunk
                     full_response += chunk
@@ -195,7 +163,12 @@ class AIService:
                     import re
 
                     tc_pattern = r"###\s*(?:TC\d+[:\s]+)?(.+?)(?:\n|$)"
-                    tc_names = re.findall(tc_pattern, full_response)
+                    extract_from = (
+                        full_response.split(FINAL_MARKER)[1]
+                        if FINAL_MARKER in full_response
+                        else full_response
+                    )
+                    tc_names = re.findall(tc_pattern, extract_from)
                     if tc_names:
                         asyncio.create_task(
                             neo4j_writer.write_test_cases(
@@ -221,6 +194,7 @@ class AIService:
                 yield error_text
             finally:
                 if not recorded:
+                    usage = get_token_usage()
                     safe_record_ai_call(
                         feature="testcase_generation",
                         operation="generate_test_cases_stream",
@@ -230,6 +204,9 @@ class AIService:
                         latency_ms=round((time.perf_counter() - started_at) * 1000),
                         prompt_chars=prompt_chars,
                         response_chars=response_chars,
+                        input_tokens=usage["input_tokens"],
+                        output_tokens=usage["output_tokens"],
+                        total_tokens=usage["total_tokens"],
                         degraded=degraded,
                         failure_reason=failed_reason,
                         debug_snapshot={
@@ -246,6 +223,7 @@ class AIService:
                             "llm_summary": llm_summary,
                         },
                     )
+                    reset_token_usage()
                 logger.info("三阶段流式过程结束")
 
     def generate_mindmap_from_test_cases(

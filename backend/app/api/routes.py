@@ -11,6 +11,7 @@ from app.api_execution.routers import router as api_execution_router
 from app.config_center import router as config_center_router
 from app.log_center import router as logs_router
 from app.index_governance.router import router as index_governance_router
+from app.testcase_gen.model_presets_api import router as model_presets_router
 
 router = APIRouter(prefix="/api")
 
@@ -24,5 +25,6 @@ router.include_router(prompt_hub_router)
 router.include_router(config_center_router)
 router.include_router(logs_router)
 router.include_router(index_governance_router)
+router.include_router(model_presets_router)
 router.include_router(management_router)
 router.include_router(api_execution_router)
