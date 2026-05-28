@@ -164,10 +164,28 @@ export default function QAPage({ isActive = true }) {
     }
   };
 
-  // 引用点击（Task 8 将实现图谱节点高亮）
-  const handleCitationClick = (citationIndex) => {
-    console.log('Citation clicked:', citationIndex);
-  };
+  // 引用点击 - 高亮图谱节点并聚焦到对应位置
+  const handleCitationClick = useCallback((citationIndex) => {
+    if (!networkRef.current?.body) return;
+
+    // 获取当前可见的所有节点索引
+    const nodeIds = networkRef.current.body.nodeIndices;
+    if (!nodeIds || nodeIds.length === 0) return;
+
+    // 清除之前的选中状态
+    networkRef.current.unselectAll();
+
+    // 将引用索引映射到图谱节点，citationIndex 从 1 开始
+    const targetIndex = Math.min(citationIndex - 1, nodeIds.length - 1);
+    if (targetIndex >= 0 && targetIndex < nodeIds.length) {
+      const targetId = nodeIds[targetIndex];
+      networkRef.current.selectNodes([targetId]);
+      networkRef.current.focus(targetId, {
+        scale: 1.5,
+        animation: { duration: 500, easingFunction: 'easeInOutQuad' },
+      });
+    }
+  }, []);
 
   // 文件选择
   const handleFileSelect = (e) => {
