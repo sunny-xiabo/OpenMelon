@@ -78,6 +78,9 @@ async def lifespan(app: FastAPI):
     app.state.neo4j_driver = knowledge_rag.driver
     app.state.neo4j_available = knowledge_rag.neo4j_available
 
+    from app.storage.qa_feedback_store import QaFeedbackStore
+    app.state.qa_feedback_store = QaFeedbackStore()
+
     async def generate_embedding(text: str):
         # 兼容 bge 模型 512 tokens 限制，安全截断至 400 字符。对于其他模型也截断以防越界。
         model_name = settings.EMBEDDING_MODEL or "text-embedding-3-small"

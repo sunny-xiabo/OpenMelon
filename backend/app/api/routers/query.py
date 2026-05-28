@@ -2,7 +2,9 @@ import time
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 import logging
 import uuid
+import json
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import StreamingResponse
 from app.api.logging_service import safe_log_event
 from app.config import settings
 from app.engine.rag.cache import (
@@ -19,6 +21,7 @@ from app.api.schemas import (
     Citation,
     ChatMessage,
     ContextChunk,
+    FeedbackRequest,
     GraphData,
     GraphNode,
     GraphRel,
@@ -83,6 +86,140 @@ async def query_cache_status():
 async def clear_query_cache():
     version = clear_rag_cache("manual_api_clear")
     return {"success": True, "version": version, "status": get_rag_cache_status()}
+
+
+@router.post("/query/feedback")
+async def set_feedback(request: FeedbackRequest, req: Request):
+    store = getattr(req.app.state, "qa_feedback_store", None)
+    if store is None:
+        raise InternalError(details="Feedback store not initialized")
+    if request.feedback is None:
+        store.delete_feedback(request.session_id, request.message_index)
+    else:
+        store.set_feedback(request.session_id, request.message_index, request.feedback)
+    return {"success": True}
+
+
+@router.get("/query/feedback/{session_id}")
+async def get_feedback(session_id: str, req: Request):
+    store = getattr(req.app.state, "qa_feedback_store", None)
+    if store is None:
+        raise InternalError(details="Feedback store not initialized")
+    return {"feedbacks": store.get_feedbacks(session_id)}
+
+
+@router.post("/query/stream")
+async def query_stream(
+    request: QueryRequest,
+    req: Request,
+    intent_router = Depends(get_intent_router),
+    retriever = Depends(get_retriever),
+    generator = Depends(get_generator),
+    session_manager = Depends(get_session_manager),
+    metrics_collector = Depends(get_metrics_collector),
+):
+    """流式问答端点：检索阶段完成后，以纯文本流逐块返回回答。"""
+    session_id = req.query_params.get("session_id") or None
+    trace_id = session_id or f"query_{uuid.uuid4().hex}"
+    start_time = time.time()
+
+    try:
+        history_messages = (
+            session_manager.get_history(session_id)[-6:]
+            if session_id and request.include_history
+            else []
+        )
+
+        intent_result = await intent_router.process(request.question)
+        intent = intent_result["intent"]
+        entities = intent_result["entities"]
+
+        retrieval_result = await _retrieve_with_cache(
+            retriever,
+            metrics_collector,
+            intent=intent,
+            entities=entities,
+            question=request.question,
+        )
+
+        if intent == "visualization":
+            context = retrieval_result.get("context_text", "")
+            vis_summary = await generator.generate_visualization_summary(
+                retrieval_result.get("graph_data", {})
+            )
+            async def _single_chunk():
+                yield vis_summary
+            return StreamingResponse(_single_chunk(), media_type="text/plain; charset=utf-8")
+
+        if intent == "hybrid_query":
+            context = retrieval_result.get("merged_context", "")
+        else:
+            context = retrieval_result.get("context_text", "")
+
+        if intent == "graph_query" and len(context.strip()) < 50:
+            retrieval_result = await _retrieve_with_cache(
+                retriever,
+                metrics_collector,
+                intent="vector_query",
+                entities=entities,
+                question=request.question,
+            )
+            context = retrieval_result.get("context_text", "")
+            intent = "vector_query"
+
+        async def _stream_generator():
+            full_answer = ""
+            async for text_chunk in generator.generate_answer_stream(
+                request.question, context, intent, history_messages
+            ):
+                full_answer += text_chunk
+                yield text_chunk
+
+            # 流结束后保存会话历史
+            if session_id and full_answer:
+                session_manager.add_message(session_id, "user", request.question)
+                session_manager.add_message(session_id, "assistant", full_answer)
+
+            duration_ms = round((time.time() - start_time) * 1000)
+            _log_query_event(
+                "info",
+                "rag_stream_completed",
+                "RAG 流式查询完成",
+                f"检索方式 {intent}",
+                trace_id=trace_id,
+                source_id=session_id or "",
+                refs=[session_id, intent],
+                data={
+                    "mode": "stream",
+                    "session_id": session_id or "",
+                    "intent": intent,
+                    "duration_ms": duration_ms,
+                    "answer_chars": len(full_answer),
+                },
+            )
+            if metrics_collector:
+                metrics_collector.record_query(duration_ms=duration_ms, success=True)
+
+        return StreamingResponse(
+            _stream_generator(),
+            media_type="text/plain; charset=utf-8",
+        )
+
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        if metrics_collector:
+            metrics_collector.record_query(duration_ms=duration_ms, success=False, error=str(e))
+        _log_query_event(
+            "error",
+            "rag_stream_failed",
+            "RAG 流式查询失败",
+            str(e),
+            trace_id=trace_id,
+            source_id=session_id or "",
+            refs=[session_id],
+            data={"mode": "stream", "session_id": session_id or "", "error": str(e)},
+        )
+        raise InternalError(details=str(e))
 
 
 @router.post("/query", response_model=QueryResponse)

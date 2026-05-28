@@ -210,3 +210,13 @@ class PromptHubMutationResponse(BaseModel):
     version: int
     updated_at: str
     record: Dict[str, Any]
+
+
+class FeedbackRequest(BaseModel):
+    session_id: str
+    message_index: int
+    feedback: Optional[str] = None  # "up", "down", or null to delete
+
+
+class FeedbackResponse(BaseModel):
+    feedbacks: List[Dict[str, Any]]
