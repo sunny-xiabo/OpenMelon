@@ -35,7 +35,7 @@ class APIExecutionStoreBase(BasePostgresStore):
         self._conn.execute(
             """
             UPDATE runs
-            SET environment_name = COALESCE(data #>> '{execution_options,environment_snapshot,name}', '')
+            SET environment_name = COALESCE(data::jsonb #>> '{execution_options,environment_snapshot,name}', '')
             WHERE environment_name = ''
             """
         )
@@ -44,7 +44,7 @@ class APIExecutionStoreBase(BasePostgresStore):
         self._conn.execute(
             """
             UPDATE knowledge_items
-            SET status = COALESCE(NULLIF(data #>> '{status}', ''), 'active')
+            SET status = COALESCE(NULLIF(data::jsonb #>> '{status}', ''), 'active')
             WHERE status = ''
             """
         )
