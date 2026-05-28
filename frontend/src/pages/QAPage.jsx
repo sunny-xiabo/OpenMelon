@@ -510,16 +510,6 @@ export default function QAPage({ isActive = true }) {
                 />
               ))
             )}
-            {messages.map((m, i) => (
-              <MessageBubble
-                key={i}
-                message={m}
-                feedback={feedbackMap[i]}
-                onRetry={() => handleRetry(i)}
-                onFeedback={(fb) => handleFeedback(i, fb)}
-                onCitationClick={handleCitationClick}
-              />
-            ))}
             {isStreaming && streamingContent && <MessageBubble message={{ role: 'assistant', content: streamingContent }} />}
             {isStreaming && !streamingContent && <MessageBubble message={{ role: 'assistant', content: 'AI 正在思考中...', loading: true }} />}
           </Box>
