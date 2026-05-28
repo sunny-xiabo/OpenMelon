@@ -325,6 +325,51 @@ class GraphOperations:
 
             return GraphData(nodes=nodes, relationships=rels)
 
+    async def get_shortest_path(
+        self, source_id: str, target_id: str, max_depth: int = 5
+    ) -> GraphData:
+        """Find shortest path between two nodes by internal element ID."""
+        # elementId() is Neo4j 5.x+; fall back to id() for older versions.
+        query = f"""
+            MATCH (a), (b)
+            WHERE elementId(a) = $source_id AND elementId(b) = $target_id
+            MATCH path = shortestPath((a)-[*..{max_depth}]-(b))
+            RETURN path
+        """
+        async with self._driver.session() as session:
+            result = await session.run(query, source_id=source_id, target_id=target_id)
+            record = await result.single()
+            if not record:
+                return GraphData()
+
+            path = record["path"]
+            nodes = []
+            seen_nodes: set = set()
+            for node in path.nodes:
+                nid = str(node.id)
+                if nid not in seen_nodes:
+                    seen_nodes.add(nid)
+                    nodes.append(
+                        GraphNode(
+                            id=nid,
+                            labels=list(node.labels),
+                            properties=dict(node),
+                        )
+                    )
+
+            rels = []
+            for rel in path.relationships:
+                rels.append(
+                    GraphRelationship(
+                        source=str(rel.start_node.id),
+                        target=str(rel.end_node.id),
+                        type=rel.type,
+                        properties=dict(rel),
+                    )
+                )
+
+            return GraphData(nodes=nodes, relationships=rels)
+
     async def run_cypher(
         self, cypher: str, params: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:

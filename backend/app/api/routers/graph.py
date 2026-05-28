@@ -133,6 +133,35 @@ async def graph_full(
     except Exception as e:
         raise InternalError(details=str(e))
 
+@router.get("/path", response_model=GraphData)
+async def graph_shortest_path(
+    source: str = Query(..., description="Source node element ID"),
+    target: str = Query(..., description="Target node element ID"),
+    max_depth: int = Query(default=5, ge=1, le=10),
+    graph_ops = Depends(get_graph_ops),
+):
+    """Return the shortest path between two graph nodes."""
+    try:
+        subgraph = await graph_ops.get_shortest_path(source, target, max_depth)
+
+        nodes = [
+            GraphNode(
+                id=n.id,
+                label=n.properties.get("name", n.id),
+                group=get_primary_node_type(n.labels),
+                labels=list(n.labels),
+                properties=_serialize_props(n.properties),
+            )
+            for n in subgraph.nodes
+        ]
+        rels = [
+            GraphRel(source=r.source, target=r.target, label=r.type)
+            for r in subgraph.relationships
+        ]
+        return GraphData(nodes=nodes, relationships=rels)
+    except Exception as e:
+        raise InternalError(details=str(e))
+
 @router.get("/filters")
 async def graph_filters(request: Request):
     graph_ops = getattr(request.app.state, "graph_ops", None)
