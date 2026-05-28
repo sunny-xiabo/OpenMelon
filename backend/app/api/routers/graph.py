@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from typing import Optional
@@ -35,7 +36,31 @@ from app.api.deps import (
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
-_virtual_node_cache = {}
+class _LRUCache:
+    """Simple LRU cache with max size for virtual node caching."""
+
+    def __init__(self, maxsize: int = 500) -> None:
+        self._maxsize = maxsize
+        self._data: OrderedDict = OrderedDict()
+
+    def __contains__(self, key: str) -> bool:
+        if key in self._data:
+            self._data.move_to_end(key)
+            return True
+        return False
+
+    def __getitem__(self, key: str):
+        self._data.move_to_end(key)
+        return self._data[key]
+
+    def __setitem__(self, key: str, value) -> None:
+        if key in self._data:
+            self._data.move_to_end(key)
+        self._data[key] = value
+        if len(self._data) > self._maxsize:
+            self._data.popitem(last=False)
+
+_virtual_node_cache = _LRUCache(maxsize=500)
 
 
 def _serialize_props(props: dict) -> dict:
