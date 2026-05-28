@@ -236,6 +236,18 @@ export default function TestCasePage({ isActive = true }) {
     })
   ), [moduleFilter, parsedTestCases, priorityFilter]);
 
+  const handleTestCasesUpdate = useCallback((updatedFiltered) => {
+    setParsedTestCases((prev) => {
+      const next = [...prev];
+      const updatedMap = new Map(updatedFiltered.map((tc) => [tc.id, tc]));
+      for (let i = 0; i < next.length; i++) {
+        const replacement = updatedMap.get(next[i].id);
+        if (replacement) next[i] = replacement;
+      }
+      return next;
+    });
+  }, []);
+
   const totalStepCount = useMemo(() => (
     filteredTestCases.reduce((sum, t) => sum + (t.steps?.length || 0), 0)
   ), [filteredTestCases]);
@@ -353,7 +365,7 @@ export default function TestCasePage({ isActive = true }) {
                 storingVector={storeMutation.isPending}
               />
             ) : parsedTestCases.length > 0 ? (
-              <TestCaseListView testCases={filteredTestCases} />
+              <TestCaseListView testCases={filteredTestCases} onUpdate={handleTestCasesUpdate} />
             ) : (
               <Paper variant="outlined" sx={{ flex: 1, p: 1.75, overflow: 'auto', borderRadius: 2.5, bgcolor: '#fbfcff' }}>
                 <Box className="chat-markdown" sx={{ fontSize: 13, lineHeight: 1.6, '& pre': { whiteSpace: 'pre-wrap' } }}>
