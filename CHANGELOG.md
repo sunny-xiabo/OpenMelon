@@ -19,6 +19,7 @@
 - **测试用例生成取消**：生成过程中显示"取消生成"按钮，通过 AbortController + reader.cancel() 双重取消流式读取。
 - **测试用例表单草稿保存**：生成表单的 7 个字段自动保存到 localStorage，页面刷新后恢复，生成成功或手动重置时清除。
 - **测试用例内联编辑**：TestCaseListView 从纯 Markdown 渲染改为可编辑卡片布局，标题、优先级（点击循环高/中/低）、描述、前置条件、测试步骤均可内联编辑后再导出。
+- **PostgreSQL BM25 混合检索**：新增 `document_chunks_fts` 表（tsvector + GIN 索引），文档入库时自动同步到 PostgreSQL。`MultiChannelRetriever` 新增 `hybrid_vector_bm25_retrieve` 方法，向量检索和 BM25 关键词检索并行执行后通过 RRF（Reciprocal Rank Fusion, K=60）融合排序，再经 BGE Reranker 精排。通过 `USE_BM25` 和 `BM25_TOP_K` 配置控制开关和返回数量。
 
 ### 变更 (Changed)
 - **硬编码 URL 外部化**：`llm_provider_registry.py` 中 `openai_compat` 提供商的默认 `api_base_url` 从公司内部 `one-api.miotech.com` 改为标准 `api.openai.com`。`service.py` minimal env 默认 `API_BASE_URL` 改为空串。
