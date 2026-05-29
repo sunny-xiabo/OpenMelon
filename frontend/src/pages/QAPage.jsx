@@ -611,11 +611,24 @@ export default function QAPage({ isActive = true }) {
           {/* 会话顶部导航栏 */}
           <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'grey.50' }}>
             <Stack direction="row" spacing={1} alignItems="center">
-              {!sidebarExpanded && (
-                <IconButton size="small" onClick={() => setSidebarExpanded(true)} sx={{ borderRadius: 1.5, border: '1px solid rgba(0,0,0,0.06)', p: 0.5 }}>
-                  <Menu sx={{ fontSize: 16 }} />
-                </IconButton>
-              )}
+              <IconButton 
+                size="small" 
+                onClick={() => setSidebarExpanded(!sidebarExpanded)} 
+                title={sidebarExpanded ? "收起侧边栏" : "展开侧边栏"}
+                sx={{ 
+                  borderRadius: 1.5, 
+                  border: '1px solid', 
+                  borderColor: sidebarExpanded ? 'transparent' : 'rgba(0,0,0,0.06)', 
+                  p: 0.5,
+                  color: sidebarExpanded ? 'text.secondary' : 'primary.main',
+                  bgcolor: sidebarExpanded ? 'transparent' : 'rgba(26,115,232,0.04)',
+                  '&:hover': {
+                    bgcolor: 'rgba(0,0,0,0.03)'
+                  }
+                }}
+              >
+                <Menu sx={{ fontSize: 16 }} />
+              </IconButton>
               <Typography variant="body2" sx={{ fontWeight: 800, color: 'slate.800' }}>
                 对话窗口
               </Typography>
