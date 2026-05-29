@@ -71,8 +71,14 @@ function EditableField({ value, onChange, multiline = false }) {
 
 const PRIORITIES = ['高', '中', '低'];
 
-const priorityColor = (p) =>
-  p === '高' ? 'error' : p === '中' ? 'warning' : 'success';
+const PRIORITY_ALIASES = { P0: '高', P1: '中', P2: '低', High: '高', Medium: '中', Low: '低', high: '高', medium: '中', low: '低' };
+
+export const normalizePriority = (p) => PRIORITY_ALIASES[p] || (PRIORITIES.includes(p) ? p : '中');
+
+const priorityColor = (p) => {
+  const n = normalizePriority(p);
+  return n === '高' ? 'error' : n === '中' ? 'warning' : 'success';
+};
 
 export default function TestCaseListView({ testCases, onUpdate }) {
   if (!testCases?.length) {
@@ -138,14 +144,15 @@ export default function TestCaseListView({ testCases, onUpdate }) {
 
             <Chip
               size="small"
-              label={tc.priority || '中'}
+              label={normalizePriority(tc.priority)}
               color={priorityColor(tc.priority)}
               onClick={
                 onUpdate
                   ? () => {
+                      const current = normalizePriority(tc.priority);
                       const next =
                         PRIORITIES[
-                          (PRIORITIES.indexOf(tc.priority) + 1) %
+                          (PRIORITIES.indexOf(current) + 1) %
                             PRIORITIES.length
                         ];
                       updateField(tcIndex, 'priority', next);

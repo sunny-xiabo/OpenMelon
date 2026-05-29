@@ -11,13 +11,14 @@ import rehypeRaw from 'rehype-raw';
 import { testCaseAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import StageOutput from '../components/StageOutput';
-import TestCaseListView from '../components/TestCaseListView';
+import TestCaseListView, { normalizePriority } from '../components/TestCaseListView';
 import { parseTestCasesFromMarkdown } from '../utils/parseTestCases';
 import EmptyState from '../components/EmptyState';
 import { ALL_EXTS } from '../features/TestCase/constants';
 import { isImage } from '../features/TestCase/utils';
 import { usePromptHubOptions } from '../features/TestCase/hooks/usePromptHubOptions';
 import GenerationPanel from '../features/TestCase/components/GenerationPanel';
+import ConfirmDialog from '../components/ConfirmDialog';
 import ResultFilters from '../features/TestCase/components/ResultFilters';
 import ResultHeader, { ResultActionBar } from '../features/TestCase/components/ResultHeader';
 import ResultSummaryCards from '../features/TestCase/components/ResultSummaryCards';
@@ -63,6 +64,7 @@ export default function TestCasePage({ isActive = true }) {
   // 生成过程状态
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState('');
+  const [storeConfirmOpen, setStoreConfirmOpen] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [parsedTestCases, setParsedTestCases] = useState([]);
   
@@ -219,7 +221,7 @@ export default function TestCasePage({ isActive = true }) {
 
   const priorityOptions = useMemo(() => {
     const set = new Set();
-    parsedTestCases.forEach((t) => t.priority?.trim() && set.add(t.priority.trim()));
+    parsedTestCases.forEach((t) => t.priority?.trim() && set.add(normalizePriority(t.priority.trim())));
     return Array.from(set);
   }, [parsedTestCases]);
 
@@ -231,7 +233,7 @@ export default function TestCasePage({ isActive = true }) {
 
   const filteredTestCases = useMemo(() => (
     parsedTestCases.filter((t) => {
-      const matchesPriority = priorityFilter === 'all' || t.priority === priorityFilter;
+      const matchesPriority = priorityFilter === 'all' || normalizePriority(t.priority) === priorityFilter;
       const matchesModule = moduleFilter === 'all' || t.module === moduleFilter;
       return matchesPriority && matchesModule;
     })
@@ -255,8 +257,14 @@ export default function TestCasePage({ isActive = true }) {
 
   const hasResult = streamingContent.length > 0;
 
+  const handleConfirmStore = () => {
+    storeMutation.mutate({ testCases: filteredTestCases, moduleName });
+    setStoreConfirmOpen(false);
+  };
+
   return (
-    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent', flexDirection: isNarrow ? 'column' : 'row' }}>
+    <>
+      <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent', flexDirection: isNarrow ? 'column' : 'row' }}>
       <GenerationPanel
         availableModules={availableModules}
         clearFile={clearFile}
@@ -315,7 +323,7 @@ export default function TestCasePage({ isActive = true }) {
             setExportAnchorEl={setExportAnchorEl}
             setViewMode={setViewMode}
             onPrefetchMindMap={() => prefetchMindMapEngine().catch(() => {})}
-            storeToVector={() => storeMutation.mutate({ testCases: filteredTestCases, moduleName })}
+            storeToVector={() => setStoreConfirmOpen(true)}
             storingVector={storeMutation.isPending}
             vectorStatus={vectorStatus}
             viewMode={viewMode}
@@ -362,7 +370,7 @@ export default function TestCasePage({ isActive = true }) {
                 setViewMode={setViewMode}
                 exportExcel={() => exportMutation.mutate({ type: 'excel', data: filteredTestCases })}
                 exportXMind={() => exportMutation.mutate({ type: 'xmind', data: filteredTestCases })}
-                storeToVector={() => storeMutation.mutate({ testCases: filteredTestCases, moduleName })}
+                storeToVector={() => setStoreConfirmOpen(true)}
                 storingVector={storeMutation.isPending}
               />
             ) : parsedTestCases.length > 0 ? (
@@ -383,5 +391,14 @@ export default function TestCasePage({ isActive = true }) {
         </Box>
       </Paper>
     </Box>
+      <ConfirmDialog
+        open={storeConfirmOpen}
+        onCancel={() => setStoreConfirmOpen(false)}
+        onConfirm={handleConfirmStore}
+        title="确认存入向量库"
+        message={`即将将 ${filteredTestCases.length} 个测试用例存入向量库，供后续 RAG 检索使用。确认操作？`}
+        confirmText="确认存入"
+      />
+    </>
   );
 }
