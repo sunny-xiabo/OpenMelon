@@ -64,7 +64,10 @@ export function useFileActions() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: MANAGE_KEYS.files });
       showSnackbar('重新索引任务已启动', { severity: 'success' });
-    }
+    },
+    onError: (err) => {
+      showSnackbar('重新索引失败: ' + (err.message || '未知错误'), { severity: 'error' });
+    },
   });
 
   return { deleteFile, reindexFile };

@@ -38,6 +38,8 @@ export default function ManagePage() {
   const [confirmDialog, setConfirmDialog] = useState({ open: false, message: '', onConfirm: null });
 
   // 2. 上传相关状态
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadMode, setUploadMode] = useState('single'); // 'single' or 'folder'
   const [activeTaskId, setActiveTaskId] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -129,6 +131,10 @@ export default function ManagePage() {
             uploadProgress={uploadProgress}
             doUpload={handleUpload}
             handleDrop={(list) => setSelectedFiles(prev => [...prev, ...Array.from(list)])}
+            dragOver={dragOver}
+            setDragOver={setDragOver}
+            uploadMode={uploadMode}
+            setUploadMode={setUploadMode}
           />
         </Box>
 
@@ -157,7 +163,7 @@ export default function ManagePage() {
           <IndexTable
             paginatedFiles={paginatedFiles}
             selected={selected}
-            toggleAll={(e) => setSelected(e.target.checked ? new Set(filteredFiles.map(f => f.id)) : new Set())}
+            toggleAll={(e) => setSelected(e.target.checked ? new Set(paginatedFiles.map(f => f.id)) : new Set())}
             toggleOne={(id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; })}
             doDelete={requestDelete}
             doReindex={(id) => reindexFile.mutate(id)}
@@ -168,8 +174,18 @@ export default function ManagePage() {
             goToPage={setPage}
             files={filteredFiles} selected={selected}
             doBatchDelete={async () => {
-              for (const id of selected) await deleteFile.mutateAsync(id);
+              let failed = 0;
+              for (const id of selected) {
+                try {
+                  await deleteFile.mutateAsync(id);
+                } catch {
+                  failed++;
+                }
+              }
               setSelected(new Set());
+              if (failed > 0) {
+                showSnackbar(`${failed} 个文件删除失败`, { severity: 'error' });
+              }
             }}
           />
         </Paper>
