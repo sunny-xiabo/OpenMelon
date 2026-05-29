@@ -13,6 +13,8 @@ import {
   Close as CloseIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  KeyboardDoubleArrowLeft,
+  Search,
 } from '@mui/icons-material';
 import ConfirmDialog from '../../../components/ConfirmDialog';
 import { formatRelativeTime } from '../utils';
@@ -34,22 +36,59 @@ export default function SessionHistoryPanel({
   setEditingSession,
   setSessionListExpanded,
   confirmDeleteSession,
+  onCollapseSidebar,
+  searchQuery,
+  onSearchChange,
 }) {
   return (
     <>
       <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'grey.50' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer' }} onClick={() => setSessionListExpanded(!sessionListExpanded)}>
-            <Typography variant="caption" fontWeight={700} color="text.secondary">
-              历史会话 {sessions.length > 0 && `(${sessions.length})`}
-            </Typography>
-            <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
-              {sessionListExpanded ? '▾' : '▸'}
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <IconButton size="small" onClick={onCollapseSidebar} sx={{ borderRadius: 1.5, p: 0.5, mr: 0.5 }}>
+              <KeyboardDoubleArrowLeft sx={{ fontSize: 16 }} />
+            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, cursor: 'pointer' }} onClick={() => setSessionListExpanded(!sessionListExpanded)}>
+              <Typography variant="caption" fontWeight={700} color="text.secondary">
+                会话历史 {sessions.length > 0 && `(${sessions.length})`}
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+                {sessionListExpanded ? '▾' : '▸'}
+              </Typography>
+            </Box>
           </Box>
-          <Button size="small" startIcon={<Add fontSize="small" />} onClick={handleNewSession}>新建会话</Button>
+          <Button size="small" startIcon={<Add fontSize="small" />} onClick={handleNewSession} sx={{ py: 0.25, px: 1, fontSize: '11px', fontWeight: 700 }}>
+            新建会话
+          </Button>
         </Box>
-        <Collapse in={sessionListExpanded}>
+
+        {/* 搜索会话框 */}
+        <Box sx={{ mt: 1 }}>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="搜索会话..."
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <Search sx={{ fontSize: 15, color: 'text.disabled', mr: 0.75 }} />
+              ),
+              sx: {
+                borderRadius: 2,
+                fontSize: '11.5px',
+                bgcolor: 'white',
+                '& fieldset': { borderColor: 'rgba(0,0,0,0.06)' },
+                px: 1,
+                py: 0
+              }
+            }}
+          />
+        </Box>
+      </Box>
+
+      <Collapse in={sessionListExpanded}>
+        <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
           <Box sx={{ mt: 0.75, maxHeight: 180, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
             {sessions.length === 0 ? (
               <Typography variant="caption" color="text.disabled" sx={{ py: 1, textAlign: 'center' }}>
@@ -132,8 +171,8 @@ export default function SessionHistoryPanel({
               })
             )}
           </Box>
-        </Collapse>
-      </Box>
+        </Box>
+      </Collapse>
 
       <ConfirmDialog
         open={deleteConfirm.open}

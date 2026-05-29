@@ -13,7 +13,8 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { AttachFileOutlined } from '@mui/icons-material';
+import { AttachFileOutlined, MenuOpen, Menu, AccountTree } from '@mui/icons-material';
+import { Stack } from '@mui/material';
 import { graphAPI, chatAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
 import PageHeader from '../components/PageHeader';
@@ -130,6 +131,9 @@ export default function QAPage({ isActive = true }) {
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
+  const [graphExpanded, setGraphExpanded] = useState(true);
+  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const [includeHistory, setIncludeHistory] = useState(true);
   const [sessionListExpanded, setSessionListExpanded] = useState(true);
   const [streamingContent, setStreamingContent] = useState('');
@@ -164,6 +168,14 @@ export default function QAPage({ isActive = true }) {
 
   // 2. 使用 TanStack Query Hooks
   const { data: sessions = [] } = useSessions();
+
+  // 过滤历史会话
+  const filteredSessions = useMemo(() => {
+    if (!sessionSearchQuery.trim()) return sessions;
+    const query = sessionSearchQuery.toLowerCase();
+    return sessions.filter(s => (s.title || s.id).toLowerCase().includes(query));
+  }, [sessions, sessionSearchQuery]);
+
   const { data: history = [] } = useChatHistory(currentSessionId);
   const { data: status, refetch: refetchGraphStatus } = useGraphStatus();
   const { data: filters = { doc_types: [], modules: [] } } = useGraphFilters();
@@ -568,29 +580,59 @@ export default function QAPage({ isActive = true }) {
       
       <Box sx={{ flex: 1, display: 'flex', minHeight: 0, flexDirection: isNarrow ? 'column' : 'row', gap: 2, p: 2, overflow: isNarrow ? 'auto' : 'hidden' }}>
         {/* 左侧：会话历史 */}
-        <Paper elevation={0} sx={{ width: isNarrow ? '100%' : 280, flex: isNarrow ? '0 0 auto' : '0 0 280px', display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
-          <SessionHistoryPanel
-            sessions={sessions}
-            currentSession={currentSessionId}
-            sessionListExpanded={sessionListExpanded}
-            setSessionListExpanded={setSessionListExpanded}
-            handleNewSession={handleNewSession}
-            handleSwitchSession={setCurrentSessionId}
-            handleStartRename={handleStartRename}
-            handleDeleteSession={handleDeleteClick}
-            editingSession={editingSession}
-            editTitle={editTitle}
-            setEditTitle={setEditTitle}
-            handleSaveRename={handleSaveRename}
-            setEditingSession={setEditingSession}
-            deleteConfirm={deleteConfirm}
-            setDeleteConfirm={setDeleteConfirm}
-            confirmDeleteSession={confirmDelete}
-          />
-        </Paper>
+        {sidebarExpanded && (
+          <Paper elevation={0} sx={{ width: isNarrow ? '100%' : 280, flex: isNarrow ? '0 0 auto' : '0 0 280px', display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden' }}>
+            <SessionHistoryPanel
+              sessions={filteredSessions}
+              currentSession={currentSessionId}
+              sessionListExpanded={sessionListExpanded}
+              setSessionListExpanded={setSessionListExpanded}
+              handleNewSession={handleNewSession}
+              handleSwitchSession={setCurrentSessionId}
+              handleStartRename={handleStartRename}
+              handleDeleteSession={handleDeleteClick}
+              editingSession={editingSession}
+              editTitle={editTitle}
+              setEditTitle={setEditTitle}
+              handleSaveRename={handleSaveRename}
+              setEditingSession={setEditingSession}
+              deleteConfirm={deleteConfirm}
+              setDeleteConfirm={setDeleteConfirm}
+              confirmDeleteSession={confirmDelete}
+              onCollapseSidebar={() => setSidebarExpanded(false)}
+              searchQuery={sessionSearchQuery}
+              onSearchChange={setSessionSearchQuery}
+            />
+          </Paper>
+        )}
 
         {/* 中间：聊天窗口 */}
         <Paper elevation={0} sx={{ flex: isNarrow ? '0 0 420px' : 1, minHeight: isNarrow ? 420 : 0, display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
+          {/* 会话顶部导航栏 */}
+          <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: 'grey.50' }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              {!sidebarExpanded && (
+                <IconButton size="small" onClick={() => setSidebarExpanded(true)} sx={{ borderRadius: 1.5, border: '1px solid rgba(0,0,0,0.06)', p: 0.5 }}>
+                  <Menu sx={{ fontSize: 16 }} />
+                </IconButton>
+              )}
+              <Typography variant="body2" sx={{ fontWeight: 800, color: 'slate.800' }}>
+                对话窗口
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Button 
+                size="small" 
+                variant="outlined" 
+                onClick={() => setGraphExpanded(!graphExpanded)}
+                startIcon={<AccountTree sx={{ fontSize: 15 }} />}
+                sx={{ borderRadius: 2, fontSize: '11px', fontWeight: 700, py: 0.5 }}
+              >
+                {graphExpanded ? '隐藏图谱' : '显示图谱'}
+              </Button>
+            </Stack>
+          </Box>
+
           <Box ref={scrollRef} sx={{ flex: 1, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             {messages.length === 0 ? (
               <ChatWelcomeArea onStarterClick={(prompt) => handleSendMessage(prompt)} />
@@ -686,27 +728,29 @@ export default function QAPage({ isActive = true }) {
         </Paper>
 
         {/* 右侧：图谱 */}
-        <GraphInsightPanel
-          containerRef={containerRef}
-          graphReady={graphReady}
-          graphLoading={graphLoading}
-          graphError={graphError}
-          legend={legend}
-          filters={filters}
-          docType={docType}
-          setDocType={setDocType}
-          moduleFilter={moduleFilter}
-          setModuleFilter={setModuleFilter}
-          showChunks={showChunks}
-          setShowChunks={setShowChunks}
-          searchText={searchText}
-          setSearchText={setSearchText}
-          searchEntity={searchEntity}
-          loadFullGraph={loadFullGraph}
-          checkGraphStatus={refetchGraphStatus}
-          isNarrow={isNarrow}
-          onExport={handleExportGraph}
-        />
+        {graphExpanded && (
+          <GraphInsightPanel
+            containerRef={containerRef}
+            graphReady={graphReady}
+            graphLoading={graphLoading}
+            graphError={graphError}
+            legend={legend}
+            filters={filters}
+            docType={docType}
+            setDocType={setDocType}
+            moduleFilter={moduleFilter}
+            setModuleFilter={setModuleFilter}
+            showChunks={showChunks}
+            setShowChunks={setShowChunks}
+            searchText={searchText}
+            setSearchText={setSearchText}
+            searchEntity={searchEntity}
+            loadFullGraph={loadFullGraph}
+            checkGraphStatus={refetchGraphStatus}
+            isNarrow={isNarrow}
+            onExport={handleExportGraph}
+          />
+        )}
       </Box>
     </Box>
   );
