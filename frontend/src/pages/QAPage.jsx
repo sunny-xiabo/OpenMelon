@@ -13,7 +13,7 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
-import { AttachFileOutlined, MenuOpen, Menu, AccountTree } from '@mui/icons-material';
+import { AttachFileOutlined, Menu, AccountTree } from '@mui/icons-material';
 import { Stack } from '@mui/material';
 import { graphAPI, chatAPI } from '../services/api';
 import { useSnackbar } from '../components/SnackbarProvider';
@@ -135,12 +135,17 @@ export default function QAPage({ isActive = true }) {
   const [graphExpanded, setGraphExpanded] = useState(true);
   const [sessionSearchQuery, setSessionSearchQuery] = useState('');
   const [includeHistory, setIncludeHistory] = useState(true);
+  const [useAgentic, setUseAgentic] = useState(false);
   const [sessionListExpanded, setSessionListExpanded] = useState(true);
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activeMessageIndex, setActiveMessageIndex] = useState(null);
+  const [activeCitationIndex, setActiveCitationIndex] = useState(null);
+  const [activeTab, setActiveTab] = useState(0); // 0: Graph, 1: Citations
   const abortRef = useRef(null);
   const [attachedFiles, setAttachedFiles] = useState([]);
   const fileInputRef = useRef(null);
+  const inputRef = useRef(null);
   
   // 对话框/编辑状态
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, sessionId: null, title: '' });
@@ -235,13 +240,15 @@ export default function QAPage({ isActive = true }) {
         const { done, value } = await reader.read();
         if (done) break;
         fullText += dec.decode(value, { stream: true });
-        setMessages(prev => {
-          const next = [...prev];
-          next[messageIndex] = { role: 'assistant', content: fullText };
-          return next;
-        });
         scrollDown();
       }
+
+      // Mark retried message with empty citations/context (retried answers differ from original)
+      setMessages(prev => {
+        const next = [...prev];
+        next[messageIndex] = { role: 'assistant', content: fullText, citations: [], context_chunks: [] };
+        return next;
+      });
 
       queryClient.invalidateQueries({ queryKey: QA_KEYS.sessions });
       if (currentSessionId) queryClient.invalidateQueries({ queryKey: QA_KEYS.history(currentSessionId) });
@@ -255,27 +262,71 @@ export default function QAPage({ isActive = true }) {
     }
   };
 
-  // 引用点击 - 高亮图谱节点并聚焦到对应位置
-  const handleCitationClick = useCallback((citationIndex) => {
-    if (!networkRef.current?.body) return;
-
-    // 获取当前可见的所有节点索引
-    const nodeIds = networkRef.current.body.nodeIndices;
-    if (!nodeIds || nodeIds.length === 0) return;
-
-    // 清除之前的选中状态
-    networkRef.current.unselectAll();
-
-    // 将引用索引映射到图谱节点，citationIndex 从 1 开始
-    const targetIndex = Math.min(citationIndex - 1, nodeIds.length - 1);
-    if (targetIndex >= 0 && targetIndex < nodeIds.length) {
-      const targetId = nodeIds[targetIndex];
-      networkRef.current.selectNodes([targetId]);
-      networkRef.current.focus(targetId, {
-        scale: 1.5,
-        animation: { duration: 500, easingFunction: 'easeInOutQuad' },
-      });
+  // 修改问题并将内容复制到下方输入框，同时截断会话
+  const handleEditMessage = async (messageIndex, text) => {
+    if (isStreaming) return;
+    try {
+      if (currentSessionId) {
+        await chatAPI.truncateSession(currentSessionId, messageIndex);
+      }
+      setMessages(prev => prev.slice(0, messageIndex));
+      setInputText(text);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    } catch (e) {
+      showSnackbar('加载编辑内容失败: ' + (e.message || '未知错误'), { severity: 'error' });
     }
+  };
+
+  // 引用点击 - 切至溯源 Tab 并高亮滚动到对应的卡片
+  const handleCitationClick = useCallback((citationIndex, messageIndex) => {
+    if (messageIndex !== undefined && messageIndex !== null) {
+      setActiveMessageIndex(messageIndex);
+    }
+    setActiveCitationIndex(citationIndex);
+    setActiveTab(1); // 自动切到“引用溯源” Tab
+    
+    // 平滑滚动至对应的 card
+    setTimeout(() => {
+      const cardEl = document.getElementById(`citation-card-${citationIndex}`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 100);
+  }, []);
+
+  // 引用卡片内定位图谱节点
+  const handleLocateNode = useCallback((nodeLabel) => {
+    if (!nodeLabel) return;
+    setActiveTab(0); // 切回知识图谱 Tab
+    
+    setTimeout(() => {
+      if (!networkRef.current?.body || !graphLibRef.current?.DataSet) return;
+      const nodeIds = networkRef.current.body.nodeIndices;
+      if (!nodeIds || nodeIds.length === 0) return;
+      
+      networkRef.current.unselectAll();
+      
+      const allNodes = networkRef.current.body.data.nodes.get();
+      const targetNode = allNodes.find(
+        n => (n.label || '').toLowerCase().includes(nodeLabel.toLowerCase()) ||
+             (n.id || '').toLowerCase().includes(nodeLabel.toLowerCase()) ||
+             (n.properties?.name || '').toLowerCase().includes(nodeLabel.toLowerCase())
+      );
+      
+      if (targetNode) {
+        networkRef.current.selectNodes([targetNode.id]);
+        networkRef.current.focus(targetNode.id, {
+          scale: 1.5,
+          animation: { duration: 600, easingFunction: 'easeInOutQuad' },
+        });
+      } else {
+        // 模糊搜索
+        setSearchText(nodeLabel);
+        searchEntity(nodeLabel);
+      }
+    }, 150);
   }, []);
 
   // 文件选择
@@ -289,19 +340,39 @@ export default function QAPage({ isActive = true }) {
     setAttachedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  // 同步历史记录到消息列表
+  // 同步历史记录到消息列表 (完整提取 citations, context_chunks 和 reasoning_steps)
   useEffect(() => {
     if (history.length > 0) {
       setMessages(history.map(m => ({ 
         role: m.role, 
         content: m.content, 
-        citations: m.citations || [] 
+        citations: m.citations || [],
+        context_chunks: m.context_chunks || [],
+        reasoning_steps: m.reasoning_steps || []
       })));
       scrollDown();
     } else {
       setMessages([]);
     }
   }, [history]);
+
+  // 当消息列表更新时，自动定位到最新一条助手消息以加载溯源数据
+  useEffect(() => {
+    if (messages.length > 0) {
+      const assistantMessages = messages
+        .map((m, idx) => ({ ...m, idx }))
+        .filter(m => m.role === 'assistant');
+      if (assistantMessages.length > 0) {
+        const lastAss = assistantMessages[assistantMessages.length - 1];
+        setActiveMessageIndex(lastAss.idx);
+      } else {
+        setActiveMessageIndex(null);
+      }
+    } else {
+      setActiveMessageIndex(null);
+      setActiveCitationIndex(null);
+    }
+  }, [messages]);
 
   const renderGraph = useCallback((data, focusLabel) => {
     const DataSet = graphLibRef.current?.DataSet;
@@ -460,28 +531,52 @@ export default function QAPage({ isActive = true }) {
     abortRef.current = controller;
 
     try {
-      const resp = (attachedFiles.length > 0 && !overrideText)
-        ? await chatAPI.queryStreamWithFiles(textToSend, attachedFiles, sid, includeHistory)
-        : await chatAPI.queryStream(textToSend, sid, includeHistory);
-
-      if (!overrideText) {
-        setAttachedFiles([]);
-      }
-      const reader = resp.body.getReader();
-      const dec = new TextDecoder();
       let fullText = '';
+      let citations = [];
+      let context_chunks = [];
+      let reasoning_steps = [];
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        fullText += dec.decode(value, { stream: true });
-        setStreamingContent(fullText);
-        scrollDown();
+      if (useAgentic) {
+        // 智能体多步推理：非流式请求
+        setStreamingContent('');
+        const res = await chatAPI.query(textToSend, sid, includeHistory, true);
+        fullText = res.answer || '';
+        citations = res.citations || [];
+        context_chunks = res.context_chunks || [];
+        reasoning_steps = res.reasoning_steps || [];
+      } else {
+        // 普通流式请求
+        const resp = (attachedFiles.length > 0 && !overrideText)
+          ? await chatAPI.queryStreamWithFiles(textToSend, attachedFiles, sid, includeHistory)
+          : await chatAPI.queryStream(textToSend, sid, includeHistory);
+
+        if (!overrideText) {
+          setAttachedFiles([]);
+        }
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fullText += dec.decode(value, { stream: true });
+          setStreamingContent(fullText);
+          scrollDown();
+        }
       }
 
-      // 流结束，将完整回答加入消息列表
+      // 结束，将完整回答及调试链路、来源等加入消息列表
       if (fullText) {
-        setMessages(prev => [...prev, { role: 'assistant', content: fullText }]);
+        setMessages(prev => [
+          ...prev, 
+          { 
+            role: 'assistant', 
+            content: fullText,
+            citations: citations,
+            context_chunks: context_chunks,
+            reasoning_steps: reasoning_steps
+          }
+        ]);
       }
       setStreamingContent('');
 
@@ -490,7 +585,7 @@ export default function QAPage({ isActive = true }) {
       queryClient.invalidateQueries({ queryKey: QA_KEYS.history(sid) });
     } catch (e) {
       if (e.name !== 'AbortError') {
-        console.warn('Chat stream failed:', e);
+        console.warn('Chat query failed:', e);
         showSnackbar('查询失败: ' + (e.message || '未知错误'), { severity: 'error' });
       }
     } finally {
@@ -546,15 +641,16 @@ export default function QAPage({ isActive = true }) {
     }
   };
 
-  const searchEntity = async () => {
-    if (!searchText.trim()) return;
+  const searchEntity = async (query) => {
+    const q = query ?? searchText;
+    if (!q.trim()) return;
     try {
-      const d = await graphAPI.searchEntity(searchText);
+      const d = await graphAPI.searchEntity(q);
       if (!d || !d.nodes?.length) {
         showSnackbar('未找到相关实体', { severity: 'info' });
         return;
       }
-      renderGraph(d, searchText);
+      renderGraph(d, q);
     } catch (e) {
       showSnackbar('搜索失败: ' + (e.message || '未知错误'), { severity: 'error' });
     }
@@ -651,18 +747,28 @@ export default function QAPage({ isActive = true }) {
               <ChatWelcomeArea onStarterClick={(prompt) => handleSendMessage(prompt)} />
             ) : (
               messages.map((m, i) => (
-                <MessageBubble
-                  key={i}
-                  message={m}
-                  feedback={feedbackMap[i]}
-                  onRetry={() => handleRetry(i)}
-                  onFeedback={(fb) => handleFeedback(i, fb)}
-                  onCitationClick={handleCitationClick}
-                />
+                <Box className="chat-row" sx={{ display: 'flex', flexDirection: 'column', width: '100%' }} key={i}>
+                  <MessageBubble
+                    message={m}
+                    feedback={feedbackMap[i]}
+                    onRetry={() => handleRetry(i)}
+                    onFeedback={(fb) => handleFeedback(i, fb)}
+                    onCitationClick={(citationIdx) => handleCitationClick(citationIdx, i)}
+                    onEdit={(text) => handleEditMessage(i, text)}
+                  />
+                </Box>
               ))
             )}
             {isStreaming && streamingContent && <MessageBubble message={{ role: 'assistant', content: streamingContent }} />}
-            {isStreaming && !streamingContent && <MessageBubble message={{ role: 'assistant', content: 'AI 正在思考中...', loading: true }} />}
+            {isStreaming && !streamingContent && (
+              <MessageBubble 
+                message={{ 
+                  role: 'assistant', 
+                  content: useAgentic ? '智能体正在进行多步检索、关联推理与充分性自评，这可能需要 5-15 秒，请耐心等待...' : 'AI 正在思考中...', 
+                  loading: true 
+                }} 
+              />
+            )}
           </Box>
 
           <Box sx={{ p: 2, borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
@@ -701,6 +807,7 @@ export default function QAPage({ isActive = true }) {
                 <AttachFileOutlined sx={{ fontSize: 20 }} />
               </IconButton>
               <TextField
+                inputRef={inputRef}
                 fullWidth size="small" placeholder="输入您的问题..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
@@ -732,11 +839,35 @@ export default function QAPage({ isActive = true }) {
               </Button>
             </Box>
             
-            <FormControlLabel
-              control={<Checkbox size="small" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />}
-              label={<Typography variant="caption" color="text.secondary">携带历史上下文</Typography>}
-              sx={{ mt: 1, ml: 0 }}
-            />
+            <Stack direction="row" spacing={3} sx={{ mt: 1, alignItems: 'center' }}>
+              <FormControlLabel
+                control={<Checkbox size="small" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />}
+                label={<Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>携带历史上下文</Typography>}
+                sx={{ ml: 0 }}
+              />
+              <FormControlLabel
+                control={<Checkbox size="small" checked={useAgentic} onChange={(e) => setUseAgentic(e.target.checked)} color="primary" />}
+                label={
+                  <Typography 
+                    variant="caption" 
+                    sx={{ 
+                      fontWeight: 700, 
+                      color: useAgentic ? 'primary.main' : 'text.secondary',
+                      background: useAgentic ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                      px: 1,
+                      py: 0.25,
+                      borderRadius: 1.5,
+                      transition: 'all 0.2s ease',
+                      border: '1px solid',
+                      borderColor: useAgentic ? 'rgba(99, 102, 241, 0.2)' : 'transparent'
+                    }}
+                  >
+                    智能体多步推理 (调试模式) ⚡
+                  </Typography>
+                }
+                sx={{ ml: 0 }}
+              />
+            </Stack>
           </Box>
         </Paper>
 
@@ -762,6 +893,11 @@ export default function QAPage({ isActive = true }) {
             checkGraphStatus={refetchGraphStatus}
             isNarrow={isNarrow}
             onExport={handleExportGraph}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            activeMessage={activeMessageIndex !== null ? messages[activeMessageIndex] : null}
+            activeCitationIndex={activeCitationIndex}
+            onLocateNode={handleLocateNode}
           />
         )}
       </Box>

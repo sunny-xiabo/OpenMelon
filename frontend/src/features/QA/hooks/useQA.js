@@ -61,28 +61,6 @@ export function useFeedbacks(sessionId) {
 }
 
 /**
- * 发送问答查询
- */
-export function useChatQuery() {
-  const queryClient = useQueryClient();
-  const showSnackbar = useSnackbar();
-
-  return useMutation({
-    mutationFn: ({ question, sessionId, includeHistory }) => 
-      chatAPI.query(question, sessionId, includeHistory),
-    onSuccess: (_, variables) => {
-      // 使当前历史记录失效
-      queryClient.invalidateQueries({ queryKey: QA_KEYS.history(variables.sessionId) });
-      // 同时刷新会话列表，因为最新消息可能改变了会话的 title 或 updated_at
-      queryClient.invalidateQueries({ queryKey: QA_KEYS.sessions });
-    },
-    onError: (err) => {
-      showSnackbar('查询失败: ' + err.message, { severity: 'error' });
-    }
-  });
-}
-
-/**
  * 会话操作 Mutations
  */
 export function useSessionActions() {
