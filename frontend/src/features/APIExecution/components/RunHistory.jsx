@@ -36,7 +36,7 @@ import {
   WarningAmberOutlined,
 } from '@mui/icons-material';
 import { alpha, useTheme } from '@mui/material/styles';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '../../../api/client';
 import { apiExecutionAPI } from '../../../api/execution';
 import ConfirmDialog from '../../../components/ConfirmDialog';
@@ -110,6 +110,26 @@ export default function RunHistory() {
 
   const [clearAllDialogOpen, setClearAllDialogOpen] = React.useState(false);
   const [copiedSnippet, setCopiedSnippet] = React.useState('');
+  const showSnackbar = useSnackbar();
+  const queryClient = useQueryClient();
+
+  const ingestKnowledgeMutation = useMutation({
+    mutationFn: () => apiExecutionAPI.ingestRunKnowledge(20),
+    onSuccess: (data) => {
+      const count = data?.ingested ?? data?.count ?? 0;
+      showSnackbar(`知识入库完成，处理 ${count} 条记录`, { severity: 'success' });
+      queryClient.invalidateQueries({ queryKey: EXEC_KEYS.all });
+    },
+    onError: (err) => {
+      showSnackbar('知识入库失败: ' + (err.message || '未知错误'), { severity: 'error' });
+    },
+  });
+
+  const { data: queueStatus } = useQuery({
+    queryKey: ['api-execution', 'queue-status'],
+    queryFn: () => apiExecutionAPI.getExecutionQueueStatus(),
+    refetchInterval: 5000,
+  });
 
   const copySnippet = async (key, text) => {
     if (!navigator.clipboard) return;
@@ -141,12 +161,26 @@ export default function RunHistory() {
           <Stack direction="row" spacing={1.5} alignItems="center">
             <HistoryOutlined color="primary" />
             <Typography variant="h6" sx={{ fontWeight: 800 }}>执行历史</Typography>
+            {queueStatus && queueStatus.active_task_count > 0 && (
+              <Chip
+                size="small"
+                color="primary"
+                variant="outlined"
+                label={`${queueStatus.active_task_count} 个运行中`}
+                sx={{ fontWeight: 600, height: 24 }}
+              />
+            )}
           </Stack>
           <Typography variant="body2" color="text.secondary" fontWeight={500}>这里只保留 API 执行记录；知识、任务和模板治理已移到设置里的治理中心。</Typography>
         </Box>
-        <Button variant="outlined" startIcon={<ManageSearchOutlined />} onClick={openGovernanceCenter} sx={{ borderRadius: 2, fontWeight: 700 }}>
-          前往治理中心{automationTasks?.length ? `（${automationTasks.length}）` : ''}
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button variant="outlined" startIcon={<CloudSyncOutlined />} onClick={() => ingestKnowledgeMutation.mutate()} disabled={ingestKnowledgeMutation.isPending} sx={{ borderRadius: 2, fontWeight: 700 }}>
+            {ingestKnowledgeMutation.isPending ? '同步中...' : '同步知识'}
+          </Button>
+          <Button variant="outlined" startIcon={<ManageSearchOutlined />} onClick={openGovernanceCenter} sx={{ borderRadius: 2, fontWeight: 700 }}>
+            前往治理中心{automationTasks?.length ? `（${automationTasks.length}）` : ''}
+          </Button>
+        </Stack>
       </Stack>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 2.5 }}>

@@ -6,12 +6,14 @@ from fastapi import APIRouter
 from app.testcase_gen import router_support as _support
 from app.testcase_gen.router_support import *
 from app.testcase_gen.routes import export, generate, performance, vector
+from app.testcase_gen import model_presets_api
 
 _ROUTE_MODULES = (
     generate,
     export,
     performance,
     vector,
+    model_presets_api,
 )
 
 router = APIRouter(

@@ -3,6 +3,7 @@ from typing import List, Optional, Dict, Any
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.engine.llm_retry import call_llm_with_retry
 
 
 class AgenticRAG:
@@ -39,7 +40,8 @@ class AgenticRAG:
         user_message = f"Question: {question}\nAnswer: {answer}\nConfidence:"
         try:
             model_name = settings.CHAT_MODEL
-            resp = await self.llm_client.chat.completions.create(
+            resp = await call_llm_with_retry(
+                self.llm_client,
                 model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -67,7 +69,8 @@ class AgenticRAG:
         user_message = f"Question: {question}\nPrevious Context:\n{previous_context}\nOptimized Query:"
         try:
             model_name = settings.CHAT_MODEL
-            resp = await self.llm_client.chat.completions.create(
+            resp = await call_llm_with_retry(
+                self.llm_client,
                 model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -100,7 +103,8 @@ class AgenticRAG:
         user_message = f"Question: {question}\n\nContext:\n{contexts_block}\n\n{reasoning_text}\n\nProvide a final answer based on the above."
         try:
             model_name = settings.CHAT_MODEL
-            resp = await self.llm_client.chat.completions.create(
+            resp = await call_llm_with_retry(
+                self.llm_client,
                 model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},

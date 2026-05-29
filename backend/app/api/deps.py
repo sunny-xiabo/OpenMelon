@@ -1,84 +1,29 @@
-import base64
-import hashlib
-import hmac
-import json
-from datetime import datetime, timezone
-from typing import Any
+"""
+API 依赖注入
 
-from fastapi import Depends, Request
-from fastapi.security import APIKeyHeader
+认证逻辑已统一到 app.auth 模块，此处保留向后兼容的 re-export
+以及各类服务 getter 函数。
+"""
 
-from app.api.errors import InvalidRequestError, UnauthorizedError
-from app.config import settings
+from fastapi import Request
+
+from app.api.errors import InvalidRequestError
+
+# --- 从统一认证模块 re-export（向后兼容） ---
+from app.auth import (  # noqa: F401
+    require_auth,
+    require_production_auth,
+    optional_auth,
+    create_jwt_token,
+    verify_jwt_token,
+)
 
 
-ADMIN_API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
+# --- 服务 getter ---
 def _require_service(service, name: str):
     if service is None:
         raise InvalidRequestError(message=f"{name} 当前不可用，请先启动 Neo4j 后重启后端服务。")
     return service
-
-
-def _base64url_decode(value: str) -> bytes:
-    padding = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(f"{value}{padding}".encode("ascii"))
-
-
-def _base64url_encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-
-def _candidate_matches_any(candidate: str | None, values: list[str]) -> bool:
-    if not candidate:
-        return False
-    return any(hmac.compare_digest(candidate, value) for value in values)
-
-
-def _verify_admin_jwt(token: str) -> dict[str, Any] | None:
-    secret = settings.ADMIN_JWT_SECRET.strip()
-    if not secret:
-        return None
-    try:
-        header_part, payload_part, signature_part = token.split(".", 2)
-        expected_signature = hmac.new(
-            secret.encode("utf-8"),
-            f"{header_part}.{payload_part}".encode("ascii"),
-            hashlib.sha256,
-        ).digest()
-        if not hmac.compare_digest(signature_part, _base64url_encode(expected_signature)):
-            return None
-
-        header = json.loads(_base64url_decode(header_part))
-        if header.get("alg") != "HS256":
-            return None
-
-        payload = json.loads(_base64url_decode(payload_part))
-        exp = payload.get("exp")
-        if exp is not None and datetime.now(timezone.utc).timestamp() > float(exp):
-            return None
-        return payload
-    except Exception:
-        return None
-
-
-async def require_production_auth(
-    request: Request,
-    api_key: str | None = Depends(ADMIN_API_KEY_HEADER),
-) -> dict[str, Any]:
-    if not settings.PROTECT_ADMIN_API:
-        return {"authenticated": False, "mode": "open"}
-
-    if _candidate_matches_any(api_key, settings.admin_api_keys):
-        return {"authenticated": True, "method": "api_key"}
-
-    auth_header = request.headers.get("Authorization", "")
-    scheme, _, token = auth_header.partition(" ")
-    if scheme.lower() == "bearer" and _verify_admin_jwt(token.strip()):
-        return {"authenticated": True, "method": "jwt"}
-
-    raise UnauthorizedError(message="未提供有效的管理 API 凭据")
 
 
 def get_graph_ops(request: Request):

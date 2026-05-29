@@ -13,6 +13,7 @@ from autogen_agentchat.base import TaskResult
 from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 
 from app.testcase_gen.utils.llms import get_model_client, get_model_display_name
+from app.testcase_gen.utils.error_handler import with_retry
 from app.testcase_gen.services.prompt_safety import (
     render_json_data_block,
     render_text_data_block,
@@ -57,6 +58,7 @@ class CrossReviewAgent:
     def __init__(self):
         self.name = "CrossReviewAgent"
 
+    @with_retry()
     async def review_for_issues(
         self,
         test_cases_content: str,

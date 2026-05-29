@@ -18,6 +18,7 @@ from app.testcase_gen.utils.llms import (
     get_model_client,
     get_model_display_name,
 )
+from app.testcase_gen.utils.error_handler import with_retry_stream
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.prompt_assembler import build_generator_prompt
 
@@ -40,6 +41,7 @@ class TestCaseGenerator:
         else:
             return get_model_client(use_vision=False)
 
+    @with_retry_stream()
     async def generate_test_cases_stream(
         self,
         file_path: str,

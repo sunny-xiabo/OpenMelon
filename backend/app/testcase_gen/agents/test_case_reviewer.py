@@ -17,6 +17,7 @@ from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 from app.testcase_gen.utils.llms import get_model_client, get_model_display_name
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.prompt_assembler import build_reviewer_prompt
+from app.testcase_gen.utils.error_handler import with_retry_stream
 
 
 class TestCaseReviewer:
@@ -27,6 +28,7 @@ class TestCaseReviewer:
     def __init__(self):
         self.name = "TestCaseReviewer"
 
+    @with_retry_stream()
     async def review_test_cases_stream(
         self,
         test_cases_content: str,

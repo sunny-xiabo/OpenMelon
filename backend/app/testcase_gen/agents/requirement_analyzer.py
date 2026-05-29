@@ -18,6 +18,7 @@ from app.testcase_gen.utils.llms import (
     get_model_client,
     get_model_display_name,
 )
+from app.testcase_gen.utils.error_handler import with_retry_stream
 from app.testcase_gen.utils.logger import logger
 from app.testcase_gen.services.pdf_service import pdf_service
 from app.testcase_gen.services.openapi_service import openapi_service
@@ -83,6 +84,7 @@ class RequirementAnalyzer:
             logger.warning(f"读取文件内容失败: {str(e)}")
             return ""
 
+    @with_retry_stream()
     async def analyze_requirements_stream(
         self,
         file_path: str,

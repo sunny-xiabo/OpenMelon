@@ -25,7 +25,7 @@ class TimeoutError(Exception):
 
 def with_retry(max_retries: int = 3, delay: float = 1.0) -> Callable:
     """
-    重试装饰器
+    重试装饰器（用于普通 async 函数）
 
     参数:
         max_retries: 最大重试次数
@@ -58,6 +58,58 @@ def with_retry(max_retries: int = 3, delay: float = 1.0) -> Callable:
                 f"执行失败，已重试{max_retries}次",
                 agent_name=func.__name__,
                 original_error=last_error
+            )
+
+        return wrapper
+    return decorator
+
+
+def with_retry_stream(max_retries: int = 3, delay: float = 1.0) -> Callable:
+    """
+    重试装饰器（用于 async generator，即流式输出函数）
+
+    仅在尚未产出任何内容时重试；已产出内容后遇到异常则直接向上抛出，
+    避免向客户端重复发送数据。
+
+    参数:
+        max_retries: 最大重试次数
+        delay: 重试延迟（秒）
+
+    返回:
+        装饰器函数
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        async def wrapper(*args, **kwargs) -> AsyncGenerator[str, None]:
+            for attempt in range(max_retries):
+                yielded_something = False
+                try:
+                    async for chunk in func(*args, **kwargs):
+                        yielded_something = True
+                        yield chunk
+                    return  # 正常结束
+                except (GeneratorExit, ValueError):
+                    return  # 客户端断开或数据格式问题，不重试
+                except Exception as e:
+                    if yielded_something:
+                        # 已向客户端输出部分内容，不能重试（会重复）
+                        logger.error(
+                            f"流式执行中途失败: {func.__name__}, 已输出部分内容，无法重试: {e}"
+                        )
+                        raise
+
+                    logger.warning(
+                        f"流式执行失败 (尝试 {attempt + 1}/{max_retries}): {func.__name__}, "
+                        f"错误: {str(e)}"
+                    )
+
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(delay * (attempt + 1))
+
+            logger.error(f"所有重试失败: {func.__name__}")
+            raise AgentExecutionError(
+                f"执行失败，已重试{max_retries}次",
+                agent_name=func.__name__,
             )
 
         return wrapper

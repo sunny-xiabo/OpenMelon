@@ -14,6 +14,7 @@ from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 from app.testcase_gen.utils.llms import get_model_client, get_model_display_name
 from app.testcase_gen.services.prompt_assembler import build_revision_prompt
 from app.testcase_gen.utils.logger import logger
+from app.testcase_gen.utils.error_handler import with_retry_stream
 
 
 _REVISION_SYSTEM = """你是一位资深测试工程师，正在对初稿进行靶向修订。
@@ -38,6 +39,7 @@ class RevisionAgent:
     def __init__(self):
         self.name = "RevisionAgent"
 
+    @with_retry_stream()
     async def revise_test_cases(
         self,
         initial_cases: str,

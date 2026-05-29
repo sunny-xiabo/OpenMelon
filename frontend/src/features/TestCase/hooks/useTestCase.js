@@ -82,7 +82,8 @@ export function useExportTestCases() {
       throw new Error('不支持的导出类型');
     },
     onSuccess: (blob, { type }) => {
-      const extension = type === 'xmind' ? 'xmind' : 'xlsx';
+      const extMap = { xmind: 'xmind', markdown: 'md', excel: 'xlsx' };
+      const extension = extMap[type] || 'xlsx';
       const filename = `测试用例_${new Date().getTime()}.${extension}`;
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);

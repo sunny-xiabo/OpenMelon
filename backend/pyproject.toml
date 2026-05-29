@@ -1,6 +1,6 @@
 [project]
 name = "openmelon"
-version = "0.2.8.9"
+version = "0.2.9.0"
 description = "Knowledge graph + vector RAG system for documentation Q&A"
 readme = "README.md"
 requires-python = ">=3.11"

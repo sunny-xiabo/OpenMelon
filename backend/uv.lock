@@ -1975,7 +1975,7 @@ wheels = [
 
 [[package]]
 name = "openmelon"
-version = "0.2.8.9"
+version = "0.2.9.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiofiles" },

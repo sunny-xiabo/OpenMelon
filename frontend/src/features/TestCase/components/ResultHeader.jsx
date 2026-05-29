@@ -21,6 +21,7 @@ export default function ResultHeader({
   checkVectorStatus,
   exportAnchorEl,
   exportExcel,
+  exportMarkdown,
   exportXMind,
   generating,
   hasResult,
@@ -137,6 +138,7 @@ export default function ResultHeader({
 export function ResultActionBar({
   exportAnchorEl,
   exportExcel,
+  exportMarkdown,
   exportXMind,
   generating,
   hasResult,
@@ -198,6 +200,7 @@ export function ResultActionBar({
             <Button variant="outlined" size="small" onClick={(e) => setExportAnchorEl(e.currentTarget)} startIcon={<SaveAlt fontSize="small" />}>用例导出</Button>
             <Menu anchorEl={exportAnchorEl} open={Boolean(exportAnchorEl)} onClose={() => setExportAnchorEl(null)}>
               <MenuItem onClick={exportExcel} sx={{ minWidth: 150 }}>导出为 Excel</MenuItem>
+              <MenuItem onClick={exportMarkdown} sx={{ minWidth: 150 }}>导出为 Markdown</MenuItem>
               <MenuItem onClick={exportXMind} sx={{ minWidth: 150 }}>导出为 XMind</MenuItem>
             </Menu>
           </>

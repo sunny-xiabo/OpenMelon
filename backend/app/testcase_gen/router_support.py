@@ -29,7 +29,7 @@ from app.testcase_gen.services.prompt_assembler import (
     build_prompt_config_context,
     parse_skill_ids,
 )
-from app.runtime_config import current_embedding_config
+from app.testcase_gen.utils.llms import get_embedding_config
 
 
 def _trace_id(prefix: str) -> str:
@@ -98,7 +98,7 @@ async def _stream_with_generation_log(stream, *, trace_id: str, module: str | No
 
 
 async def build_vector_context(llm_client, vector_ops, query_text: str) -> str:
-    embedding_config = current_embedding_config()
+    embedding_config = get_embedding_config()
     model_name = embedding_config["model"]
     if not model_name:
         return ""

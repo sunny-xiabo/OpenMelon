@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { Snackbar, Box, Typography, Slide } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { CheckCircleOutline, ErrorOutline, InfoOutlined, WarningAmberOutlined } from '@mui/icons-material';
@@ -38,6 +38,46 @@ export function SnackbarProvider({ children }) {
     setSeverity(nextSeverity);
     setOpen(true);
   }, []);
+
+  // 全局 API 错误事件消费：client.js 分发的事件统一在这里弹出提示
+  const recentErrorsRef = useRef(new Map());
+  useEffect(() => {
+    const DEDUP_WINDOW_MS = 5000;
+
+    const handleAPIError = (event) => {
+      const error = event.detail;
+      if (!error) return;
+
+      // 去重：相同 code + status 的错误在短时间内只弹一次
+      const dedupKey = `${error.code || 'UNKNOWN'}_${error.status || 0}`;
+      const now = Date.now();
+      const lastSeen = recentErrorsRef.current.get(dedupKey);
+      if (lastSeen && now - lastSeen < DEDUP_WINDOW_MS) return;
+      recentErrorsRef.current.set(dedupKey, now);
+
+      // 定期清理过期的去重记录
+      if (recentErrorsRef.current.size > 50) {
+        for (const [key, ts] of recentErrorsRef.current) {
+          if (now - ts > DEDUP_WINDOW_MS) recentErrorsRef.current.delete(key);
+        }
+      }
+
+      showSnackbar(error.message || '请求失败，请稍后重试', 'error');
+    };
+
+    const handleAuthExpired = (event) => {
+      const error = event.detail;
+      if (!error) return;
+      showSnackbar(error.message || '认证已过期，请重新登录', 'warning');
+    };
+
+    window.addEventListener('openmelon:api-error', handleAPIError);
+    window.addEventListener('openmelon:auth-expired', handleAuthExpired);
+    return () => {
+      window.removeEventListener('openmelon:api-error', handleAPIError);
+      window.removeEventListener('openmelon:auth-expired', handleAuthExpired);
+    };
+  }, [showSnackbar]);
 
   const handleClose = useCallback((event, reason) => {
     if (reason === 'clickaway') return;
