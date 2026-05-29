@@ -59,7 +59,14 @@ async def lifespan(app: FastAPI):
         base_url=settings.API_BASE_URL,
     )
 
-    knowledge_rag = await build_knowledge_rag_components(llm_client, logger)
+    # Initialize PG FTS store and BM25 retriever early so they can be wired into MultiChannelRetriever
+    from app.storage.pg_fts_store import create_pg_fts_store
+    from app.engine.retrieval.pg_bm25_retriever import PGBM25Retriever
+
+    fts_store = create_pg_fts_store()
+    bm25_retriever = PGBM25Retriever(fts_store)
+
+    knowledge_rag = await build_knowledge_rag_components(llm_client, logger, bm25_retriever=bm25_retriever)
 
     app.state.neo4j_client = knowledge_rag.neo4j_client
     app.state.graph_ops = knowledge_rag.graph_ops
@@ -77,17 +84,13 @@ async def lifespan(app: FastAPI):
     app.state.enterprise_integration = enterprise_integration
     app.state.neo4j_driver = knowledge_rag.driver
     app.state.neo4j_available = knowledge_rag.neo4j_available
+    app.state.bm25_retriever = bm25_retriever
 
-    # Initialize PG FTS store and BM25 retriever
-    from app.storage.pg_fts_store import create_pg_fts_store
-    from app.engine.retrieval.pg_bm25_retriever import PGBM25Retriever
-
-    fts_store = create_pg_fts_store()
-    if fts_store is not None:
+    # Attach FTS store to VectorOperations for Neo4j-to-PG sync (requires vector_ops)
+    if fts_store is not None and knowledge_rag.vector_ops is not None:
         knowledge_rag.vector_ops.set_fts_store(fts_store)
         logger.info("PgFtsStore attached to VectorOperations for Neo4j-to-PG sync")
-    bm25_retriever = PGBM25Retriever(fts_store)
-    app.state.bm25_retriever = bm25_retriever
+
     logger.info(
         "BM25 retriever initialized (available=%s, top_k=%d)",
         bm25_retriever.available,

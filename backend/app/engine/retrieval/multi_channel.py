@@ -9,22 +9,27 @@ logger = logging.getLogger(__name__)
 
 
 class MultiChannelRetriever:
-    def __init__(self, graph_ops, vector_ops, openai_client):
+    def __init__(self, graph_ops, vector_ops, openai_client, bm25_retriever=None):
         self.graph_ops = graph_ops
         self.vector_ops = vector_ops
         self.openai_client = openai_client
+        self._bm25_retriever = bm25_retriever
 
-    async def retrieve(self, intent: str, entities: List[str], question: str) -> dict:
+    async def retrieve(self, intent: str, entities: List[str], question: str, metadata_filter: Optional[dict] = None) -> dict:
         if intent == "graph_query":
             return await self.graph_retrieve(entities)
         elif intent == "vector_query":
-            return await self.vector_retrieve(question)
+            if settings.USE_BM25 and self._bm25_retriever:
+                return await self.hybrid_vector_bm25_retrieve(question, metadata_filter=metadata_filter)
+            return await self.vector_retrieve(question, metadata_filter=metadata_filter)
         elif intent == "hybrid_query":
-            return await self.hybrid_retrieve(entities, question)
+            return await self.hybrid_retrieve(entities, question, metadata_filter=metadata_filter)
         elif intent == "visualization":
             return await self.visualize_retrieve(entities)
         else:
-            return await self.vector_retrieve(question)
+            if settings.USE_BM25 and self._bm25_retriever:
+                return await self.hybrid_vector_bm25_retrieve(question, metadata_filter=metadata_filter)
+            return await self.vector_retrieve(question, metadata_filter=metadata_filter)
 
     async def graph_retrieve(self, entities: List[str], depth: Optional[int] = None) -> dict:
         """Retrieve subgraph for entities."""
@@ -68,7 +73,8 @@ class MultiChannelRetriever:
         }
 
     async def vector_retrieve(
-        self, question: str, top_k: Optional[int] = None, use_reranker: bool = True
+        self, question: str, top_k: Optional[int] = None, use_reranker: bool = True,
+        metadata_filter: Optional[dict] = None,
     ) -> dict:
         """Retrieve relevant document chunks using vector similarity."""
         if top_k is None:
@@ -78,7 +84,7 @@ class MultiChannelRetriever:
         reranker_score_threshold = settings.RERANKER_SCORE_THRESHOLD
         embedding = await self._get_embedding(question)
         search_tasks = [
-            asyncio.create_task(self._call_with_timeout(self.vector_ops.similarity_search(embedding, top_k=top_k))),
+            asyncio.create_task(self._call_with_timeout(self.vector_ops.similarity_search(embedding, top_k=top_k, filters=metadata_filter))),
         ]
         has_test_case_search = hasattr(self.vector_ops, "search_similar_test_cases")
         if has_test_case_search:
@@ -131,12 +137,61 @@ class MultiChannelRetriever:
             "context_text": context_text,
         }
 
+    async def hybrid_vector_bm25_retrieve(self, question: str, top_k: int = 10, metadata_filter: dict = None) -> dict:
+        """Vector + BM25 hybrid retrieval with RRF fusion, then optional reranking."""
+        vector_top_k = top_k * 2
+        bm25_top_k = top_k * 2
+
+        # Run vector and BM25 in parallel
+        vector_task = self.vector_retrieve(question, top_k=vector_top_k, metadata_filter=metadata_filter)
+        bm25_task = (
+            self._bm25_retriever.search(question, top_k=bm25_top_k)
+            if self._bm25_retriever
+            else asyncio.sleep(0, result=[])
+        )
+
+        vector_result, bm25_results = await asyncio.gather(vector_task, bm25_task)
+
+        # RRF fusion
+        K = 60
+        scores: dict[str, float] = {}
+        doc_map: dict[str, dict] = {}
+
+        for rank, chunk in enumerate(vector_result.get("chunks", [])):
+            key = f"{chunk.get('filename')}#{chunk.get('chunk_index', 0)}"
+            scores[key] = scores.get(key, 0) + 1 / (K + rank + 1)
+            doc_map[key] = chunk
+
+        for rank, chunk in enumerate(bm25_results):
+            key = f"{chunk.get('filename')}#{chunk.get('chunk_index', 0)}"
+            scores[key] = scores.get(key, 0) + 1 / (K + rank + 1)
+            doc_map[key] = chunk
+
+        merged = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        final_chunks = [doc_map[k] for k, _ in merged[:top_k]]
+
+        # Optional reranking
+        if settings.USE_RERANKER and final_chunks:
+            contents = [c.get("content", "") for c in final_chunks]
+            try:
+                rerank_results = await reranker.rerank(
+                    question, contents, top_k=min(settings.RERANKER_TOP_K, len(final_chunks))
+                )
+                if rerank_results:
+                    final_chunks = [final_chunks[i] for i, _ in rerank_results]
+            except Exception as e:
+                logger.warning("Reranker failed in hybrid BM25: %s", e)
+
+        context_text = "\n\n".join(c.get("content", "") for c in final_chunks)
+        return {"chunks": final_chunks, "context_text": context_text}
+
     async def hybrid_retrieve(
         self,
         entities: List[str],
         question: str,
         depth: Optional[int] = None,
         top_k: Optional[int] = None,
+        metadata_filter: Optional[dict] = None,
     ) -> dict:
         """Combine graph and vector retrieval results with configurable weights."""
         if depth is None:
@@ -149,7 +204,7 @@ class MultiChannelRetriever:
             self._call_with_timeout(self.graph_retrieve(entities, depth=depth))
         )
         vector_task = asyncio.create_task(
-            self._call_with_timeout(self.vector_retrieve(question, top_k=top_k))
+            self._call_with_timeout(self.vector_retrieve(question, top_k=top_k, metadata_filter=metadata_filter))
         )
         graph_result, vector_result = await asyncio.gather(
             graph_task, vector_task, return_exceptions=True

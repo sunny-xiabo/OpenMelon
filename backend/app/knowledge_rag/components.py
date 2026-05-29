@@ -34,7 +34,7 @@ class KnowledgeRAGComponents:
     coverage_service: CoverageService | None = None
 
 
-async def build_knowledge_rag_components(llm_client: Any, logger: Any) -> KnowledgeRAGComponents:
+async def build_knowledge_rag_components(llm_client: Any, logger: Any, bm25_retriever: Any = None) -> KnowledgeRAGComponents:
     neo4j_client = Neo4jClient()
     neo4j_available = False
     driver = None
@@ -65,7 +65,7 @@ async def build_knowledge_rag_components(llm_client: Any, logger: Any) -> Knowle
             await vector_ops.init_external_collections()
 
     intent_router = IntentRouter(llm_client, graph_ops) if graph_ops else None
-    retriever = MultiChannelRetriever(graph_ops, vector_ops, llm_client) if graph_ops and vector_ops else None
+    retriever = MultiChannelRetriever(graph_ops, vector_ops, llm_client, bm25_retriever=bm25_retriever) if graph_ops and vector_ops else None
     generator = RAGGenerator(llm_client)
     agentic_rag = AgenticRAG(llm_client, retriever) if retriever else None
 
