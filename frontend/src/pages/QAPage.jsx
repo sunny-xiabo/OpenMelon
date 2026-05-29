@@ -43,25 +43,25 @@ import {
 function ChatWelcomeArea({ onStarterClick }) {
   const starters = [
     {
-      title: '🔍 系统架构与核心逻辑',
+      title: '系统架构与核心逻辑',
       desc: '介绍一下 OpenMelon 的整体技术架构与核心业务流',
       prompt: '介绍一下 OpenMelon 的整体技术架构与核心业务流，它是如何通过知识图谱与向量数据库配合提供高精准答案的？',
       color: '#1a73e8'
     },
     {
-      title: '🚀 三槽位用例引擎运作',
+      title: '三槽位用例引擎运作',
       desc: '新版用例生成三槽位配置如何运作，三者如何相互独立与回退？',
       prompt: '系统最近新增的用例生成 LLM 三槽位配置（文本、视觉、嵌入）如何运作？各自独立配置时又是如何实现优雅回退的？',
       color: '#9334e6'
     },
     {
-      title: '🔗 索引与图谱一致性',
+      title: '索引与图谱一致性',
       desc: '说明系统在 Qdrant 索引重建与垃圾清理（防呆）上有哪些关键机制',
       prompt: '详细解释一下 OpenMelon 在索引治理模块中，关于 Qdrant 索引重建任务的触发逻辑，以及孤儿向量垃圾清理（防呆）的保障机制有哪些？',
       color: '#10b981'
     },
     {
-      title: '📈 日志详情与可读性优化',
+      title: '日志详情与可读性优化',
       desc: '最近日志中心视察抽屉进行了哪些可读性方面的优化与调整？',
       prompt: '能给我讲解下最近日志中心详情视察抽屉（Inspect Drawer）所做的可读性与文字对比度优化改动吗？',
       color: '#f59e0b'
