@@ -43,5 +43,8 @@ export const graphAPI = {
 
   getCoverageDetail: (moduleName) =>
     fetchJSON(`${API_BASE}/graph/coverage/${encodeURIComponent(moduleName)}`),
+
+  getPath: (source, target, maxDepth = 5) =>
+    fetchJSON(`${API_BASE}/graph/path?source=${encodeURIComponent(source)}&target=${encodeURIComponent(target)}&max_depth=${maxDepth}`),
 };
 

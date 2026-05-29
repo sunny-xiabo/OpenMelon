@@ -8,6 +8,7 @@ import {
   buildGraphRenderState,
   focusGraphNode,
 } from '../features/Graph/utils/graphRendering';
+import { graphAPI } from '../api/graph';
 
 // Hooks
 import {
@@ -29,6 +30,14 @@ export default function GraphPage({ isActive = true }) {
   const renderGraphRef = useRef(null);
   const [graphEngineLoading, setGraphEngineLoading] = useState(false);
   const [graphEngineReady, setGraphEngineReady] = useState(false);
+
+  // path query state
+  const [pathMode, setPathMode] = useState(false);
+  const [pathSource, setPathSource] = useState(null);
+  const [pathTarget, setPathTarget] = useState(null);
+  const pathModeRef = useRef(false);
+  const pathSourceRef = useRef(null);
+  const pathTargetRef = useRef(null);
 
   // filter and interaction state
   const [searchText, setSearchText] = useState('');
@@ -78,6 +87,33 @@ export default function GraphPage({ isActive = true }) {
       network.on('click', async (params) => {
         if (params.nodes.length > 0) {
           const nodeId = params.nodes[0];
+
+          // path mode: select source then target, query backend, highlight result
+          if (pathModeRef.current) {
+            if (!pathSourceRef.current) {
+              pathSourceRef.current = nodeId;
+              setPathSource(nodeId);
+              network.selectNodes([nodeId]);
+            } else if (!pathTargetRef.current) {
+              pathTargetRef.current = nodeId;
+              setPathTarget(nodeId);
+              const source = pathSourceRef.current;
+              try {
+                const pathData = await graphAPI.getPath(source, nodeId);
+                const pathNodeIds = pathData.nodes?.map((n) => n.id) || [];
+                if (pathNodeIds.length > 0) {
+                  network.selectNodes(pathNodeIds);
+                  network.fit({ nodes: pathNodeIds, animation: true });
+                }
+              } catch (e) {
+                console.error('Path query failed:', e);
+                pathTargetRef.current = null;
+                setPathTarget(null);
+              }
+            }
+            return;
+          }
+
           const clusterKey = graphStateRef.current?.collapsedClusterLookup?.get(nodeId);
           if (clusterKey) {
             setDetailOpen(false);
@@ -190,6 +226,31 @@ export default function GraphPage({ isActive = true }) {
     setShowChunks(false);
   };
 
+  const handleExport = useCallback(() => {
+    if (!containerRef.current) return;
+    const canvas = containerRef.current.querySelector('canvas');
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = `openmelon-graph-${Date.now()}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }, []);
+
+  const handleTogglePathMode = useCallback(() => {
+    setPathMode((prev) => {
+      const next = !prev;
+      pathModeRef.current = next;
+      if (!next) {
+        pathSourceRef.current = null;
+        pathTargetRef.current = null;
+        setPathSource(null);
+        setPathTarget(null);
+        networkRef.current?.unselectAll();
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       <GraphToolbar
@@ -199,6 +260,9 @@ export default function GraphPage({ isActive = true }) {
         graphReady={graphReady}
         loadFullGraph={refetchGraph}
         moduleFilter={moduleFilter}
+        onExport={handleExport}
+        onTogglePathMode={handleTogglePathMode}
+        pathMode={pathMode}
         resetGraph={resetFilters}
         searchEntity={handleSearch}
         searchText={searchText}

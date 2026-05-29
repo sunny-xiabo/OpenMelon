@@ -18,6 +18,9 @@ export default function GraphToolbar({
   graphReady,
   loadFullGraph,
   moduleFilter,
+  onExport,
+  onTogglePathMode,
+  pathMode,
   resetGraph,
   searchEntity,
   searchText,
@@ -61,6 +64,16 @@ export default function GraphToolbar({
       </Box>
       <Box sx={{ flex: 1 }} />
       <Box sx={{ display: 'flex', gap: 1 }}>
+        {onTogglePathMode && (
+          <Button size="small" variant={pathMode ? 'contained' : 'outlined'} onClick={onTogglePathMode} disabled={!graphReady} sx={{ borderRadius: 2, fontSize: 12 }}>
+            {pathMode ? '取消路径查询' : '路径查询'}
+          </Button>
+        )}
+        {onExport && (
+          <Button size="small" variant="outlined" onClick={onExport} disabled={!graphReady} sx={{ borderRadius: 2, fontSize: 12 }}>
+            导出图片
+          </Button>
+        )}
         {!graphReady && (
           <Button size="small" variant="outlined" onClick={checkGraphStatus} sx={{ borderRadius: 2 }}>刷新数据</Button>
         )}
