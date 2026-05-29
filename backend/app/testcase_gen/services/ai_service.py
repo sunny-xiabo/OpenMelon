@@ -170,12 +170,16 @@ class AIService:
                     )
                     tc_names = re.findall(tc_pattern, extract_from)
                     if tc_names:
-                        asyncio.create_task(
-                            neo4j_writer.write_test_cases(
-                                [{"name": n.strip(), "description": ""} for n in tc_names],
-                                module=module,
-                            )
-                        )
+                        async def _safe_write():
+                            try:
+                                await neo4j_writer.write_test_cases(
+                                    [{"name": n.strip(), "description": ""} for n in tc_names],
+                                    module=module,
+                                )
+                            except Exception as e:
+                                logger.warning("Background Neo4j write failed: %s", e)
+
+                        asyncio.create_task(_safe_write())
 
                 # 确保最终标记存在
                 if FINAL_MARKER not in full_response:

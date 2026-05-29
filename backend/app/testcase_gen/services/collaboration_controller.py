@@ -4,7 +4,6 @@ Orchestrates the enhanced test case generation pipeline:
 Phase 1 (analysis) -> Phase 2 (generation) -> Cross Review -> Quality Eval -> Revision (<=2 rounds) -> Phase 3 (review)
 """
 
-import json
 import logging
 import re
 from typing import AsyncGenerator, Optional
@@ -16,7 +15,6 @@ from app.testcase_gen.agents.test_case_reviewer import test_case_reviewer
 from app.testcase_gen.agents.cross_review_agent import cross_review_agent
 from app.testcase_gen.agents.revision_agent import revision_agent
 from app.testcase_gen.services.quality_evaluator import quality_evaluator
-from app.testcase_gen.utils.logger import logger
 
 logger = logging.getLogger("testcase_gen.collaboration")
 

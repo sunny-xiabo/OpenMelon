@@ -108,13 +108,10 @@ class RequirementAnalyzer:
         # 根据文件类型选择合适的模型客户端
         selected_model_client = self._get_model_client_for_file_type(file_path)
         file_extension = file_path.lower().split(".")[-1] if "." in file_path else ""
-        _file_type = self._get_file_type_name(file_extension)
         uses_vision_model = file_extension in ["png", "jpg", "jpeg", "gif", "bmp", "webp"]
         model_name = get_model_display_name(use_vision=uses_vision_model)
 
         logger.info(f"文件类型: {file_extension}, 使用模型: {model_name}")
-
-        _file_content = await self._read_file_content(file_path, file_extension)
 
         prompt, system_message = await self._build_default_prompts(
             file_path, file_extension, context, user_requirements, graph_context

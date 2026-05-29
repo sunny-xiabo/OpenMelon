@@ -19,21 +19,10 @@ const viewButtonSx = (active) => ({
 
 export default function ResultHeader({
   checkVectorStatus,
-  exportAnchorEl,
-  exportExcel,
-  exportMarkdown,
-  exportXMind,
   generating,
-  hasResult,
-  parsedTestCases,
-  setExportAnchorEl,
   setUseVector,
-  setViewMode,
-  storeToVector,
-  storingVector,
   useVector,
   vectorStatus,
-  viewMode,
 }) {
   return (
     <PageHeader title="生成结果" subtitle="支持列表、导图和向量库存储。">
