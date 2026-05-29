@@ -100,6 +100,9 @@ class Settings(BaseSettings):
     RERANKER_MODEL_NAME: str = "BAAI/bge-reranker-v2-m3"
     RERANKER_DEVICE: str = "cpu"
 
+    USE_BM25: bool = True
+    BM25_TOP_K: int = 10
+
     DINGTALK_WEBHOOK: str = ""
     DINGTALK_SECRET: str = ""
     FEISHU_WEBHOOK: str = ""

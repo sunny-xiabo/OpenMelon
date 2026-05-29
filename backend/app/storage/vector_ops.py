@@ -12,6 +12,7 @@ class VectorOperations:
     def __init__(self, driver):
         self._driver = driver
         self._qdrant_client = None
+        self._fts_store = None
         
         if settings.USE_EXTERNAL_VECTOR and settings.VECTOR_PROVIDER == "qdrant":
             try:
@@ -29,6 +30,10 @@ class VectorOperations:
             except Exception as e:
                 logger.warning(f"Failed to init Qdrant client, fallback to Neo4j. Error: {e}")
                 self._qdrant_client = None
+
+    def set_fts_store(self, store) -> None:
+        """Attach a PgFtsStore instance for Neo4j-to-PG FTS sync."""
+        self._fts_store = store
 
     def _generate_uuid(self, string_id: str) -> str:
         """Convert a string ID to a valid UUID for external vector db."""
@@ -215,6 +220,24 @@ class VectorOperations:
             except Exception as e:
                 logger.warning(f"Failed to write chunk {chunk_id} to external vector db: {e}")
 
+        if neo4j_success and self._fts_store:
+            try:
+                self._fts_store.upsert_chunk({
+                    "chunk_id": chunk_id,
+                    "filename": filename,
+                    "doc_type": doc_type,
+                    "module": module,
+                    "chunk_index": chunk_index,
+                    "content": content,
+                    "section_path": section_path or "",
+                    "page_label": page_label or "",
+                    "sheet_name": sheet_name or "",
+                    "slide_label": slide_label or "",
+                    "block_type": block_type or "",
+                })
+            except Exception as e:
+                logger.warning(f"Failed to sync chunk {chunk_id} to PG FTS: {e}")
+
         return neo4j_success
 
     async def similarity_search(
@@ -393,6 +416,16 @@ class VectorOperations:
                 )
             except Exception as e:
                 logger.warning(f"Failed to batch write chunks to Qdrant: {e}")
+
+        if neo4j_created > 0 and self._fts_store:
+            try:
+                fts_chunks = [
+                    {k: (v or "") for k, v in chunk.items() if k != "embedding"}
+                    for chunk in chunks
+                ]
+                self._fts_store.upsert_chunks(fts_chunks)
+            except Exception as e:
+                logger.warning(f"Failed to batch sync chunks to PG FTS: {e}")
 
         return neo4j_created
 

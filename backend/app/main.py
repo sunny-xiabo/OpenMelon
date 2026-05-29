@@ -78,6 +78,22 @@ async def lifespan(app: FastAPI):
     app.state.neo4j_driver = knowledge_rag.driver
     app.state.neo4j_available = knowledge_rag.neo4j_available
 
+    # Initialize PG FTS store and BM25 retriever
+    from app.storage.pg_fts_store import create_pg_fts_store
+    from app.engine.retrieval.pg_bm25_retriever import PGBM25Retriever
+
+    fts_store = create_pg_fts_store()
+    if fts_store is not None:
+        knowledge_rag.vector_ops.set_fts_store(fts_store)
+        logger.info("PgFtsStore attached to VectorOperations for Neo4j-to-PG sync")
+    bm25_retriever = PGBM25Retriever(fts_store)
+    app.state.bm25_retriever = bm25_retriever
+    logger.info(
+        "BM25 retriever initialized (available=%s, top_k=%d)",
+        bm25_retriever.available,
+        settings.BM25_TOP_K,
+    )
+
     from app.storage.qa_feedback_store import QaFeedbackStore
     app.state.qa_feedback_store = QaFeedbackStore()
 
