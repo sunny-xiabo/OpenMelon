@@ -9,6 +9,7 @@ import {
   focusGraphNode,
 } from '../features/Graph/utils/graphRendering';
 import { graphAPI } from '../api/graph';
+import { useSnackbar } from '../components/SnackbarProvider';
 
 // Hooks
 import {
@@ -28,6 +29,7 @@ export default function GraphPage({ isActive = true }) {
   const graphDataRef = useRef(null);
   const expandedClusterKeysRef = useRef(new Set());
   const renderGraphRef = useRef(null);
+  const legendRef = useRef([]);
   const [graphEngineLoading, setGraphEngineLoading] = useState(false);
   const [graphEngineReady, setGraphEngineReady] = useState(false);
 
@@ -59,6 +61,9 @@ export default function GraphPage({ isActive = true }) {
   const { data: graphData, isLoading: isGraphLoading, error: graphError, refetch: refetchGraph } = useFullGraph(graphParams, graphReady && isActive);
   const { mutateAsync: getNodeDetail } = useGetNodeDetail();
   const searchEntityMutation = useSearchEntity();
+  const showSnackbar = useSnackbar();
+
+  useEffect(() => { legendRef.current = legend; }, [legend]);
 
   // load vis-network only when graph tab is active and data exists
   useEffect(() => {
@@ -109,6 +114,7 @@ export default function GraphPage({ isActive = true }) {
                 console.error('Path query failed:', e);
                 pathTargetRef.current = null;
                 setPathTarget(null);
+                showSnackbar('路径查询失败: ' + (e.message || '未知错误'), { severity: 'error' });
               }
             }
             return;
@@ -127,7 +133,10 @@ export default function GraphPage({ isActive = true }) {
           try {
             const detail = await getNodeDetail(nodeId);
             setSelectedNode(detail);
-          } catch (e) { console.error(e); }
+          } catch (e) {
+            console.error(e);
+            showSnackbar('节点详情加载失败', { severity: 'error' });
+          }
         } else {
           setDetailOpen(false);
           setSelectedNode(null);
@@ -162,7 +171,7 @@ export default function GraphPage({ isActive = true }) {
         graphDataRef.current = data;
         expandedClusterKeysRef.current = new Set();
       }
-      let graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
+      let graphState = buildGraphRenderState(data, legendRef.current, expandedClusterKeysRef.current);
 
       if (focusLabel) {
         const hiddenTarget = graphState.allNodes.find((node) => node.label === focusLabel || node.id === focusLabel || node.properties?.name === focusLabel);
@@ -170,7 +179,7 @@ export default function GraphPage({ isActive = true }) {
         const clusterKey = clusterId ? graphState.collapsedClusterLookup.get(clusterId) : null;
         if (clusterKey) {
           expandedClusterKeysRef.current = new Set([...expandedClusterKeysRef.current, clusterKey]);
-          graphState = buildGraphRenderState(data, legend, expandedClusterKeysRef.current);
+          graphState = buildGraphRenderState(data, legendRef.current, expandedClusterKeysRef.current);
         }
       }
 
@@ -189,7 +198,7 @@ export default function GraphPage({ isActive = true }) {
     } catch (e) {
       console.warn('Vis-network rendering suppressed due to internal state:', e.message);
     }
-  }, [legend]);
+  }, []);
 
   useEffect(() => {
     renderGraphRef.current = renderGraph;
@@ -202,13 +211,6 @@ export default function GraphPage({ isActive = true }) {
     }
   }, [graphData, graphEngineReady, isActive, renderGraph]);
 
-  // ensure graph re-fetches when filter params change
-  useEffect(() => {
-    if (graphReady && isActive) {
-      refetchGraph();
-    }
-  }, [graphParams, graphReady, isActive, refetchGraph]);
-
   const handleSearch = async () => {
     if (!searchText.trim()) return;
     try {
@@ -216,6 +218,7 @@ export default function GraphPage({ isActive = true }) {
       renderGraph(data, searchText);
     } catch (e) {
       console.warn('Graph search failed:', e);
+      showSnackbar('图谱搜索失败: ' + (e.message || '未知错误'), { severity: 'error' });
     }
   };
 
@@ -229,17 +232,24 @@ export default function GraphPage({ isActive = true }) {
   const handleExport = useCallback(() => {
     if (!containerRef.current) return;
     const canvas = containerRef.current.querySelector('canvas');
-    if (!canvas) return;
+    if (!canvas) {
+      showSnackbar('图谱导出不可用', { severity: 'warning' });
+      return;
+    }
     const link = document.createElement('a');
     link.download = `openmelon-graph-${Date.now()}.png`;
     link.href = canvas.toDataURL('image/png');
     link.click();
-  }, []);
+  }, [showSnackbar]);
 
   const handleTogglePathMode = useCallback(() => {
     setPathMode((prev) => {
       const next = !prev;
       pathModeRef.current = next;
+      if (next) {
+        setDetailOpen(false);
+        setSelectedNode(null);
+      }
       if (!next) {
         pathSourceRef.current = null;
         pathTargetRef.current = null;
