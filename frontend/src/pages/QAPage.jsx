@@ -24,7 +24,6 @@ import {
   useSessions,
   useChatHistory,
   useGraphStatus,
-  useChatQuery,
   useSessionActions,
   useFeedbacks,
   QA_KEYS,
@@ -89,7 +88,6 @@ export default function QAPage({ isActive = true }) {
   const { data: filters = { doc_types: [], modules: [] } } = useGraphFilters();
   const { data: legend = [] } = useNodeTypeLegend();
   
-  const chatMutation = useChatQuery();
   const { deleteSession, renameSession } = useSessionActions();
 
   // 反馈状态
@@ -140,6 +138,7 @@ export default function QAPage({ isActive = true }) {
       const dec = new TextDecoder();
       let fullText = '';
 
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -377,6 +376,7 @@ export default function QAPage({ isActive = true }) {
       const dec = new TextDecoder();
       let fullText = '';
 
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;

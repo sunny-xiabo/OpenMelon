@@ -21,7 +21,7 @@ function MessageActions({ content, feedback, onCopy, onRetry, onFeedback }) {
       setCopied(true);
       onCopy?.();
       setTimeout(() => setCopied(false), 1500);
-    } catch {}
+    } catch { /* clipboard API unavailable */ }
   };
 
   return (

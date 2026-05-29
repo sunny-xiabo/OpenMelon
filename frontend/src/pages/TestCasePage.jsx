@@ -38,7 +38,7 @@ const loadDraft = () => {
   try {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) return JSON.parse(saved);
-  } catch {}
+  } catch { /* invalid JSON in localStorage */ }
   return null;
 };
 
@@ -109,7 +109,7 @@ export default function TestCasePage({ isActive = true }) {
     const draftData = { mode, context, requirements, moduleName, useVector, styleId, selectedSkillIds };
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData));
-    } catch {}
+    } catch { /* localStorage full or unavailable */ }
   }, [mode, context, requirements, moduleName, useVector, styleId, selectedSkillIds]);
 
   // 从草稿恢复 hook 管理的字段（styleId / selectedSkillIds）
@@ -179,6 +179,7 @@ export default function TestCasePage({ isActive = true }) {
       readerRef.current = reader;
       const dec = new TextDecoder();
       try {
+        // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
