@@ -39,13 +39,94 @@ import {
   buildGraphRenderState,
 } from '../features/Graph/utils/graphRendering';
 
+
+function ChatWelcomeArea({ onStarterClick }) {
+  const starters = [
+    {
+      title: '🔍 系统架构与核心逻辑',
+      desc: '介绍一下 OpenMelon 的整体技术架构与核心业务流',
+      prompt: '介绍一下 OpenMelon 的整体技术架构与核心业务流，它是如何通过知识图谱与向量数据库配合提供高精准答案的？',
+      color: '#1a73e8'
+    },
+    {
+      title: '🚀 三槽位用例引擎运作',
+      desc: '新版用例生成三槽位配置如何运作，三者如何相互独立与回退？',
+      prompt: '系统最近新增的用例生成 LLM 三槽位配置（文本、视觉、嵌入）如何运作？各自独立配置时又是如何实现优雅回退的？',
+      color: '#9334e6'
+    },
+    {
+      title: '🔗 索引与图谱一致性',
+      desc: '说明系统在 Qdrant 索引重建与垃圾清理（防呆）上有哪些关键机制',
+      prompt: '详细解释一下 OpenMelon 在索引治理模块中，关于 Qdrant 索引重建任务的触发逻辑，以及孤儿向量垃圾清理（防呆）的保障机制有哪些？',
+      color: '#10b981'
+    },
+    {
+      title: '📈 日志详情与可读性优化',
+      desc: '最近日志中心视察抽屉进行了哪些可读性方面的优化与调整？',
+      prompt: '能给我讲解下最近日志中心详情视察抽屉（Inspect Drawer）所做的可读性与文字对比度优化改动吗？',
+      color: '#f59e0b'
+    }
+  ];
+
+  return (
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', p: 3, textAlign: 'center', maxWidth: 800, mx: 'auto', my: 'auto', gap: 3 }}>
+      <Box>
+        <Typography variant="h5" sx={{ fontWeight: 900, mb: 1, background: 'linear-gradient(135deg, #1a73e8 0%, #6366f1 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '24px', letterSpacing: -0.5 }}>
+          您好！我是 OpenMelon 智能助理
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '13px', maxWidth: 500, mx: 'auto', lineHeight: 1.6 }}>
+          基于 RAG + 图谱增强的双引擎大脑，随时解答您的项目架构、自动化用例生成及健康治理等各种专业疑问。
+        </Typography>
+      </Box>
+
+      <Box sx={{ width: '100%', mt: 1 }}>
+        <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'left', mb: 1.5, fontWeight: 800, fontSize: '10.5px', textTransform: 'uppercase', letterSpacing: 1.5 }}>
+          探索常见话题 (Quick Explorers)
+        </Typography>
+
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+          {starters.map((item) => (
+            <Paper
+              key={item.title}
+              elevation={0}
+              onClick={() => onStarterClick(item.prompt)}
+              sx={{
+                p: 2,
+                textAlign: 'left',
+                borderRadius: 3.5,
+                border: '1px solid rgba(0,0,0,0.06)',
+                bgcolor: 'rgba(255,255,255,0.4)',
+                cursor: 'pointer',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  borderColor: item.color,
+                  bgcolor: 'white',
+                  boxShadow: `0 8px 24px ${item.color}0d`
+                }
+              }}
+            >
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '12.5px', color: 'text.primary', mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {item.title}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.45, fontWeight: 500 }}>
+                {item.desc}
+              </Typography>
+            </Paper>
+          ))}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 export default function QAPage({ isActive = true }) {
   const theme = useTheme();
   const showSnackbar = useSnackbar();
   const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
   const queryClient = useQueryClient();
   
-  // 1. UI 交互状态 (找回被遗漏的状态)
+  // 1. UI 交互状态
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
@@ -138,7 +219,6 @@ export default function QAPage({ isActive = true }) {
       const dec = new TextDecoder();
       let fullText = '';
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -351,14 +431,15 @@ export default function QAPage({ isActive = true }) {
     }
   }, [isActive]);
 
-  const handleSendMessage = async () => {
-    if (!inputText.trim() || isStreaming) return;
-    const q = inputText;
+  const handleSendMessage = async (overrideText) => {
+    const textToSend = typeof overrideText === 'string' ? overrideText : inputText;
+    if (!textToSend.trim() || isStreaming) return;
+    
     setInputText('');
     const sid = currentSessionId || `new_${Date.now()}`;
 
     // 乐观更新 UI
-    setMessages(prev => [...prev, { role: 'user', content: q }]);
+    setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
     setStreamingContent('');
     setIsStreaming(true);
     scrollDown();
@@ -367,16 +448,17 @@ export default function QAPage({ isActive = true }) {
     abortRef.current = controller;
 
     try {
-      const resp = attachedFiles.length > 0
-        ? await chatAPI.queryStreamWithFiles(q, attachedFiles, sid, includeHistory)
-        : await chatAPI.queryStream(q, sid, includeHistory);
+      const resp = (attachedFiles.length > 0 && !overrideText)
+        ? await chatAPI.queryStreamWithFiles(textToSend, attachedFiles, sid, includeHistory)
+        : await chatAPI.queryStream(textToSend, sid, includeHistory);
 
-      setAttachedFiles([]);
+      if (!overrideText) {
+        setAttachedFiles([]);
+      }
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       let fullText = '';
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -511,7 +593,7 @@ export default function QAPage({ isActive = true }) {
         <Paper elevation={0} sx={{ flex: isNarrow ? '0 0 420px' : 1, minHeight: isNarrow ? 420 : 0, display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
           <Box ref={scrollRef} sx={{ flex: 1, overflowY: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             {messages.length === 0 ? (
-              <EmptyState variant="chat" title="开始新的对话" description="您可以询问关于项目架构、API 定义或业务逻辑的问题。" />
+              <ChatWelcomeArea onStarterClick={(prompt) => handleSendMessage(prompt)} />
             ) : (
               messages.map((m, i) => (
                 <MessageBubble
@@ -540,10 +622,28 @@ export default function QAPage({ isActive = true }) {
             )}
             <input type="file" ref={fileInputRef} accept="image/*" multiple
               style={{ display: 'none' }} onChange={handleFileSelect} />
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 1, 
+              border: '1px solid', 
+              borderColor: 'divider', 
+              borderRadius: 3.5, 
+              p: 0.5, 
+              px: 1.5, 
+              bgcolor: '#f8fafc',
+              boxShadow: '0 4px 12px rgba(15,23,42,0.02)',
+              transition: 'all 0.2s',
+              '&:focus-within': {
+                borderColor: 'primary.main',
+                bgcolor: 'white',
+                boxShadow: '0 6px 20px rgba(26,115,232,0.08)'
+              }
+            }}>
               <IconButton onClick={() => fileInputRef.current?.click()} disabled={isStreaming}
-                sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                <AttachFileOutlined fontSize="small" />
+                sx={{ borderRadius: 2.5, color: 'text.secondary', p: 1 }}>
+                <AttachFileOutlined sx={{ fontSize: 20 }} />
               </IconButton>
               <TextField
                 fullWidth size="small" placeholder="输入您的问题..."
@@ -551,12 +651,32 @@ export default function QAPage({ isActive = true }) {
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                 disabled={isStreaming}
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2.5 } }}
+                sx={{ 
+                  '& .MuiOutlinedInput-root': { 
+                    border: 'none',
+                    '& fieldset': { border: 'none' },
+                    fontSize: '13px',
+                    p: 0
+                  }
+                }}
               />
-              <Button variant="contained" onClick={handleSendMessage} disabled={isStreaming || !inputText.trim()} sx={{ borderRadius: 2.5, px: 3 }}>
+              <Button 
+                variant="contained" 
+                onClick={() => handleSendMessage()} 
+                disabled={isStreaming || !inputText.trim()} 
+                sx={{ 
+                  borderRadius: 2.5, 
+                  px: 3, 
+                  fontWeight: 700, 
+                  fontSize: '12px',
+                  background: (theme) => theme.palette.gradients?.primary || '#1a73e8',
+                  '&:hover': { background: (theme) => theme.palette.gradients?.primaryHover || '#1557b0' }
+                }}
+              >
                 发送
               </Button>
             </Box>
+            
             <FormControlLabel
               control={<Checkbox size="small" checked={includeHistory} onChange={(e) => setIncludeHistory(e.target.checked)} />}
               label={<Typography variant="caption" color="text.secondary">携带历史上下文</Typography>}
