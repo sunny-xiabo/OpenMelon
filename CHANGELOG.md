@@ -5,7 +5,48 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.2.9.0] - 2026-05-29
+
+### 新增 (Added)
+- **Q&A 消息级操作**：AI 回答气泡新增操作栏（hover 显示），支持复制回答、重新生成（原问题替换式重试）、点赞/踩反馈（持久化到 PostgreSQL `qa_feedback` 表）。
+- **Q&A 引用溯源图谱高亮**：RAG 回答中的 `[1][2][3]` 引用标记渲染为可点击上标，点击后图谱面板中对应节点高亮聚焦（selectNodes + focus 动画）。后端 Citation schema 新增 `index` 和 `content_preview` 字段。
+- **Q&A 图片多模态查询**：输入框新增附件按钮，支持拖拽或选择图片（png/jpg/jpeg/gif/webp），后端用 vision 模型分析图片内容后拼入 RAG context 走正常检索流程。`POST /query/stream` 端点支持 `multipart/form-data`。
+- **知识图谱导出图片**：图谱线索面板新增"导出图片"按钮，调用 vis-network canvas API 下载 PNG。
+- **知识图谱路径查询**：新增 `GET /graph/path?source=X&target=Y` 端点，使用 Neo4j `shortestPath` 查询两节点间最短路径。
+- **配置导入/导出**：配置中心新增"导出配置"按钮（屏蔽敏感值后下载 .env 文件）和"导入配置"对话框（上传 .env 内容，自动备份 + 热重载）。
+- **配置版本历史**：配置中心新增"配置历史"按钮，列出所有 `.env.bak.*` 备份文件，支持查看内容和一键恢复历史版本。
+- **LLM 端点可达性验证**：保存 LLM 相关配置后自动 ping `/models` 端点，返回可达状态和延迟。新增 `POST /config-center/validate-endpoint` 端点。
+- **测试用例生成取消**：生成过程中显示"取消生成"按钮，通过 AbortController + reader.cancel() 双重取消流式读取。
+- **测试用例表单草稿保存**：生成表单的 7 个字段自动保存到 localStorage，页面刷新后恢复，生成成功或手动重置时清除。
+- **测试用例内联编辑**：TestCaseListView 从纯 Markdown 渲染改为可编辑卡片布局，标题、优先级（点击循环高/中/低）、描述、前置条件、测试步骤均可内联编辑后再导出。
+
+### 变更 (Changed)
+- **硬编码 URL 外部化**：`llm_provider_registry.py` 中 `openai_compat` 提供商的默认 `api_base_url` 从公司内部 `one-api.miotech.com` 改为标准 `api.openai.com`。`service.py` minimal env 默认 `API_BASE_URL` 改为空串。
+- **虚拟节点缓存 LRU 淘汰**：`graph.py` 中 `_virtual_node_cache` 从无上限 dict 改为 LRU 缓存（`OrderedDict`，上限 500 条），防止长时间运行内存泄漏。
+
+### 修复 (Fixed)
+- **QAPage 消息重复渲染**：修复 `messages.map` 重复调用导致每条消息在 DOM 中渲染两次的 bug。
+- **前端 lint 错误清理**：移除废弃的 `chatMutation` 和 `useChatQuery` 导入，修复空 catch 块和 while(true) 常量条件 lint 告警。
+
+### 验证 (Verified)
+- **后端回归**：`pytest tests/` 通过，合计 337 个用例。
+- **前端回归**：`vitest run` 通过，合计 14 个测试文件、45 个用例。
+- **前端构建**：`vite build` 通过。
+- **ESLint**：修改文件零报错。
+
 ## [0.2.8.9] - 2026-05-28
+
+### 新增 (Added)
+- **LLM 调用重试与熔断机制**：新增 `app/engine/llm_retry.py` 共享模块，提供 `call_llm_with_retry()` 函数，内置指数退避重试（默认 3 次）和熔断器保护（连续 5 次失败触发，60 秒冷却恢复）。对 429 限流、5xx 服务端错误、超时和连接错误自动重试，优先使用服务端 `Retry-After` 头。RAG Generator、Agentic RAG 的全部 LLM 调用以及 testcase_gen 5 个 Agent 均已接入。
+- **问答接口流式输出**：后端新增 `POST /query/stream` 端点，使用 OpenAI streaming API 以纯文本流逐块返回回答。前端 QAPage 改为 `ReadableStream` 消费，流式过程中实时展示已生成内容，替代原来的"AI 正在思考中"静态提示。
+- **全局 API 错误事件消费**：`SnackbarProvider` 新增全局监听 `openmelon:api-error` 和 `openmelon:auth-expired` 事件，以 Snackbar 统一弹出错误提示。相同 `code+status` 的错误在 5 秒内只弹一次，防止刷屏。
+- **统一认证模块**：新建 `app/auth/` 模块，合并原 `app.api.deps` 和 `app.testcase_gen.utils/auth` 的认证逻辑。统一使用 `settings.PROTECT_ADMIN_API` 开关、`ADMIN_API_KEYS` 密钥和 `ADMIN_JWT_SECRET` 签名密钥，提供 `create_jwt_token`、`verify_jwt_token`、`require_auth`、`optional_auth` 接口。未配置 `ADMIN_JWT_SECRET` 时自动生成进程内临时密钥并输出警告日志。
+- **前端 API 入口补全**：TestCase 导出菜单新增"导出为 Markdown"选项（后端和 hook 原已支持，前端缺失入口）。API 执行历史新增"同步知识"按钮（调用 `ingestRunKnowledge` 入库最近 20 条运行经验）。执行历史标题新增队列状态 Chip，有活跃运行时显示"X 个运行中"。
+
+### 变更 (Changed)
+- **`app.api.deps` 重构为瘦 re-export**：认证逻辑迁移到 `app.auth`，`deps.py` 保留服务 getter 和向后兼容 re-export，所有路由的 `from app.api.deps import require_production_auth` 无需改动。
+- **`testcase_gen/utils/auth.py` 委托给统一模块**：原有 `create_jwt_token`、`verify_jwt_token` 等接口改为从 `app.auth` 导入，修复了 `JWT_SECRET_KEY` 重启后丢失的问题。
+- **`error_handler.py` 新增 `with_retry_stream` 装饰器**：支持 async generator 的重试，仅在尚未产出内容时重试，避免向客户端重复发送数据。
 
 ### 修复 (Fixed)
 - **日志中心视察抽屉可读性**：日志详情视察抽屉由深色主题（`#090d16` 背景、低透明度白字）改为浅色主题（`#f8fafc` 背景、MUI 文本 token），提升文字对比度和可读性。
@@ -15,6 +56,11 @@
 - **testcase_gen AI 调用消耗数据丢失**：修复三个问题——(1) `safe_record_ai_call` 静默吞异常，写入失败毫无痕迹，现改为记录 warning 日志；(2) `testcase_gen` 未传递 `input_tokens` / `output_tokens` / `total_tokens`，导致消耗显示全为 0；(3) autogen 流式调用内部丢弃了 `CreateResult.usage`。通过 monkey-patch `OpenAIChatCompletionClient.create_stream` 启用 `include_usage` 并累积 token 用量，上层 `ai_service` 读取后传入观测服务。
 - **测试用例步骤换行显示**：修复生成用例中编号步骤挤在同一行的问题。提示词要求 LLM 步骤间用 `<br>` 换行，前端 `ReactMarkdown` 加 `rehype-raw` 渲染，`formatSteps()` 兜底自动补 `<br>`；解析器 `_split_merged_steps` 将合并步骤拆为独立条目，保证列表页表格和 Excel 导出逐行显示。
 - **testcase_gen 推理引擎预设动态化**：模型预设从硬编码改为 API 驱动。新增 `GET/PUT /api/model-presets` 端点，预设和弃用标识存 JSON 文件，前端从 API 拉取，加/弃/删模型无需改代码部署。新增 `deepseek-v4-pro`、`deepseek-v4-flash` 预设，`deepseek-chat` 和 `deepseek-reasoner` 标记弃用标识。
+
+### 验证 (Verified)
+- **后端回归**：`pytest tests/` 通过，合计 321 个用例。
+- **前端回归**：`vitest run` 通过，合计 14 个测试文件、45 个用例。
+- **前端构建**：`vite build` 通过。
 
 ## [0.2.8.8] - 2026-05-26
 
