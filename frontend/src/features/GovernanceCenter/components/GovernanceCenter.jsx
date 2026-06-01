@@ -87,12 +87,12 @@ export default function GovernanceCenter() {
   // TanStack Query Hooks
   const { data: projects = [] } = useGovernanceProjects();
   const { data: taskSummary, isLoading: isSummaryLoading, refetch: refetchSummary } = useTaskSummary(projectId);
-  const { data: tasks = [], isLoading: isTasksLoading } = useAutomationTasks(projectId, taskStatus);
-  const { data: knowledgeItems = [], isLoading: isKnowledgeLoading } = useKnowledgeItems({
+  const { data: tasks = [], isLoading: isTasksLoading, refetch: refetchTasks } = useAutomationTasks(projectId, taskStatus);
+  const { data: knowledgeItems = [], isLoading: isKnowledgeLoading, refetch: refetchKnowledge } = useKnowledgeItems({
     projectId, status: knowledgeStatus, itemType: knowledgeType
   });
-  const { data: allKnowledgeData } = useAllKnowledgeItems(projectId);
-  const { data: templates = [], isLoading: isTemplatesLoading } = useFlowTemplates(projectId);
+  const { data: allKnowledgeData, refetch: refetchAllKnowledge } = useAllKnowledgeItems(projectId);
+  const { data: templates = [], isLoading: isTemplatesLoading, refetch: refetchTemplates } = useFlowTemplates(projectId);
 
   // Mutations
   const approveMutation = useApproveCandidate();
@@ -116,6 +116,10 @@ export default function GovernanceCenter() {
 
   const handleRefresh = () => {
     refetchSummary();
+    refetchTasks();
+    refetchKnowledge();
+    refetchAllKnowledge();
+    refetchTemplates();
   };
 
   const requestDeleteKnowledgeItem = (item) => {

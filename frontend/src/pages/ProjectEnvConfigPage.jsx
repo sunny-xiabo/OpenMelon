@@ -780,10 +780,21 @@ export default function ProjectEnvConfigPage({ embedded = false }) {
                                   >
                                     <EditIcon fontSize="small" sx={{ fontSize: 13 }} />
                                   </IconButton>
-                                  <IconButton 
-                                    size="small" 
-                                    color="error" 
-                                    onClick={() => deleteEnvMutation.mutate(env.environment_id)}
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => {
+                                      setConfirmDialog({
+                                        open: true,
+                                        title: '删除测试网关环境',
+                                        message: `确认要永久删除环境 "${env.name}" 吗？删除后该环境下的所有配置将被清除，此操作不可撤销。`,
+                                        onConfirm: async () => {
+                                          setConfirmDialog({ open: false });
+                                          await deleteEnvMutation.mutateAsync(env.environment_id);
+                                          showSnackbar('环境已成功删除！', { severity: 'success' });
+                                        }
+                                      });
+                                    }}
                                     sx={{
                                       width: 26,
                                       height: 26,

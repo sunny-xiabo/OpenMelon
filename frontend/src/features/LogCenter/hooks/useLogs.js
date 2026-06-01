@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiExecutionAPI } from '../../../api/execution';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 import { normalizeUnifiedLog, loadFallbackLogs } from '../components/LogCenterParts';
@@ -52,7 +52,7 @@ export function useEventLogs(params) {
       }
     },
     // 筛选条件变化时，自动重新获取
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 }
 

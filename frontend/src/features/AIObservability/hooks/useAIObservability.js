@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiExecutionAPI } from '../../../api/execution';
 import { useSnackbar } from '../../../components/SnackbarProvider';
 
@@ -27,7 +27,7 @@ export function useAILogs(params) {
   return useQuery({
     queryKey: AI_OBS_KEYS.logs(params),
     queryFn: () => apiExecutionAPI.listAICallLogs(params),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 }
 

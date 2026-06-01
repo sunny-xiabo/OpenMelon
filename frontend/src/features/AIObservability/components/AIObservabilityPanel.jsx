@@ -387,7 +387,7 @@ export default function AIObservabilityPanel() {
           .obs-radar-pulse {
             width: 8px;
             height: 8px;
-            borderRadius: 50%;
+            border-radius: 50%;
             display: inline-block;
             animation: obs-led-ping 2s infinite ease-in-out;
             transition: all 0.3s;
