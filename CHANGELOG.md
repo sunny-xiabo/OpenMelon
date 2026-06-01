@@ -5,14 +5,14 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
-## [0.2.9.0] - 2026-05-29
+## [0.2.9.0] - 2026-06-01
 
 ### 新增 (Added)
 - **Q&A 消息级操作**：AI 回答气泡新增操作栏（hover 显示），支持复制回答、重新生成（原问题替换式重试）、点赞/踩反馈（持久化到 PostgreSQL `qa_feedback` 表）。
 - **Q&A 引用溯源图谱高亮**：RAG 回答中的 `[1][2][3]` 引用标记渲染为可点击上标，点击后图谱面板中对应节点高亮聚焦（selectNodes + focus 动画）。后端 Citation schema 新增 `index` 和 `content_preview` 字段。
 - **Q&A 图片多模态查询**：输入框新增附件按钮，支持拖拽或选择图片（png/jpg/jpeg/gif/webp），后端用 vision 模型分析图片内容后拼入 RAG context 走正常检索流程。`POST /query/stream` 端点支持 `multipart/form-data`。
-- **知识图谱导出图片**：图谱线索面板新增"导出图片"按钮，调用 vis-network canvas API 下载 PNG。
-- **知识图谱路径查询**：新增 `GET /graph/path?source=X&target=Y` 端点，使用 Neo4j `shortestPath` 查询两节点间最短路径。
+- **知识图谱导出图片**：图谱概览和 Q&A 图谱面板均新增"导出图片"按钮，调用 vis-network canvas API 下载 PNG。
+- **知识图谱路径查询**：新增 `GET /graph/path?source=X&target=Y` 端点，使用 Neo4j `shortestPath` 查询两节点间最短路径。图谱概览页面支持路径模式（点击两个节点查询并高亮路径）。
 - **配置导入/导出**：配置中心新增"导出配置"按钮（屏蔽敏感值后下载 .env 文件）和"导入配置"对话框（上传 .env 内容，自动备份 + 热重载）。
 - **配置版本历史**：配置中心新增"配置历史"按钮，列出所有 `.env.bak.*` 备份文件，支持查看内容和一键恢复历史版本。
 - **LLM 端点可达性验证**：保存 LLM 相关配置后自动 ping `/models` 端点，返回可达状态和延迟。新增 `POST /config-center/validate-endpoint` 端点。
@@ -20,20 +20,71 @@
 - **测试用例表单草稿保存**：生成表单的 7 个字段自动保存到 localStorage，页面刷新后恢复，生成成功或手动重置时清除。
 - **测试用例内联编辑**：TestCaseListView 从纯 Markdown 渲染改为可编辑卡片布局，标题、优先级（点击循环高/中/低）、描述、前置条件、测试步骤均可内联编辑后再导出。
 - **PostgreSQL BM25 混合检索**：新增 `document_chunks_fts` 表（tsvector + GIN 索引），文档入库时自动同步到 PostgreSQL。`MultiChannelRetriever` 新增 `hybrid_vector_bm25_retrieve` 方法，向量检索和 BM25 关键词检索并行执行后通过 RRF（Reciprocal Rank Fusion, K=60）融合排序，再经 BGE Reranker 精排。通过 `USE_BM25` 和 `BM25_TOP_K` 配置控制开关和返回数量。
+- **向量库存入二次确认**：测试用例"存入向量库"按钮新增 ConfirmDialog 确认，防止误操作。
+- **图谱概览增强**：新增导出 PNG 和路径查询按钮到图谱总览页面工具栏。
 
 ### 变更 (Changed)
 - **硬编码 URL 外部化**：`llm_provider_registry.py` 中 `openai_compat` 提供商的默认 `api_base_url` 从公司内部 `one-api.miotech.com` 改为标准 `api.openai.com`。`service.py` minimal env 默认 `API_BASE_URL` 改为空串。
-- **虚拟节点缓存 LRU 淘汰**：`graph.py` 中 `_virtual_node_cache` 从无上限 dict 改为 LRU 缓存（`OrderedDict`，上限 500 条），防止长时间运行内存泄漏。
+- **虚拟节点缓存 LRU 淘汰**：graph.py 中 `_virtual_node_cache` 从无上限 dict 改为 LRU 缓存（`OrderedDict`，上限 500 条），防止长时间运行内存泄漏。
+- **优先级值统一**：TestCaseListView 新增 `normalizePriority` 映射，P0/P1/P2、High/Medium/Low 统一归一化为 高/中/低，优先级筛选和显示全部经过归一化处理。
 
 ### 修复 (Fixed)
-- **QAPage 消息重复渲染**：修复 `messages.map` 重复调用导致每条消息在 DOM 中渲染两次的 bug。
-- **前端 lint 错误清理**：移除废弃的 `chatMutation` 和 `useChatQuery` 导入，修复空 catch 块和 while(true) 常量条件 lint 告警。
+
+**Q&A 智能问答：**
+- **消息重复渲染**：修复 `messages.map` 重复调用导致每条消息在 DOM 中渲染两次的 bug。
+- **推送企微按钮无效**：MessageBubble 的"推送到企微"按钮在 `onPush` 未传入时不再渲染。
+- **图谱搜索闭包过期**：`handleLocateNode` 的 `searchEntity` 改为接受参数直接传入，修复 stale closure 导致搜索始终为空的问题。
+- **重试丢失引用数据**：`handleRetry` 流结束后补充 `citations: []` 和 `context_chunks: []`。
+- **lint 错误清理**：移除废弃的 `chatMutation`/`useChatQuery`/`MenuOpen`，修复空 catch 块和 while(true) 常量条件告警。
+
+**测试用例生成：**
+- **死代码清理**：`collaboration_controller.py` 移除未使用的 `import json` 和被遮蔽的 logger 导入；`requirement_analyzer.py` 移除 `_file_type` 和 `_file_content` 两个死变量（文件被重复读取）。
+- **ResultHeader props 精简**：默认导出组件从 17 个 props 精简到实际使用的 5 个。
+- **后台 Neo4j 写入错误处理**：`ai_service.py` 的 `asyncio.create_task` 包装 try/catch 防止静默丢失。
+
+**图谱总览：**
+- **双重请求**：移除冗余的 `refetchGraph()` effect，TanStack Query 已自动处理刷新。
+- **错误反馈缺失**：节点详情、路径查询、搜索失败时不再静默吞错，改为 Snackbar 提示。
+- **图谱颜色闪烁**：`renderGraph` 的 legend 依赖改为 ref，消除首次加载从灰色闪到彩色的问题。
+- **路径模式残留面板**：进入路径模式时清除旧的节点详情面板。
+- **导出失败提示**：无 canvas 时显示"图谱导出不可用"警告。
+
+**导入管理：**
+- **上传工作台崩溃**：`ImportWorkbench` 补传 `dragOver`/`setDragOver`/`uploadMode`/`setUploadMode` 四个缺失 props，拖拽和模式切换恢复正常。
+- **全选范围错误**：`toggleAll` 从 `filteredFiles` 改为 `paginatedFiles`，仅选中当前页。
+- **批量删除错误处理**：逐个 try/catch + 失败计数提示。
+- **重新索引无反馈**：`reindexFile` mutation 添加 `onError` Snackbar。
+
+**数据仪表盘：**
+- **覆盖率查询失败误导**：CoveragePage 查询失败时显示"加载失败"而非"暂无数据"。
+- **死代码清理**：DashboardPage 移除未使用的 `theme`/`isNarrow` 变量；APIExecutionDashboard 移除未使用的 `getRunModeLabel` 导入。
+- **TopList 空列表提示**：失败原因排行和热点步骤 TopList 补充空列表提示文案。
+- **后端覆盖率日志**：coverage.py 三处异常处理添加 `logger.warning` 日志。
+
+**设置/配置中心：**
+- **LED 指示器形状**：AIObservabilityPanel 的 CSS `borderRadius` 改为 `border-radius`，脉冲指示器从方块恢复为圆形。
+- **环境删除无确认**：ProjectEnvConfigPage 环境删除按钮新增 ConfirmDialog。
+- **治理中心刷新不全**：刷新按钮同时更新任务列表、知识条目、模板数据。
+- **deprecated query 选项**：LogCenter 和 AIObservability 的 `keepPreviousData` 改为 v5 的 `placeholderData`。
+
+**API 自动化：**
+- **中英混合文本**：StepResult 确认对话框 "these 经验" 改为 "这些 经验"。
+- **fetchHistory 依赖缺失**：RunHistoryProvider 的 `useMemo` 补充 `fetchHistory` 依赖。
+
+**索引治理：**
+- **诊断面板按钮**：无 onClick 的操作按钮改为 disabled。
+- **一键清理孤儿范围**：从只清理第一个资产改为清理所有有孤儿的资产。
+- **回填向量库目标**：从固定 `assets[0]` 改为优先选有缺失向量的资产。
+- **AdviceDrawer 死 prop**：移除未使用的 `assets` prop。
+
+**后端全局：**
+- **测试用例 LLM 重试**：修复 5 个 Agent 的 LLM 调用无重试问题，新增 `with_retry_stream` 装饰器。
+- **后端覆盖率服务**：`coverage.py` 三处异常处理添加 `logger.warning` 日志。
 
 ### 验证 (Verified)
-- **后端回归**：`pytest tests/` 通过，合计 337 个用例。
+- **后端回归**：`pytest tests/` 通过，合计 339 个用例。
 - **前端回归**：`vitest run` 通过，合计 14 个测试文件、45 个用例。
 - **前端构建**：`vite build` 通过。
-- **ESLint**：修改文件零报错。
 
 ## [0.2.8.9] - 2026-05-28
 
