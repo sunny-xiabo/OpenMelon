@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Paper, useTheme, useMediaQuery } from '@mui/material';
+import { Box, Paper } from '@mui/material';
 import { PieChartRounded, AutoGraphRounded, AssignmentTurnedInRounded } from '@mui/icons-material';
 import PageHeader from '../components/PageHeader';
 import NavMenuButton from '../components/NavMenuButton';
@@ -29,8 +29,6 @@ const SECTIONS = [
 
 export default function DashboardPage() {
   const [activeSection, setActiveSection] = useState('coverage');
-  const theme = useTheme();
-  const isNarrow = useMediaQuery(theme.breakpoints.down('lg'));
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: { xs: 2, md: 3 }, gap: 3, background: 'transparent' }}>

@@ -54,7 +54,7 @@ export default function CoveragePage({ embedded = false }) {
   const [expandedRow, setExpandedRow] = useState(null);
 
   // 使用 TanStack Query
-  const { data: modules = [], isLoading, isFetching, refetch, dataUpdatedAt } = useCoverage();
+  const { data: modules = [], isLoading, isFetching, refetch, dataUpdatedAt, error } = useCoverage();
 
   const visibleModules = useMemo(() => {
     return filterAndSortModules(modules, { riskOnly, searchText, sortBy });
@@ -111,6 +111,8 @@ export default function CoveragePage({ embedded = false }) {
                <Skeleton variant="rectangular" height={100} sx={{ borderRadius: 3 }} />
                <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 3 }} />
              </Box>
+          ) : error && !isLoading ? (
+            <EmptyState variant="error" title="覆盖率数据加载失败" description={error.message || '请检查服务是否可用'} action="重试" onAction={() => refetch()} />
           ) : modules.length === 0 ? (
             <EmptyState title="暂无覆盖率数据" description="导入文档并生成索引后将自动计算覆盖率。" />
           ) : (

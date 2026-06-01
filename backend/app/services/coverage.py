@@ -1,4 +1,7 @@
 from typing import List, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class CoverageService:
@@ -56,6 +59,7 @@ class CoverageService:
                 """
             )
         except Exception:
+            logger.warning("get_coverage_report failed", exc_info=True)
             return []
 
         results: List[Dict[str, Any]] = []
@@ -86,6 +90,7 @@ class CoverageService:
                 {"name": module_name},
             )
         except Exception:
+            logger.warning("get_module_coverage failed for module=%s", module_name, exc_info=True)
             feat_res = []
         features = [
             r.get("feature_name")
@@ -122,6 +127,7 @@ class CoverageService:
                         if isinstance(r, dict) and r.get("test_name")
                     ]
         except Exception:
+            logger.warning("get_module_coverage tc query failed for module=%s", module_name, exc_info=True)
             test_cases = []
         feature_count = len(features)
         test_case_count = len(test_cases)

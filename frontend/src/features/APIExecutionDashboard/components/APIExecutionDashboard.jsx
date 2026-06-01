@@ -29,7 +29,6 @@ import { SWITCH_TAB_EVENT } from '../../../constants/events';
 import {
   formatDuration,
   formatRunTime,
-  getRunModeLabel,
   getRunStatusMeta,
 } from '../../../features/APIExecution/utils';
 import {
@@ -166,8 +165,8 @@ export default function APIExecutionDashboard({ onOpenAPIExecution }) {
               </Stack>
             </Paper>
             {/* 增加空值保护映射 */}
-            <TopList title="失败原因排行" items={summary.failure_reason_top || []} />
-            <TopList title="热点失败步骤" items={summary.failure_step_top || []} />
+            <TopList title="失败原因排行" items={summary.failure_reason_top || []} emptyText="暂无失败记录" />
+            <TopList title="热点失败步骤" items={summary.failure_step_top || []} emptyText="暂无热点步骤数据" />
           </Box>
 
           <TemplateStatsTable items={summary.template_stats || []} />
