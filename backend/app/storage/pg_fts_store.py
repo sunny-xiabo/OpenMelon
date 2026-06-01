@@ -1,4 +1,8 @@
-"""PostgreSQL full-text search store for document chunks."""
+"""PostgreSQL full-text search store for document chunks.
+
+Uses pg_trgm (trigram) GIN index for substring matching.
+Supports both Chinese and English keyword search without external extensions.
+"""
 
 from __future__ import annotations
 
@@ -12,9 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 class PgFtsStore(BasePostgresStore):
-    """Manages the document_chunks_fts table with tsvector indexing."""
+    """Manages the document_chunks_fts table with pg_trgm trigram indexing."""
 
     def _init_schema(self) -> None:
+        # Enable pg_trgm extension (idempotent)
+        try:
+            self._execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+        except Exception as e:
+            logger.warning("Could not create pg_trgm extension (may need superuser): %s", e)
+
         self._execute("""
             CREATE TABLE IF NOT EXISTS document_chunks_fts (
                 chunk_id TEXT PRIMARY KEY,
@@ -23,25 +33,23 @@ class PgFtsStore(BasePostgresStore):
                 module TEXT NOT NULL DEFAULT '',
                 chunk_index INTEGER NOT NULL DEFAULT 0,
                 content TEXT NOT NULL DEFAULT '',
-                section_path TEXT NOT NULL DEFAULT '',
-                page_label TEXT NOT NULL DEFAULT '',
-                sheet_name TEXT NOT NULL DEFAULT '',
-                slide_label TEXT NOT NULL DEFAULT '',
-                block_type TEXT NOT NULL DEFAULT '',
-                tsv tsvector GENERATED ALWAYS AS (
-                    to_tsvector('simple', coalesce(content, ''))
-                ) STORED
+                section_path TEXT,
+                page_label TEXT,
+                sheet_name TEXT,
+                slide_label TEXT,
+                block_type TEXT
             )
         """)
+        # pg_trgm GIN index for trigram-based substring search
         self._execute("""
-            CREATE INDEX IF NOT EXISTS idx_chunks_fts_tsv
-            ON document_chunks_fts USING GIN(tsv)
+            CREATE INDEX IF NOT EXISTS idx_chunks_fts_content_trgm
+            ON document_chunks_fts USING GIN (content gin_trgm_ops)
         """)
         self._execute("""
             CREATE INDEX IF NOT EXISTS idx_chunks_fts_filename
             ON document_chunks_fts (filename)
         """)
-        logger.info("document_chunks_fts schema initialized")
+        logger.info("document_chunks_fts schema initialized (pg_trgm)")
 
     def upsert_chunk(self, chunk: dict[str, Any]) -> None:
         """Insert or update a single document chunk."""
@@ -69,11 +77,11 @@ class PgFtsStore(BasePostgresStore):
                 chunk.get("module", ""),
                 chunk.get("chunk_index", 0),
                 chunk.get("content", ""),
-                chunk.get("section_path", ""),
-                chunk.get("page_label", ""),
-                chunk.get("sheet_name", ""),
-                chunk.get("slide_label", ""),
-                chunk.get("block_type", ""),
+                chunk.get("section_path") or None,
+                chunk.get("page_label") or None,
+                chunk.get("sheet_name") or None,
+                chunk.get("slide_label") or None,
+                chunk.get("block_type") or None,
             ),
         )
 
@@ -86,20 +94,36 @@ class PgFtsStore(BasePostgresStore):
         return len(chunks)
 
     def search(self, query: str, top_k: int = 10) -> list[dict[str, Any]]:
-        """Full-text search using tsvector/tsquery. Returns ranked results."""
-        rows = self._query(
-            """SELECT chunk_id, filename, doc_type, module, chunk_index,
-                      content, section_path, page_label, sheet_name,
-                      slide_label, block_type,
-                      ts_rank(tsv, query) AS rank
-               FROM document_chunks_fts,
-                    plainto_tsquery('simple', %s) AS query
-               WHERE tsv @@ query
-               ORDER BY rank DESC
-               LIMIT %s
-            """,
-            (query, top_k),
-        )
+        """Keyword search using pg_trgm trigram similarity + ILIKE fallback.
+
+        Returns ranked results sorted by similarity score.
+        """
+        if not query.strip():
+            return []
+        # Use similarity() from pg_trgm for ranking, ILIKE for matching
+        # Split query into words and require ALL to match (AND logic)
+        words = query.strip().split()
+        if not words:
+            return []
+
+        # Build WHERE clause: content ILIKE '%word%' for each word
+        conditions = []
+        params = []
+        for word in words:
+            conditions.append("content ILIKE %s")
+            params.append(f"%{word}%")
+        where_clause = " AND ".join(conditions)
+
+        sql = f"""SELECT chunk_id, filename, doc_type, module, chunk_index,
+                         content, section_path, page_label, sheet_name,
+                         slide_label, block_type,
+                         similarity(content, %s) AS rank
+                  FROM document_chunks_fts
+                  WHERE {where_clause}
+                  ORDER BY rank DESC, chunk_index ASC
+                  LIMIT %s"""
+        params = [query] + params + [top_k]
+        rows = self._query(sql, tuple(params))
         return [dict(r) for r in rows]
 
     def delete_by_filename(self, filename: str) -> int:
