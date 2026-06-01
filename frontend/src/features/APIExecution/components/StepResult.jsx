@@ -427,7 +427,7 @@ export default function StepResult() {
     const confirmed = await requestConfirm([
       '确认将本次修复经验沉淀到知识库？',
       '',
-      '会写入执行摘要、失败诊断和修复历史，后续相似失败会优先召回 these 经验。',
+      '会写入执行摘要、失败诊断和修复历史，后续相似失败会优先召回 这些 经验。',
     ].join('\n'));
     if (!confirmed) return;
     setLoading(true);

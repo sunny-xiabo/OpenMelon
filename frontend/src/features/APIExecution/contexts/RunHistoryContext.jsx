@@ -165,7 +165,7 @@ export const RunHistoryProvider = ({ children }) => {
     handleTriggerSpecSync,
     handleTriggerScheduledRuns,
     automationTriggerResult,
-  }), [runHistory, isHistoryLoading, automationTasks, runHistoryProjectId, runHistoryStatus, runHistoryKeyword, automationTriggerResult]);
+  }), [runHistory, isHistoryLoading, automationTasks, runHistoryProjectId, runHistoryStatus, runHistoryKeyword, automationTriggerResult, fetchHistory]);
 
   return (
     <RunHistoryContext.Provider value={value}>
