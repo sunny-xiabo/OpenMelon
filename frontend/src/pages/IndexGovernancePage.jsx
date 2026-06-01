@@ -243,7 +243,7 @@ function Pipeline() {
   );
 }
 
-function AdviceDrawer({ open, onClose, diagnostics, assets }) {
+function AdviceDrawer({ open, onClose, diagnostics }) {
   const theme = useTheme();
   const [generating, setGenerating] = React.useState(false);
 
@@ -1066,7 +1066,7 @@ export default function IndexGovernancePage({ isActive }) {
                     variant="outlined" 
                     fullWidth 
                     startIcon={<RestartAltOutlined />} 
-                    onClick={() => assets[0] && requestRebuildQdrant(assets[0])} 
+                    onClick={() => { const target = assets.find(a => a.missingInQdrantCount) || assets[0]; if (target) requestRebuildQdrant(target); }} 
                     disabled={!assets.length || rebuildQdrantMutation.isPending || hasRunningTask} 
                     sx={{
                       justifyContent: 'flex-start', borderRadius: 2, fontSize: '11px', fontWeight: 800,
@@ -1081,7 +1081,7 @@ export default function IndexGovernancePage({ isActive }) {
                     color="warning" 
                     fullWidth 
                     startIcon={<DeleteSweepOutlined />} 
-                    onClick={() => { const target = assets.find((asset) => asset.orphanInQdrantCount); if (target) requestCleanupOrphans(target); }} 
+                    onClick={() => { const targets = assets.filter((asset) => asset.orphanInQdrantCount); if (targets.length > 0) { targets.forEach(target => requestCleanupOrphans(target)); } }} 
                     disabled={!assets.some((asset) => asset.orphanInQdrantCount) || cleanupOrphansMutation.isPending} 
                     sx={{
                       justifyContent: 'flex-start', borderRadius: 2, fontSize: '11px', fontWeight: 800,
@@ -1114,7 +1114,7 @@ export default function IndexGovernancePage({ isActive }) {
                         <Button 
                           size="small" 
                           variant="outlined" 
-                          disabled={item.level === 'success'}
+                          disabled={true}
                           sx={{ height: 20, borderRadius: 1.5, fontSize: '9px', fontWeight: 800 }}
                         >
                           {item.action}
@@ -1154,7 +1154,6 @@ export default function IndexGovernancePage({ isActive }) {
         open={adviceOpen} 
         onClose={() => setAdviceOpen(false)} 
         diagnostics={diagnostics}
-        assets={assets}
       />
 
       {/* Asset Detail Dialog displaying missing UUIDs inside a gorgeous terminal */}
