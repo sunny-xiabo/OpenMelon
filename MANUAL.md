@@ -719,6 +719,8 @@ API 自动化执行默认只允许访问 localhost、127.0.0.1、::1 和 RFC1918
 | `RERANKER_SCORE_THRESHOLD` | `0.3` | Reranker 最低评分阈值 |
 | `HYBRID_GRAPH_WEIGHT` | `0.4` | 混合检索中图谱权重（建议与向量之和为 1.0） |
 | `HYBRID_VECTOR_WEIGHT` | `0.6` | 混合检索中向量权重 |
+| `USE_BM25` | `true` | 是否启用 PostgreSQL pg_trgm 关键词检索通道 |
+| `BM25_TOP_K` | `10` | BM25 关键词检索返回的 Top-K 结果数 |
 | `RAG_RETRIEVAL_CHANNEL_TIMEOUT_S` | `5.0` | graph/vector 单路检索超时，超时后单路降级 |
 | `RAG_CACHE_ENABLED` | `true` | 启用 RAG 热点查询内存缓存 |
 | `RAG_RETRIEVAL_CACHE_TTL_S` | `300` | 检索结果缓存存活时间（秒） |
@@ -772,7 +774,27 @@ docker compose up -d --build
 
 主后端仍对外暴露 `8000`，`reranker` 只在 Docker 内网提供 `8010`。如只重启 sidecar，可执行 `docker compose up -d --force-recreate reranker`。
 
-### 3.8 testcase_gen 独立 LLM 配置
+### 3.8 BM25 关键词检索（pg_trgm）
+
+向量检索依赖 embedding 语义相似度，对精确关键词（API 名称、错误码、方法名）的匹配较弱。BM25 关键词检索通道通过 PostgreSQL `pg_trgm` 三元组索引补充精确子串匹配能力。
+
+**工作原理：**
+1. 文档入库时，chunk 内容自动同步到 PostgreSQL `document_chunks_fts` 表（通过 `vector_ops` 的 FTS 钩子）
+2. `document_chunks_fts` 表的 `content` 列建有 `GIN(gin_trgm_ops)` 三元组索引
+3. 用户查询时，向量检索和 BM25 检索并行执行
+4. 两路结果通过 RRF（Reciprocal Rank Fusion, K=60）融合排序
+5. 融合结果再经 BGE Reranker 精排后返回
+
+**优势：** 零额外依赖（pg_trgm 是 PostgreSQL 内置扩展），支持中英文子串匹配，无需中文分词器。
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `USE_BM25` | `true` | 是否启用 BM25 关键词检索通道 |
+| `BM25_TOP_K` | `10` | BM25 检索返回的 Top-K 结果数 |
+
+> 设为 `USE_BM25=false` 可关闭关键词检索，回退到纯向量检索模式。
+
+### 3.9 testcase_gen 独立 LLM 配置
 
 测试用例生成模块默认使用统一的 `API_KEY`。如需独立配置（例如视觉和文本使用不同模型）：
 
@@ -963,8 +985,8 @@ curl "http://localhost:8000/api/upload/formats"
 
 **向量检索 (vector_query)**
 - 适用：问概念、流程、方法（"如何实现"、"设计思路"、"最佳实践"）
-- 原理：将问题转为向量，在向量索引中搜索最相似的文档块
-- 返回：相关文档片段（按相似度排序，经 Reranker 重排后返回）
+- 原理：将问题转为向量，在向量索引中搜索最相似的文档块；同时通过 pg_trgm 关键词索引进行精确子串匹配，两路结果经 RRF 融合排序后，再经 Reranker 重排返回
+- 返回：相关文档片段（向量 + 关键词混合排序，经 Reranker 精排后返回）
 
 **混合检索 (hybrid_query)**
 - 适用：需要结构化 + 内容的问题（"影响范围"、"覆盖率"）
