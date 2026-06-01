@@ -203,11 +203,20 @@ OpenMelon/
 │   │   ├── services/        # 业务服务（run_service、spec_service、knowledge_service 等）
 │   │   ├── postgres_store.py # API 执行模块 PostgreSQL 存储门面与索引查询
 │   │   └── storage.py        # 运行时存储实例与 provider 入口
+│   ├── auth/                # 认证与权限模块（API Key、JWT 校验）
+│   ├── config_center/       # 配置中心（导入/导出、版本历史、LLM 端点验证）
+│   ├── engine/              # RAG 核心编排层（意图路由、多路召回、BM25+向量 RRF 融合、Rerank）
+│   ├── governance_center/   # 治理中心（待办队列、知识库、模板库、资产健康）
 │   ├── index_governance/    # 索引治理模块（Neo4j/Qdrant 一致性扫描、清理、回填任务）
-│   ├── engine/              # RAG 核心编排层（意图路由、多路召回、Rerank）
+│   ├── knowledge_rag/       # API 执行知识检索与沉淀
+│   ├── log_center/          # 日志中心（统一事件日志、审计、清理策略）
 │   ├── storage/             # 存储底座（PostgreSQL 元数据库、Neo4j 知识图谱与 Qdrant 向量库）
 │   ├── services/            # 业务逻辑（文档解析、覆盖率计算、会话管理、企业 Webhook 等）
 │   ├── testcase_gen/        # 基于 AutoGen 的多智能体测试用例生成模块
+│   │   ├── agents/          # 生成流水线智能体（需求分析、用例生成、评审）
+│   │   ├── routes/          # 测试用例生成路由
+│   │   ├── tc_llm_slot_store.py # 三路 LLM 槽位配置持久化
+│   │   └── ...
 │   └── runtime_paths.py     # 集中管理所有运行时产物路径，支持 OPENMELON_DATA_DIR 环境变量
 ├── backend/runtime/         # 运行时产物（数据库连接外部化，保留上传文件与日志等）
 │   ├── data/                # 上传文件、Prompt Hub 种子和其他运行时文件
@@ -217,7 +226,9 @@ OpenMelon/
 │   ├── pages/               # 页面组件（QA、Graph、Manage、TestCase、APIExecution、Dashboard、IndexGovernance、Settings）
 │   ├── features/            # 功能模块（APIExecution、APIExecutionFlow、Graph、QA、PromptHub、AIObservability 等）
 │   ├── api/                 # 前端 API 客户端（execution.js、client.js 等）
-│   └── components/          # 通用 UI 组件
+│   ├── components/          # 通用 UI 组件
+│   ├── services/            # 前端业务服务
+│   └── hooks/               # 自定义 React Hooks
 ├── docs/                    # 项目补充文档及截图资源
 ├── deploy/                  # 部署配置（Nginx、Docker 相关）
 ├── scripts/                 # 运维脚本
