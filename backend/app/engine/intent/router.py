@@ -127,16 +127,77 @@ Return ONLY a JSON object with format:
 
         return list(entities)
 
-    async def process(self, question: str) -> dict:
-        intent_result = await self.classify_intent(question)
-        entities = self.extract_entities(question)
+    def extract_metadata_hints(self, question: str) -> dict:
+        """Extract metadata filtering hints from the question.
+        
+        Detects doc_type hints like 'API文档', '接口文档', '设计文档', '用例' etc.
+        Returns a dict suitable for passing as metadata_filter to vector_retrieve.
+        """
+        doc_type_patterns = {
+            "api": ["api文档", "接口文档", "api doc", "swagger", "openapi"],
+            "design": ["设计文档", "设计方案", "架构文档", "design doc"],
+            "requirement": ["需求文档", "需求说明", "prd", "requirement"],
+            "test_case": ["测试用例", "用例文档", "test case"],
+            "changelog": ["变更日志", "更新日志", "changelog", "release note"],
+        }
+        question_lower = question.lower()
+        for doc_type, keywords in doc_type_patterns.items():
+            for keyword in keywords:
+                if keyword in question_lower:
+                    return {"doc_type": doc_type}
+        return {}
+
+    async def rewrite_with_history(self, question: str, chat_history: list) -> str:
+        """Multi-turn coreference resolution: rewrite question using conversation history to be self-contained."""
+        if not chat_history:
+            return question
+
+        from app.engine.llm_retry import call_llm_with_retry
+
+        history_text = "\n".join(
+            f"{'用户' if m.get('role') == 'user' else '助手'}: {m.get('content', '')}"
+            for m in chat_history[-6:]
+        )
+        system_prompt = (
+            "你是一位查询改写专家。根据下面的对话历史，将用户最新问题中的所有指代词"
+            "（如'它'、'那个'、'这些'、'上面'、'刚才'等）替换为具体的实体名称，"
+            "使问题能够独立被理解，无需依赖对话上下文。"
+            "若问题本身已经完整且不含任何指代，则原样返回。"
+            "只返回改写后的问题文本，不要加任何解释或前缀。"
+        )
+        user_message = f"对话历史:\n{history_text}\n\n当前问题: {question}\n\n改写后的独立问题:"
+        try:
+            resp = await call_llm_with_retry(
+                self.openai_client,
+                model=settings.CHAT_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.1,
+                max_tokens=256,
+            )
+            rewritten = resp.choices[0].message.content.strip()
+            return rewritten if rewritten else question
+        except Exception:
+            return question
+
+    async def process(self, question: str, chat_history: list | None = None) -> dict:
+        effective_question = await self.rewrite_with_history(question, chat_history or [])
+
+        intent_result = await self.classify_intent(effective_question)
+        entities = self.extract_entities(effective_question)
 
         # Validate entities against graph if available
         if self.graph_ops and entities:
             entities = await self.validate_entities(entities)
 
+        metadata_hints = self.extract_metadata_hints(effective_question)
+
         return {
             "intent": intent_result["intent"],
             "entities": entities,
             "confidence": intent_result["confidence"],
+            "rewritten_query": effective_question,
+            "metadata_hints": metadata_hints,
         }

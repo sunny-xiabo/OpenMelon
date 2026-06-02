@@ -17,16 +17,21 @@ class FakeIntentRouter:
         self.entities = entities or {"resource": "order"}
         self.calls = 0
 
-    async def process(self, question: str):
+    async def process(self, question: str, chat_history: list | None = None):
         self.calls += 1
-        return {"intent": self.intent, "entities": self.entities}
+        return {
+            "intent": self.intent,
+            "entities": self.entities,
+            "rewritten_query": question.strip(),
+            "metadata_hints": {},
+        }
 
 
 class FakeRetriever:
     def __init__(self):
         self.calls = []
 
-    async def retrieve(self, intent: str, entities: dict, question: str):
+    async def retrieve(self, intent: str, entities: dict, question: str, metadata_filter: dict | None = None):
         self.calls.append((intent, question))
         return {
             "context_text": f"context::{intent}::{question}",
@@ -66,9 +71,16 @@ class FakeSessionManager:
     def get_history(self, session_id: str):
         return list(self.histories.get(session_id, []))
 
-    def add_message(self, session_id: str, role: str, content: str):
+    def add_message(self, session_id: str, role: str, content: str, **kwargs):
         self.added.append((session_id, role, content))
-        self.histories[session_id].append({"role": role, "content": content})
+        msg = {
+            "role": role,
+            "content": content,
+            "citations": kwargs.get("citations", []),
+            "context_chunks": kwargs.get("context_chunks", []),
+            "reasoning_steps": kwargs.get("reasoning_steps", []),
+        }
+        self.histories[session_id].append(msg)
 
 
 class FakeMetricsCollector:

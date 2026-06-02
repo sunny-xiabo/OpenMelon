@@ -84,6 +84,29 @@ class AgenticRAG:
         except Exception:
             return question
 
+    def _validate_retrieval_result(self, chunks: list) -> tuple:
+        """Validate retrieval results and return (is_valid, reason).
+
+        Checks for empty results, low-quality content, and excessive duplication.
+        Returns a tuple of (bool, str) indicating validity and reason.
+        """
+        if not chunks:
+            return False, "empty_results"
+
+        valid_chunks = [
+            c for c in chunks
+            if isinstance(c.get("content"), str) and len(c["content"].strip()) > 30
+        ]
+        if not valid_chunks:
+            return False, "low_quality_content"
+
+        # Detect excessive duplication by comparing first 100 chars of each chunk
+        unique_prefixes = set(c["content"][:100] for c in valid_chunks)
+        if len(unique_prefixes) < max(1, len(valid_chunks) // 2):
+            return False, "high_duplication"
+
+        return True, "ok"
+
     async def _generate_answer_with_reasoning(
         self, question: str, contexts: List[str], reasoning_steps: List[str]
     ) -> str:
@@ -133,7 +156,26 @@ class AgenticRAG:
 
             retrieval = await self.retriever.vector_retrieve(current_query, top_k=top_k)
             chunks = retrieval.get("chunks", [])
-            if not chunks:
+            is_valid, reason = self._validate_retrieval_result(chunks)
+            if not is_valid:
+                reasoning_steps.append(
+                    f"Step {step}: Retrieval validation failed ({reason}), attempting graph fallback"
+                )
+                # Try graph fallback on first failure
+                if step == 1 and hasattr(self.retriever, 'graph_retrieve'):
+                    try:
+                        graph_result = await self.retriever.graph_retrieve(
+                            [current_query], depth=2
+                        )
+                        graph_context = graph_result.get("context_text", "")
+                        if graph_context and len(graph_context.strip()) > 50:
+                            all_contexts.append(f"[Graph Context]\n{graph_context}")
+                            all_sources.append({"source_type": "graph"})
+                            reasoning_steps.append(
+                                f"Step {step}: Graph fallback succeeded with {len(graph_context)} chars"
+                            )
+                    except Exception:
+                        pass
                 break
 
             for idx, chunk in enumerate(chunks):
@@ -143,6 +185,12 @@ class AgenticRAG:
                     "filename": chunk.get("filename"),
                     "doc_type": chunk.get("doc_type"),
                     "chunk_index": chunk.get("chunk_index"),
+                    "content": content,
+                    "section_path": chunk.get("section_path"),
+                    "page_label": chunk.get("page_label"),
+                    "sheet_name": chunk.get("sheet_name"),
+                    "slide_label": chunk.get("slide_label"),
+                    "block_type": chunk.get("block_type"),
                 }
                 all_sources.append(src_ref)
                 all_contexts.append(f"[Source {len(all_contexts) + 0}]\n{content}")

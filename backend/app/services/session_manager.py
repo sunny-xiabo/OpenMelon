@@ -24,7 +24,15 @@ class SessionManager:
     def new_session_id() -> str:
         return uuid.uuid4().hex[:8]
 
-    def add_message(self, session_id: str, role: str, content: str) -> None:
+    def add_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        citations: List[Dict] | None = None,
+        context_chunks: List[Dict] | None = None,
+        reasoning_steps: List[str] | None = None,
+    ) -> None:
         if not session_id:
             session_id = self.new_session_id()
         now = datetime.utcnow().isoformat() + "Z"
@@ -41,6 +49,9 @@ class SessionManager:
                     "role": role,
                     "content": content,
                     "timestamp": now,
+                    "citations": citations or [],
+                    "context_chunks": context_chunks or [],
+                    "reasoning_steps": reasoning_steps or [],
                 }
             )
             self._meta[session_id]["updated_at"] = now
@@ -110,6 +121,16 @@ class SessionManager:
             if session_id in self._sessions:
                 del self._sessions[session_id]
                 self._meta.pop(session_id, None)
+                return True
+            return False
+
+    def truncate_session(self, session_id: str, message_index: int) -> bool:
+        now = datetime.utcnow().isoformat() + "Z"
+        with self._lock:
+            if session_id in self._sessions:
+                self._sessions[session_id] = self._sessions[session_id][:message_index]
+                if session_id in self._meta:
+                    self._meta[session_id]["updated_at"] = now
                 return True
             return False
 

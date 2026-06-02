@@ -1,8 +1,11 @@
 import { API_BASE, fetchJSON, fetchStream, fetchFormData } from './client';
 
 export const chatAPI = {
-  query: (message, sessionId = null, includeHistory = true) => {
-    const params = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+  query: (message, sessionId = null, includeHistory = true, useAgentic = false) => {
+    const queryParams = [];
+    if (sessionId) queryParams.push(`session_id=${encodeURIComponent(sessionId)}`);
+    if (useAgentic) queryParams.push(`use_agentic=true`);
+    const params = queryParams.length > 0 ? `?${queryParams.join('&')}` : '';
     return fetchJSON(`${API_BASE}/query${params}`, {
       method: 'POST',
       body: JSON.stringify({ question: message, include_history: includeHistory }),
@@ -49,5 +52,11 @@ export const chatAPI = {
     fetchJSON(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/rename`, {
       method: 'PATCH',
       body: JSON.stringify({ title }),
+    }),
+
+  truncateSession: (sessionId, messageIndex) =>
+    fetchJSON(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/truncate`, {
+      method: 'POST',
+      body: JSON.stringify({ message_index: messageIndex }),
     }),
 };

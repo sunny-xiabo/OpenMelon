@@ -127,7 +127,7 @@ def clear_rag_cache(reason: str = "") -> int:
     return bump_rag_cache_version(reason=reason or "manual_clear")
 
 
-def build_retrieval_cache_key(intent: str, entities: dict[str, Any], question: str) -> str:
+def build_retrieval_cache_key(intent: str, entities: dict[str, Any], question: str, metadata_filter: dict[str, Any] | None = None) -> str:
     return _hash_payload(
         {
             "layer": "retrieval",
@@ -135,6 +135,7 @@ def build_retrieval_cache_key(intent: str, entities: dict[str, Any], question: s
             "question": normalize_query_text(question),
             "intent": intent,
             "entities": entities or {},
+            "metadata_filter": metadata_filter or {},
             "retrieval_top_k": settings.RETRIEVAL_TOP_K,
             "retrieval_depth": settings.RETRIEVAL_DEPTH,
             "use_reranker": settings.USE_RERANKER,

@@ -308,6 +308,23 @@ async def delete_session_history(session_id: str, session_manager = Depends(get_
     except Exception as e:
         raise InternalError(details=str(e))
 
+@router.post(
+    "/sessions/{session_id}/truncate",
+    dependencies=[Depends(require_production_auth)],
+)
+async def truncate_session_history(session_id: str, req: Request, session_manager = Depends(get_session_manager)):
+    try:
+        body = await req.json()
+        message_index = body.get("message_index")
+        if message_index is None:
+            raise InvalidRequestError(message="message_index is required")
+        ok = session_manager.truncate_session(session_id, int(message_index))
+        if not ok:
+            raise NotFoundError(message="Session not found")
+        return {"session_id": session_id, "message_index": message_index}
+    except Exception as e:
+        raise InternalError(details=str(e))
+
 from app.utils.logger import LOG_DIR
 
 LOG_FILES = {
