@@ -1,7 +1,12 @@
-from app.api_execution.ai.common import *
+from copy import deepcopy
+from typing import Any
+
+from app.api_execution.ai.common import _log_ai_event
 from app.api_execution.ai import llm_patch
 from app.api_execution.ai.shared import _has_assertion, _operation
 from app.api_execution.orchestration_planner import plan_api_orchestration
+from app.api_execution.policy import evaluate_execution_policy
+from app.api_execution.schemas import APITestCaseDsl
 
 
 def enhance_dsl(script: APITestCaseDsl, project_policy_snapshot: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -105,4 +110,7 @@ async def enhance_dsl_with_configured_ai(
         )
         return {**fallback, "fallback_reason": f"已回退启发式规则: {exc}"}
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "enhance_dsl",
+    "enhance_dsl_with_configured_ai",
+]

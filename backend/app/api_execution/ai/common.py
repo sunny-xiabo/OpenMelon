@@ -20,4 +20,8 @@ def _log_ai_event(level: str, event_type: str, title: str, message: str = "", **
     return safe_log_event(level, "ai_assistant", event_type, title, message, **kwargs)
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "AI_ASSISTANT_TIMEOUT_SECONDS",
+    "AI_ASSISTANT_ENHANCE_TIMEOUT_SECONDS",
+    "_log_ai_event",
+]

@@ -1,6 +1,11 @@
-from app.api_execution.ai.common import *
+import re
+from typing import Any
+
+from app.api_execution.ai.common import _log_ai_event
 from app.api_execution.ai.shared import _looks_like_login
+from app.api_execution.dsl_generator import generate_api_dsl
 from app.api_execution.orchestration_planner import plan_api_orchestration
+from app.api_execution.schemas import APITestCaseDsl
 
 def build_flow_draft(
     spec: dict[str, Any],
@@ -438,4 +443,9 @@ def _undefined_variable_refs(draft: dict[str, Any]) -> list[str]:
                 refs.append(ref["name"])
     return list(dict.fromkeys(refs))
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "build_flow_draft",
+    "_collect_variable_references",
+    "_score_flow_draft",
+    "_summarize_assertions",
+]

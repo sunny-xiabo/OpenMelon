@@ -1,4 +1,4 @@
-from app.api_execution.ai.common import *
+from typing import Any
 
 
 def _has_assertion(assertions: list[dict[str, Any]], assertion_type: str) -> bool:
@@ -28,4 +28,8 @@ def _operation(
     }
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "_has_assertion",
+    "_looks_like_login",
+    "_operation",
+]

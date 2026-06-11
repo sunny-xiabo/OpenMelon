@@ -1,7 +1,12 @@
-from app.api_execution.ai.common import *
+from copy import deepcopy
+from typing import Any
+
+from app.api_execution.ai.common import _log_ai_event
 from app.api_execution.ai import llm_patch
 from app.api_execution.ai.flow_draft import _collect_variable_references, _score_flow_draft, _summarize_assertions
 from app.api_execution.ai.shared import _operation
+from app.api_execution.policy import evaluate_execution_policy
+from app.api_execution.schemas import APITestCaseDsl
 
 def build_repair_patch(
     script: APITestCaseDsl,
@@ -433,4 +438,8 @@ def _diagnostic_title(diagnostic: dict[str, Any]) -> str:
     }
     return labels.get(diagnostic.get("category", ""), diagnostic.get("category") or "排查建议")
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "build_repair_patch",
+    "build_repair_patch_with_configured_ai",
+    "_build_repair_draft",
+]

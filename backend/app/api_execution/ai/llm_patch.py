@@ -1,5 +1,14 @@
-from app.api_execution.ai.common import *
+import json
+import re
+from typing import Any
+
+from openai import AsyncOpenAI
+
+from app.api_execution.ai.common import AI_ASSISTANT_ENHANCE_TIMEOUT_SECONDS, AI_ASSISTANT_TIMEOUT_SECONDS
 from app.api_execution.ai.patch_safety import normalize_patch_operations, review_patch_safety
+from app.api_execution.policy import evaluate_execution_policy
+from app.api_execution.schemas import APITestCaseDsl
+from app.config import settings
 
 async def _build_patch_with_llm(
     *,
@@ -151,4 +160,7 @@ def _extract_json_object(content: str) -> dict[str, Any]:
         raise ValueError("模型返回内容不是 JSON 对象")
     return payload
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "_build_patch_with_llm",
+    "_is_llm_configured",
+]
