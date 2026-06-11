@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.errors import InternalError, InvalidRequestError, NotFoundError, UnauthorizedError
 from fastapi import Request
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 from app.api.deps import require_production_auth
 from app.api.logging_service import safe_log_event
@@ -68,14 +71,14 @@ async def delete_file(record_id: str, req: Request):
                 try:
                     os.remove(file_path)
                 except Exception as e:
-                    print(f"Warning: Failed to delete physical file {file_path}: {e}")
+                    logger.warning("Failed to delete physical file %s: %s", file_path, e)
             
             # 删除相关的向量数据
             if filename:
                 try:
                     await req.app.state.vector_ops.delete_chunks_by_file(filename)
                 except Exception as e:
-                    print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
+                    logger.warning("Failed to delete vector chunks for %s: %s", filename, e)
             bump_rag_cache_version("file_deleted")
 
             _log_manage_event(
@@ -131,13 +134,13 @@ async def delete_file_by_name(
                     try:
                         os.remove(file_path)
                     except Exception as e:
-                        print(f"Warning: Failed to delete physical file {file_path}: {e}")
+                        logger.warning("Failed to delete physical file %s: %s", file_path, e)
             
             # 删除相关的向量数据
             try:
                 await req.app.state.vector_ops.delete_chunks_by_file(filename)
             except Exception as e:
-                print(f"Warning: Failed to delete vector chunks for {filename}: {e}")
+                logger.warning("Failed to delete vector chunks for %s: %s", filename, e)
             bump_rag_cache_version("file_deleted_by_name")
 
         _log_manage_event(
