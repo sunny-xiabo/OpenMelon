@@ -1,243 +1,21 @@
 import React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Stack, Typography, Paper, Box, Button, TextField, FormControl, InputLabel, Select, MenuItem, Checkbox, Alert, Chip, Divider, CircularProgress, Tabs, Tab } from '@mui/material';
-import { CloudUploadOutlined, ContentPasteOutlined, AutoAwesome, RocketLaunch, SyncAltOutlined, SettingsOutlined, VpnKeyOutlined, SaveOutlined } from '@mui/icons-material';
-import { useAPIExecution } from '../context';
-import { useSnackbar } from '../../../components/SnackbarProvider';
-import { apiExecutionAPI } from '../../../api/execution';
-import { NEW_PROJECT_VALUE, NEW_ENVIRONMENT_VALUE } from '../constants';
-import { EXEC_KEYS, useProjectAssets } from '../hooks/useAPIExecutionQueries';
-import StageHeader from './StageHeader';
-
-const ENVIRONMENT_VARIABLES_EXAMPLE = JSON.stringify({
-  user_id: '10001',
-  tenant_id: 'demo-tenant',
-  access_token: 'paste-token-here',
-}, null, 2);
-
-const RISK_OVERRIDES_EXAMPLE = JSON.stringify({
-  'DELETE /users/{id}': 'high',
-  'POST /payments': 'high',
-  'GET /admin/audit': 'medium',
-}, null, 2);
-
-const AUTH_CONFIG_EXAMPLE = JSON.stringify({
-  type: 'bearer',
-  token_variable: 'access_token',
-  prefix: 'Bearer',
-  header_name: 'Authorization',
-}, null, 2);
-
-const SETUP_STEPS_EXAMPLE = JSON.stringify([
-  {
-    id: 'login',
-    name: '登录获取 Token',
-    method: 'POST',
-    path: '/auth/login',
-    operation_id: 'login',
-    body: {
-      username: '{{username}}',
-      password: '{{password}}',
-    },
-    assertions: [
-      { type: 'status_code', expected: 200 },
-    ],
-    extractions: [
-      { name: 'access_token', source: 'body', path: 'data.token' },
-    ],
-  },
-], null, 2);
-
-const CLEANUP_STEPS_EXAMPLE = JSON.stringify([
-  {
-    id: 'cleanup_order',
-    name: '清理订单',
-    method: 'DELETE',
-    path: '/orders/{{order_id}}',
-    operation_id: 'cleanupOrder',
-    assertions: [
-      { type: 'status_code_in', expected: [200, 204, 404] },
-    ],
-  },
-], null, 2);
-
-const ACTIVE_INTERFACE_STATUSES = new Set(['active', 'changed']);
-
-const AI_BOUNDARY_OPTIONS = [
-  {
-    checkedKey: 'allowAiGenerateDsl',
-    label: '允许 AI 生成 DSL',
-    description: '允许根据 OpenAPI 自动生成测试脚本草稿。',
-  },
-  {
-    checkedKey: 'allowAiExecution',
-    label: '允许 AI 自动执行',
-    description: '开启后，AI/自动化任务可以直接提交执行。生产环境建议关闭。',
-  },
-  {
-    checkedKey: 'allowAiRepair',
-    label: '允许 AI 自动修复',
-    description: '允许根据失败结果生成修复补丁或受控重跑。',
-  },
-  {
-    checkedKey: 'allowScheduledExecution',
-    label: '允许定时执行',
-    description: '允许该项目被定时任务触发执行。',
-  },
-  {
-    checkedKey: 'allowOverwriteHistory',
-    label: '允许覆盖原记录',
-    description: '重跑失败步骤时可合并更新原执行记录。',
-  },
-];
-
-const AUTH_TYPE_OPTIONS = [
-  { value: 'none', label: '无认证' },
-  { value: 'bearer', label: 'Bearer Token' },
-  { value: 'api_key_header', label: 'API Key Header' },
-  { value: 'api_key_query', label: 'API Key Query' },
-  { value: 'basic', label: 'Basic Auth' },
-];
-
-const CONFIG_SECTION_META = [
-  { value: 'project', label: '项目环境', icon: <SettingsOutlined fontSize="small" /> },
-  { value: 'import', label: '规范导入', icon: <CloudUploadOutlined fontSize="small" /> },
-  { value: 'policy', label: 'AI 策略', icon: <AutoAwesome fontSize="small" /> },
-  { value: 'dependencies', label: '认证依赖', icon: <VpnKeyOutlined fontSize="small" /> },
-];
-
-const PANEL_SX = {
-  p: { xs: 2.5, md: 3 },
-  borderRadius: 4.5,
-  border: '1px solid rgba(255, 255, 255, 0.45)',
-  bgcolor: 'rgba(255, 255, 255, 0.45)',
-  backdropFilter: 'blur(20px)',
-  boxShadow: '0 8px 32px rgba(15, 23, 42, 0.02), inset 0 1px 0 rgba(255,255,255,0.7)',
-};
-
-const OUTLINED_BLOCK_SX = {
-  p: 2.5,
-  borderRadius: 3.5,
-  border: '1px solid rgba(0, 0, 0, 0.03)',
-  bgcolor: 'rgba(255, 255, 255, 0.45)',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
-};
-
-const CODE_FIELD_SX = { '& .MuiInputBase-input': { fontFamily: 'monospace' } };
-
-const parseConfigText = (text, fallback) => {
-  const raw = String(text || '').trim();
-  if (!raw) return { value: fallback, valid: true };
-  try {
-    const value = JSON.parse(raw);
-    if (Array.isArray(fallback)) return { value: Array.isArray(value) ? value : fallback, valid: Array.isArray(value) };
-    return { value: value && typeof value === 'object' && !Array.isArray(value) ? value : fallback, valid: Boolean(value && typeof value === 'object' && !Array.isArray(value)) };
-  } catch {
-    return { value: fallback, valid: false };
-  }
-};
-
-const stringifyConfig = (value) => JSON.stringify(value, null, 2);
-
-const collectTemplateRefs = (value) => {
-  const refs = new Set();
-  const text = JSON.stringify(value || {});
-  for (const match of text.matchAll(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g)) {
-    refs.add(match[1]);
-  }
-  return [...refs];
-};
-
-const collectExtractions = (steps = []) => {
-  const names = new Set();
-  for (const step of steps || []) {
-    for (const extraction of step?.extractions || []) {
-      if (extraction?.name) names.add(extraction.name);
-    }
-  }
-  return [...names];
-};
-
-const collectAuthVariableRefs = (authConfig = {}) => {
-  const type = String(authConfig.type || '').toLowerCase();
-  const refs = [];
-  if (type === 'bearer' && authConfig.token_variable) refs.push(authConfig.token_variable);
-  if (type === 'api_key' && authConfig.value_variable) refs.push(authConfig.value_variable);
-  if (type === 'basic' && authConfig.encoded_variable) refs.push(authConfig.encoded_variable);
-  return refs;
-};
-
-const upsertStepById = (steps, nextStep) => {
-  const current = Array.isArray(steps) ? [...steps] : [];
-  const index = current.findIndex((item) => item?.id === nextStep.id);
-  if (index >= 0) current[index] = nextStep;
-  else current.unshift(nextStep);
-  return current;
-};
-
-const buildAuthConfigFromWizard = (wizard) => {
-  if (wizard.type === 'none') return {};
-  if (wizard.type === 'bearer') {
-    return {
-      type: 'bearer',
-      token_variable: wizard.tokenVariable || 'access_token',
-      prefix: wizard.prefix || 'Bearer',
-      header_name: wizard.headerName || 'Authorization',
-    };
-  }
-  if (wizard.type === 'api_key_query') {
-    return {
-      type: 'api_key',
-      in: 'query',
-      name: wizard.apiKeyName || 'api_key',
-      value_variable: wizard.apiKeyVariable || 'api_key',
-    };
-  }
-  if (wizard.type === 'basic') {
-    return {
-      type: 'basic',
-      encoded_variable: wizard.basicVariable || 'basic_token',
-      header_name: wizard.headerName || 'Authorization',
-    };
-  }
-  return {
-    type: 'api_key',
-    in: 'header',
-    name: wizard.apiKeyName || 'x-api-key',
-    value_variable: wizard.apiKeyVariable || 'api_key',
-  };
-};
-
-const buildDependencyConfigInsight = ({
-  authConfigText,
-  setupStepsText,
-  cleanupStepsText,
-  environmentVariablesText,
-}) => {
-  const auth = parseConfigText(authConfigText, {});
-  const setup = parseConfigText(setupStepsText, []);
-  const cleanup = parseConfigText(cleanupStepsText, []);
-  const variables = parseConfigText(environmentVariablesText, {});
-  const refs = [...new Set([
-    ...collectTemplateRefs(auth.value),
-    ...collectAuthVariableRefs(auth.value),
-    ...collectTemplateRefs(setup.value),
-    ...collectTemplateRefs(cleanup.value),
-  ])];
-  const extracted = collectExtractions(setup.value);
-  const known = new Set([...Object.keys(variables.value || {}), ...extracted]);
-  const missingRefs = refs.filter((name) => !known.has(name));
-  return {
-    auth,
-    setup,
-    cleanup,
-    variables,
-    refs,
-    extracted,
-    missingRefs,
-    invalid: !auth.valid || !setup.valid || !cleanup.valid || !variables.valid,
-  };
-};
+import { Stack, Typography, Paper, Box, Button, TextField, Checkbox, Alert, Chip, Divider, CircularProgress, Tabs, Tab } from '@mui/material';
+import { CloudUploadOutlined, ContentPasteOutlined, AutoAwesome, RocketLaunch, SyncAltOutlined, SaveOutlined } from '@mui/icons-material';
+import { useAPIExecution } from '../../context';
+import { useSnackbar } from '../../../../components/SnackbarProvider';
+import { apiExecutionAPI } from '../../../../api/execution';
+import { NEW_PROJECT_VALUE } from '../../constants';
+import { EXEC_KEYS, useProjectAssets } from '../../hooks/useAPIExecutionQueries';
+import StageHeader from '../StageHeader';
+import {
+  ACTIVE_INTERFACE_STATUSES, AI_BOUNDARY_OPTIONS, CONFIG_SECTION_META,
+  PANEL_SX, RISK_OVERRIDES_EXAMPLE,
+  parseConfigText, stringifyConfig, buildAuthConfigFromWizard, buildDependencyConfigInsight, upsertStepById,
+} from './constants';
+import EnvironmentConfig from './EnvironmentConfig';
+import AuthConfig from './AuthConfig';
+import SetupStepsConfig from './SetupStepsConfig';
 
 export default function StepImport() {
   const {
@@ -316,7 +94,7 @@ export default function StepImport() {
       : type;
     setAuthWizard((current) => ({
       ...current,
-      type: AUTH_TYPE_OPTIONS.some((option) => option.value === nextType) ? nextType : 'none',
+      type: nextType,
       tokenVariable: parsed.token_variable || current.tokenVariable,
       prefix: parsed.prefix ?? current.prefix,
       headerName: parsed.header_name || current.headerName,
@@ -599,144 +377,23 @@ export default function StepImport() {
 
       {configSection === 'project' && (
         <Paper sx={PANEL_SX}>
-          <Stack spacing={2}>
-            <Typography variant="subtitle1" fontWeight={800}>项目环境</Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 2, minWidth: 0 }}>
-              <FormControl size="small" sx={{ minWidth: 0 }}>
-                <InputLabel>选择项目</InputLabel>
-                <Select
-                  label="选择项目"
-                  value={selectedProjectId || ''}
-                  displayEmpty
-                  sx={{ minWidth: 0, '& .MuiSelect-select': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
-                  onChange={(event) => {
-                    const projectId = event.target.value;
-                    if (projectId === NEW_PROJECT_VALUE) {
-                      showSnackbar('请前往"设置"页面创建新项目', 'info');
-                      return;
-                    }
-                    const project = projects.find((item) => item.project_id === projectId);
-                    if (project) {
-                      applyProjectValues(project);
-                      loadProjectSpec(project);
-                    }
-                  }}
-                >
-                  <MenuItem value="" disabled>请选择项目</MenuItem>
-                  <MenuItem value={NEW_PROJECT_VALUE}>新建项目...</MenuItem>
-                  {projects.map((project) => (
-                    <MenuItem key={project.project_id} value={project.project_id}>{project.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl size="small" disabled={!selectedProjectId} sx={{ minWidth: 0 }}>
-                <InputLabel>选择环境</InputLabel>
-                <Select
-                  label="选择环境"
-                  value={selectedEnvironmentId || ''}
-                  displayEmpty
-                  sx={{ minWidth: 0, '& .MuiSelect-select': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
-                  onChange={(event) => {
-                    const environmentId = event.target.value;
-                    if (environmentId === NEW_ENVIRONMENT_VALUE) {
-                      showSnackbar('请前往"设置"页面创建新环境', 'info');
-                      return;
-                    }
-                    const environment = environments.find((item) => item.environment_id === environmentId);
-                    if (environment) applyEnvironmentValues(environment);
-                  }}
-                >
-                  <MenuItem value="" disabled>请选择环境</MenuItem>
-                  <MenuItem value={NEW_ENVIRONMENT_VALUE}>新建环境...</MenuItem>
-                  {environments.map((environment) => (
-                    <MenuItem key={environment.environment_id} value={environment.environment_id}>{environment.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
-            {selectedProjectId && (
-              <Alert severity={projectAssets?.modules?.length ? 'success' : 'info'}>
-                <Stack spacing={1}>
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Typography variant="body2" fontWeight={700}>项目 API 资产台账</Typography>
-                    <Chip size="small" label={`${projectAssets?.modules?.length || 0} 个模块`} />
-                    <Chip size="small" label={`${activeInterfaceCount} 个有效接口`} color={activeInterfaceCount ? 'success' : 'default'} variant="outlined" />
-                    {!!latestDiff.changed && <Chip size="small" label={`${latestDiff.changed} 个变更`} color="warning" />}
-                    {!!latestDiff.removed && <Chip size="small" label={`${latestDiff.removed} 个移除`} color="error" />}
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    已绑定项目会自动加载接口资产；刷新规范后先预览差异，再同步进台账。
-                  </Typography>
-                </Stack>
-              </Alert>
-            )}
-            <Divider />
-            <TextField size="small" label="Base URL" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="http://localhost:8000" helperText="执行时会和步骤 path 拼成完整请求地址。" />
-            <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mt: 1 }}>环境变量配置</Typography>
-            <Box sx={{
-              borderRadius: 3.5,
-              border: '1px solid #1e293b',
-              overflow: 'hidden',
-              boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
-              mt: 0.5
-            }}>
-              {/* macOS Title Bar */}
-              <Box sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                px: 2,
-                py: 1.25,
-                bgcolor: '#1e293b',
-                borderBottom: '1px solid #0f172a',
-              }}>
-                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
-                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
-                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
-                <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - env_vars.json</Typography>
-              </Box>
-              <TextField
-                fullWidth
-                multiline
-                minRows={6}
-                value={environmentVariablesText}
-                onChange={e => setEnvironmentVariablesText(e.target.value)}
-                placeholder={ENVIRONMENT_VARIABLES_EXAMPLE}
-                helperText=""
-                sx={{
-                  '& .MuiInputBase-root': {
-                    borderRadius: 0,
-                    bgcolor: '#090d16',
-                    color: '#34d399',
-                    fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                    fontSize: '12.5px',
-                    p: 2,
-                    boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
-                    '& fieldset': { border: 'none' },
-                    '&:hover fieldset': { border: 'none' },
-                    '&.Mui-focused fieldset': { border: 'none' },
-                  },
-                  '& .MuiInputBase-input': {
-                    color: '#34d399',
-                    fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                    lineHeight: 1.6,
-                  }
-                }}
-              />
-            </Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, fontWeight: 500 }}>
-              可在脚本中用 {'{{user_id}}'}、{'{{access_token}}'} 引用；敏感字段在报告中会自动掩码。
-            </Typography>
-            <Button
-              size="small"
-              variant="text"
-              startIcon={<ContentPasteOutlined fontSize="small" />}
-              onClick={() => setEnvironmentVariablesText(ENVIRONMENT_VARIABLES_EXAMPLE)}
-              sx={{ alignSelf: 'flex-start', mt: 1, textTransform: 'none', fontWeight: 800, fontSize: '12px', color: '#4f46e5', '&:hover': { bgcolor: 'rgba(79, 70, 229, 0.04)' } }}
-            >
-              填入环境变量示例
-            </Button>
-          </Stack>
+          <EnvironmentConfig
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            applyProjectValues={applyProjectValues}
+            loadProjectSpec={loadProjectSpec}
+            environments={environments}
+            selectedEnvironmentId={selectedEnvironmentId}
+            applyEnvironmentValues={applyEnvironmentValues}
+            projectAssets={projectAssets}
+            activeInterfaceCount={activeInterfaceCount}
+            latestDiff={latestDiff}
+            baseUrl={baseUrl}
+            setBaseUrl={setBaseUrl}
+            environmentVariablesText={environmentVariablesText}
+            setEnvironmentVariablesText={setEnvironmentVariablesText}
+            showSnackbar={showSnackbar}
+          />
         </Paper>
       )}
 
@@ -991,7 +648,6 @@ export default function StepImport() {
                 overflow: 'hidden',
                 boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
               }}>
-                {/* macOS Title Bar */}
                 <Box sx={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1085,268 +741,26 @@ export default function StepImport() {
                 )}
               </Stack>
             </Alert>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' }, gap: 1.5 }}>
-              <Box sx={OUTLINED_BLOCK_SX}>
-                <Stack spacing={1.25}>
-                  <Typography variant="body2" fontWeight={800}>认证向导</Typography>
-                  <FormControl size="small">
-                    <InputLabel>认证方式</InputLabel>
-                    <Select
-                      label="认证方式"
-                      value={authWizard.type}
-                      onChange={(event) => setAuthWizard((current) => ({ ...current, type: event.target.value }))}
-                    >
-                      {AUTH_TYPE_OPTIONS.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  {authWizard.type === 'bearer' && (
-                    <>
-                      <TextField size="small" label="Token 变量名" value={authWizard.tokenVariable} onChange={(event) => setAuthWizard((current) => ({ ...current, tokenVariable: event.target.value }))} />
-                      <TextField size="small" label="Header 名称" value={authWizard.headerName} onChange={(event) => setAuthWizard((current) => ({ ...current, headerName: event.target.value }))} />
-                    </>
-                  )}
-                  {authWizard.type.startsWith('api_key') && (
-                    <>
-                      <TextField size="small" label="Key 名称" value={authWizard.apiKeyName} onChange={(event) => setAuthWizard((current) => ({ ...current, apiKeyName: event.target.value }))} />
-                      <TextField size="small" label="值变量名" value={authWizard.apiKeyVariable} onChange={(event) => setAuthWizard((current) => ({ ...current, apiKeyVariable: event.target.value }))} />
-                    </>
-                  )}
-                  {authWizard.type === 'basic' && (
-                    <TextField size="small" label="Basic 编码变量名" value={authWizard.basicVariable} onChange={(event) => setAuthWizard((current) => ({ ...current, basicVariable: event.target.value }))} />
-                  )}
-                  <Button size="small" variant="contained" onClick={applyAuthWizard}>应用认证配置</Button>
-                </Stack>
-              </Box>
-              <Box sx={OUTLINED_BLOCK_SX}>
-                <Stack spacing={1.25}>
-                  <Typography variant="body2" fontWeight={800}>登录前置模板</Typography>
-                  <TextField size="small" label="登录接口 Path" value={setupWizard.path} onChange={(event) => setSetupWizard((current) => ({ ...current, path: event.target.value }))} />
-                  <TextField size="small" label="Token JSON 路径" value={setupWizard.tokenPath} onChange={(event) => setSetupWizard((current) => ({ ...current, tokenPath: event.target.value }))} />
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                    <TextField size="small" label="用户名变量" value={setupWizard.usernameVariable} onChange={(event) => setSetupWizard((current) => ({ ...current, usernameVariable: event.target.value }))} />
-                    <TextField size="small" label="密码变量" value={setupWizard.passwordVariable} onChange={(event) => setSetupWizard((current) => ({ ...current, passwordVariable: event.target.value }))} />
-                  </Box>
-                  <Button size="small" variant="contained" onClick={applyLoginSetupWizard}>生成登录前置</Button>
-                </Stack>
-              </Box>
-              <Box sx={OUTLINED_BLOCK_SX}>
-                <Stack spacing={1.25}>
-                  <Typography variant="body2" fontWeight={800}>清理步骤模板</Typography>
-                  <TextField size="small" label="步骤名称" value={cleanupWizard.name} onChange={(event) => setCleanupWizard((current) => ({ ...current, name: event.target.value }))} />
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 1 }}>
-                    <FormControl size="small">
-                      <InputLabel>方法</InputLabel>
-                      <Select
-                        label="方法"
-                        value={cleanupWizard.method}
-                        onChange={(event) => setCleanupWizard((current) => ({ ...current, method: event.target.value }))}
-                      >
-                        {['DELETE', 'POST', 'PATCH', 'PUT'].map((method) => <MenuItem key={method} value={method}>{method}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                    <TextField size="small" label="清理 Path" value={cleanupWizard.path} onChange={(event) => setCleanupWizard((current) => ({ ...current, path: event.target.value }))} />
-                  </Box>
-                  <Button size="small" variant="contained" onClick={applyCleanupWizard}>生成清理步骤</Button>
-                </Stack>
-              </Box>
-            </Box>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-              <Box>
-                <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mb: 0.5 }}>认证配置 JSON</Typography>
-                <Box sx={{
-                  borderRadius: 3.5,
-                  border: '1px solid #1e293b',
-                  overflow: 'hidden',
-                  boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
-                }}>
-                  {/* macOS Title Bar */}
-                  <Box sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    px: 2,
-                    py: 1.25,
-                    bgcolor: '#1e293b',
-                    borderBottom: '1px solid #0f172a',
-                  }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
-                    <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - auth_config.json</Typography>
-                  </Box>
-                  <TextField
-                    fullWidth
-                    multiline
-                    minRows={10}
-                    value={authConfigText}
-                    onChange={e => setAuthConfigText(e.target.value)}
-                    placeholder={AUTH_CONFIG_EXAMPLE}
-                    sx={{
-                      '& .MuiInputBase-root': {
-                        borderRadius: 0,
-                        bgcolor: '#090d16',
-                        color: '#fbbf24',
-                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                        fontSize: '12.5px',
-                        p: 2,
-                        boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
-                        '& fieldset': { border: 'none' },
-                        '&:hover fieldset': { border: 'none' },
-                        '&.Mui-focused fieldset': { border: 'none' },
-                      },
-                      '& .MuiInputBase-input': {
-                        color: '#fbbf24',
-                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                        lineHeight: 1.6,
-                      }
-                    }}
-                  />
-                </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, mt: 0.5 }}>
-                  支持 none / bearer / api_key / basic。
-                </Typography>
-              </Box>
-
-              <Box>
-                <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mb: 0.5 }}>前置步骤 JSON</Typography>
-                <Box sx={{
-                  borderRadius: 3.5,
-                  border: '1px solid #1e293b',
-                  overflow: 'hidden',
-                  boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
-                }}>
-                  {/* macOS Title Bar */}
-                  <Box sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    px: 2,
-                    py: 1.25,
-                    bgcolor: '#1e293b',
-                    borderBottom: '1px solid #0f172a',
-                  }}>
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
-                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
-                    <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - setup_steps.json</Typography>
-                  </Box>
-                  <TextField
-                    fullWidth
-                    multiline
-                    minRows={10}
-                    value={setupStepsText}
-                    onChange={e => setSetupStepsText(e.target.value)}
-                    placeholder={SETUP_STEPS_EXAMPLE}
-                    sx={{
-                      '& .MuiInputBase-root': {
-                        borderRadius: 0,
-                        bgcolor: '#090d16',
-                        color: '#34d399',
-                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                        fontSize: '12.5px',
-                        p: 2,
-                        boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
-                        '& fieldset': { border: 'none' },
-                        '&:hover fieldset': { border: 'none' },
-                        '&.Mui-focused fieldset': { border: 'none' },
-                      },
-                      '& .MuiInputBase-input': {
-                        color: '#34d399',
-                        fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                        lineHeight: 1.6,
-                      }
-                    }}
-                  />
-                </Box>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, mt: 0.5 }}>
-                  用于登录、初始化数据、变量提取。
-                </Typography>
-              </Box>
-            </Box>
-
-            <Box>
-              <Typography variant="body2" fontWeight={850} sx={{ color: 'text.primary', mb: 0.5 }}>清理步骤 JSON</Typography>
-              <Box sx={{
-                borderRadius: 3.5,
-                border: '1px solid #1e293b',
-                overflow: 'hidden',
-                boxShadow: '0 20px 40px rgba(15,23,42,0.18)',
-              }}>
-                {/* macOS Title Bar */}
-                <Box sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  px: 2,
-                  py: 1.25,
-                  bgcolor: '#1e293b',
-                  borderBottom: '1px solid #0f172a',
-                }}>
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#ef4444', opacity: 0.95 }} />
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#f59e0b', opacity: 0.95 }} />
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#10b981', opacity: 0.95 }} />
-                  <Typography variant="caption" sx={{ ml: 1.5, fontWeight: 800, color: '#94a3b8', fontFamily: 'monospace', fontSize: '10px' }}>terminal - cleanup_steps.json</Typography>
-                </Box>
-                <TextField
-                  fullWidth
-                  multiline
-                  minRows={7}
-                  value={cleanupStepsText}
-                  onChange={e => setCleanupStepsText(e.target.value)}
-                  placeholder={CLEANUP_STEPS_EXAMPLE}
-                  sx={{
-                    '& .MuiInputBase-root': {
-                      borderRadius: 0,
-                      bgcolor: '#090d16',
-                      color: '#22d3ee',
-                      fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                      fontSize: '12.5px',
-                      p: 2,
-                      boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.65)',
-                      '& fieldset': { border: 'none' },
-                      '&:hover fieldset': { border: 'none' },
-                      '&.Mui-focused fieldset': { border: 'none' },
-                    },
-                    '& .MuiInputBase-input': {
-                      color: '#22d3ee',
-                      fontFamily: `'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace`,
-                      lineHeight: 1.6,
-                    }
-                  }}
-                />
-              </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 0.5, mt: 0.5 }}>
-                用于测试后清理数据；主流程失败时仍会尽量执行。
-              </Typography>
-            </Box>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Button
-                size="small"
-                variant="text"
-                startIcon={<ContentPasteOutlined fontSize="small" />}
-                onClick={() => setAuthConfigText(AUTH_CONFIG_EXAMPLE)}
-              >
-                填入认证示例
-              </Button>
-              <Button
-                size="small"
-                variant="text"
-                startIcon={<ContentPasteOutlined fontSize="small" />}
-                onClick={() => setSetupStepsText(SETUP_STEPS_EXAMPLE)}
-              >
-                填入前置步骤示例
-              </Button>
-              <Button
-                size="small"
-                variant="text"
-                startIcon={<ContentPasteOutlined fontSize="small" />}
-                onClick={() => setCleanupStepsText(CLEANUP_STEPS_EXAMPLE)}
-              >
-                填入清理步骤示例
-              </Button>
-            </Stack>
+            <AuthConfig
+              authWizard={authWizard}
+              setAuthWizard={setAuthWizard}
+              applyAuthWizard={applyAuthWizard}
+              authConfigText={authConfigText}
+              setAuthConfigText={setAuthConfigText}
+            />
+            <Divider />
+            <SetupStepsConfig
+              setupWizard={setupWizard}
+              setSetupWizard={setSetupWizard}
+              applyLoginSetupWizard={applyLoginSetupWizard}
+              cleanupWizard={cleanupWizard}
+              setCleanupWizard={setCleanupWizard}
+              applyCleanupWizard={applyCleanupWizard}
+              setupStepsText={setupStepsText}
+              setSetupStepsText={setSetupStepsText}
+              cleanupStepsText={cleanupStepsText}
+              setCleanupStepsText={setCleanupStepsText}
+            />
           </Stack>
         </Paper>
       )}
