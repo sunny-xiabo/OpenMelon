@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import IndexGovernancePage from '../../pages/IndexGovernancePage';
+import IndexGovernancePage from '../../pages/IndexGovernance';
 import { indexGovernanceAPI as indexGovernanceAPIFromServices } from '../../services/api';
 import { indexGovernanceAPI as indexGovernanceAPIFromApi } from '../../api/indexGovernance';
 

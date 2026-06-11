@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useState } from 'react';
-import { Box } from '@mui/material';
+import { memo, useCallback, useEffect, useState, useMemo } from 'react';
+import { Box, ThemeProvider, CssBaseline } from '@mui/material';
+import { getTheme } from './theme';
 import {
   QuestionAnswerRounded,
   HubRounded,
@@ -8,6 +9,7 @@ import {
   PieChartRounded,
   SettingsRounded,
   AutoGraphRounded,
+  AccountTreeRounded,
 } from '@mui/icons-material';
 import IndexGovernanceIcon from './components/icons/IndexGovernanceIcon';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -21,8 +23,9 @@ import QAPage from './pages/QAPage';
 import TestCasePage from './pages/TestCasePage';
 import APIExecutionPage from './pages/APIExecutionPage';
 import DashboardPage from './pages/DashboardPage';
-import IndexGovernancePage from './pages/IndexGovernancePage';
+import IndexGovernancePage from './pages/IndexGovernance';
 import SettingsPage from './pages/SettingsPage';
+import WorkflowPage from './features/Workflow/WorkflowPage';
 
 // 初始化 TanStack Query 客户端
 const queryClient = new QueryClient({
@@ -47,6 +50,7 @@ const TABS = [
   { key: 'apiExecution', label: 'API 自动化', component: APIExecutionPage, icon: <AutoGraphRounded fontSize="small" /> },
   { key: 'dashboard', label: '数据仪表盘', component: DashboardPage, icon: <PieChartRounded fontSize="small" /> },
   { key: 'indexGovernance', label: '索引治理', component: IndexGovernancePage, icon: <IndexGovernanceIcon fontSize="small" /> },
+  { key: 'workflow', label: '工作流', component: WorkflowPage, icon: <AccountTreeRounded fontSize="small" /> },
   { key: 'settings', label: '设置', component: SettingsPage, icon: <SettingsRounded fontSize="small" /> },
 ];
 
@@ -79,6 +83,26 @@ function App() {
   const [tab, setTab] = useState(getInitialTab);
   const [mountedTabs, setMountedTabs] = useState(() => [getInitialTab()]);
 
+  // Load initial theme mode from localStorage, defaulting to system scheme
+  const [themeMode, setThemeMode] = useState(() => {
+    const saved = localStorage.getItem('openmelon_theme_mode');
+    if (saved === 'light' || saved === 'dark') return saved;
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+
+  // Memoize theme object based on mode
+  const activeTheme = useMemo(() => getTheme(themeMode), [themeMode]);
+
+  // Sync theme mode with body class
+  useEffect(() => {
+    if (themeMode === 'dark') {
+      document.body.classList.add('dark');
+    } else {
+      document.body.classList.remove('dark');
+    }
+    localStorage.setItem('openmelon_theme_mode', themeMode);
+  }, [themeMode]);
+
   const handleTabChange = useCallback((newIndex) => {
     setTab(newIndex);
     sessionStorage.setItem('openmelon_active_tab', newIndex.toString());
@@ -98,38 +122,50 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <SnackbarProvider>
-        <Box 
-          sx={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            height: '100vh', 
-            background: 'linear-gradient(135deg, #f6f8fb 0%, #eef1f6 50%, #f6f8fb 100%)',
-            backgroundSize: '200% 200%',
-            animation: 'bgGradient 15s ease infinite',
-            '@keyframes bgGradient': {
-              '0%': { backgroundPosition: '0% 50%' },
-              '50%': { backgroundPosition: '100% 50%' },
-              '100%': { backgroundPosition: '0% 50%' },
-            },
-          }}
-        >
-          <TopNav tabs={TABS} currentTab={tab} onTabChange={handleTabChange} />
+      <ThemeProvider theme={activeTheme}>
+        <CssBaseline />
+        <SnackbarProvider>
+          <Box 
+            sx={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              height: '100vh', 
+              background: themeMode === 'dark'
+                ? 'linear-gradient(135deg, #090d16 0%, #030712 50%, #090d16 100%)'
+                : 'linear-gradient(135deg, #f6f8fb 0%, #eef1f6 50%, #f6f8fb 100%)',
+              backgroundSize: '200% 200%',
+              animation: 'bgGradient 15s ease infinite',
+              transition: 'background var(--transition-normal)',
+              '@keyframes bgGradient': {
+                '0%': { backgroundPosition: '0% 50%' },
+                '50%': { backgroundPosition: '100% 50%' },
+                '100%': { backgroundPosition: '0% 50%' },
+              },
+            }}
+          >
+            <TopNav 
+              tabs={TABS} 
+              currentTab={tab} 
+              onTabChange={handleTabChange} 
+              themeMode={themeMode}
+              onThemeModeChange={setThemeMode}
+            />
 
-          <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {TABS.map((t, i) => {
-              if (!mountedTabs.includes(i)) return null;
-              return (
-                <PageSlot
-                  key={t.label}
-                  tabConfig={t}
-                  active={tab === i}
-                />
-              );
-            })}
+            <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              {TABS.map((t, i) => {
+                if (!mountedTabs.includes(i)) return null;
+                return (
+                  <PageSlot
+                    key={t.label}
+                    tabConfig={t}
+                    active={tab === i}
+                  />
+                );
+              })}
+            </Box>
           </Box>
-        </Box>
-      </SnackbarProvider>
+        </SnackbarProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
