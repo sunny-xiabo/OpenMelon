@@ -3,7 +3,6 @@ import {
   Alert,
   Box,
   Button,
-  Checkbox,
   Chip,
   Dialog,
   DialogActions,
@@ -19,155 +18,33 @@ import {
   Paper,
   Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Typography,
 } from '@mui/material';
-import { Add, AltRouteOutlined, AutoAwesome, BlockOutlined, DeleteForeverOutlined, DeleteOutline, EditOutlined, InfoOutlined, MergeType, MoreVert, RestoreOutlined, ScienceOutlined, TipsAndUpdatesOutlined, WarningAmberOutlined } from '@mui/icons-material';
-import { useAPIExecution } from '../context';
-import { apiExecutionAPI } from '../../../api/execution';
-import { useSnackbar } from '../../../components/SnackbarProvider';
-import EmptyState from '../../../components/EmptyState';
-import { METHOD_COLORS } from '../constants';
-import { formatRunTime, getRunStatusMeta } from '../utils';
-import { EXEC_KEYS, useProjectAssets } from '../hooks/useAPIExecutionQueries';
+import { Add, AutoAwesome, BlockOutlined, DeleteForeverOutlined, DeleteOutline, EditOutlined, MergeType, RestoreOutlined, ScienceOutlined } from '@mui/icons-material';
+import { useAPIExecution } from '../../context';
+import { apiExecutionAPI } from '../../../../api/execution';
+import { useSnackbar } from '../../../../components/SnackbarProvider';
+import { METHOD_COLORS } from '../../constants';
+import { EXEC_KEYS, useProjectAssets } from '../../hooks/useAPIExecutionQueries';
 import { useQueryClient } from '@tanstack/react-query';
-
-const ACTIVE_STATUSES = new Set(['active', 'changed']);
-
-const RISK_META = {
-  low: { label: '低风险', color: 'success' },
-  medium: { label: '中风险', color: 'warning' },
-  high: { label: '高风险', color: 'error' },
-  blocked: { label: '阻断', color: 'error' },
-};
-
-const STATUS_META = {
-  active: { label: '有效', color: 'success' },
-  changed: { label: '变更', color: 'warning' },
-  removed: { label: '移除', color: 'error' },
-  deprecated: { label: '废弃', color: 'default' },
-  hidden: { label: '隐藏', color: 'default' },
-  excluded: { label: '已排除', color: 'default' },
-};
-
-const MODULE_STATUS_META = {
-  active: { label: '有效', color: 'success' },
-  hidden: { label: '隐藏', color: 'default' },
-  excluded: { label: '已排除', color: 'default' },
-  removed: { label: '移除', color: 'error' },
-};
-
-const sourceLabel = (source) => (source === 'manual' ? '手动' : 'OpenAPI');
-
-const getInterfaceLabel = (item) => `${item.method || ''} ${item.path || ''}`.trim();
-
-const normalizeResource = (value = '') => {
-  const cleaned = String(value).toLowerCase().replace(/[^0-9a-z]+/g, '_').replace(/^_+|_+$/g, '');
-  if (cleaned.endsWith('ies')) return `${cleaned.slice(0, -3)}y`;
-  if (cleaned.endsWith('s') && cleaned.length > 3) return cleaned.slice(0, -1);
-  return cleaned;
-};
-
-const resourceFromPath = (path = '') => {
-  const segments = String(path)
-    .split('/')
-    .map((item) => item.trim())
-    .filter((item) => item && !/^\{[^}]+\}$/.test(item));
-  const staticSegments = segments.filter((item) => !['api', 'v1', 'v2', 'v3'].includes(item.toLowerCase()) && !/^v\d+$/i.test(item));
-  return normalizeResource(staticSegments.at(-1) || segments.at(-1) || '');
-};
-
-const textTokens = (item) => `${item.operation_id || ''} ${item.summary || ''} ${item.description || ''} ${item.path || ''}`.toLowerCase();
-
-const looksLikeAuthInterface = (item) => /login|auth|token|signin|session|oauth/.test(textTokens(item));
-
-const looksLikeCreateInterface = (item) => {
-  if (looksLikeAuthInterface(item)) return false;
-  if ((item.method || '').toUpperCase() !== 'POST') return false;
-  const text = textTokens(item);
-  return /create|add|new|submit|register|创建|新增/.test(text) || !String(item.path || '').includes('{');
-};
-
-const hasPathVariable = (item) => /\{[^}]+\}/.test(String(item.path || ''));
-
-const planInsightStorageKey = (projectId) => `api-execution:last-asset-plan-insight:${projectId || 'default'}`;
-
-const readStoredPlanInsight = (projectId) => {
-  if (!projectId || typeof window === 'undefined') return null;
-  try {
-    const raw = window.sessionStorage.getItem(planInsightStorageKey(projectId));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
-const writeStoredPlanInsight = (projectId, insight) => {
-  if (!projectId || typeof window === 'undefined') return;
-  try {
-    window.sessionStorage.setItem(planInsightStorageKey(projectId), JSON.stringify(insight));
-  } catch {
-    // sessionStorage can be unavailable in private or locked-down browser modes.
-  }
-};
-
-function AgentRecommendationPanel({ advice, lastPlanInsight }) {
-  const backendRecommendations = lastPlanInsight?.recommendations || [];
-  return (
-    <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: '#ffffff', border: '1px solid rgba(15, 23, 42, 0.08)' }}>
-      <Stack spacing={1.25}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between">
-          <Stack direction="row" spacing={1} alignItems="center">
-            <TipsAndUpdatesOutlined color="primary" fontSize="small" />
-            <Box>
-              <Typography variant="subtitle2" fontWeight={850}>Agent 推荐</Typography>
-              <Typography variant="caption" color="text.secondary">测试计划、风险解释、待补配置和链路依赖建议</Typography>
-            </Box>
-          </Stack>
-          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-            <Chip size="small" label={advice.scopeLabel} color={advice.scope.length ? 'primary' : 'default'} variant="outlined" />
-            <Chip size="small" label={`${advice.highRisk.length} 个高风险`} color={advice.highRisk.length ? 'warning' : 'default'} variant="outlined" />
-            <Chip size="small" label={`${advice.dependencyMatches.length} 条可串联依赖`} color={advice.dependencyMatches.length ? 'success' : 'default'} variant="outlined" />
-          </Stack>
-        </Stack>
-
-        {!!advice.missing.length && (
-          <Alert severity="warning" icon={<WarningAmberOutlined fontSize="inherit" />}>
-            {advice.missing.join('；')}
-          </Alert>
-        )}
-
-        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-          <Chip size="small" icon={<AltRouteOutlined />} label={advice.creates.length ? `创建接口 ${advice.creates.length} 个` : '未发现创建接口'} variant="outlined" />
-          <Chip size="small" label={advice.pathVariableConsumers.length ? `路径参数接口 ${advice.pathVariableConsumers.length} 个` : '无路径参数依赖'} variant="outlined" />
-          <Chip size="small" label={advice.auth.length ? `鉴权相关 ${advice.auth.length} 个` : '未纳入登录接口'} variant="outlined" />
-        </Stack>
-
-        {lastPlanInsight?.orchestrationSummary && (
-          <Alert severity={lastPlanInsight.dependencyGraph?.length ? 'success' : 'info'}>
-            {lastPlanInsight.orchestrationSummary}
-          </Alert>
-        )}
-
-        {!!backendRecommendations.length && (
-          <Stack spacing={0.75}>
-            {backendRecommendations.slice(0, 3).map((item, index) => (
-              <Typography key={`${item.type || 'recommendation'}-${index}`} variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                {item.title ? `${item.title}：` : ''}{item.message}
-              </Typography>
-            ))}
-          </Stack>
-        )}
-      </Stack>
-    </Box>
-  );
-}
+import {
+  ACTIVE_STATUSES,
+  RISK_META,
+  STATUS_META,
+  MODULE_STATUS_META,
+  sourceLabel,
+  getInterfaceLabel,
+  looksLikeAuthInterface,
+  looksLikeCreateInterface,
+  hasPathVariable,
+  resourceFromPath,
+  readStoredPlanInsight,
+  writeStoredPlanInsight,
+} from './constants';
+import AgentRecommendationPanel from './AgentRecommendationPanel';
+import ModuleList from './ModuleList';
+import InterfaceTable from './InterfaceTable';
 
 export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
   const showAssetActions = focus !== 'agent';
@@ -726,42 +603,14 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
           </Stack>
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '260px minmax(0, 1fr)' }, gap: 2 }}>
-            <Paper elevation={0} sx={{ p: 1.5, borderRadius: 3, border: '1px solid rgba(15, 23, 42, 0.08)', bgcolor: '#ffffff' }}>
-              <Stack spacing={1}>
-                <Button
-                  fullWidth
-                  variant={!activeModuleId ? 'contained' : 'outlined'}
-                  onClick={() => setActiveModuleId('')}
-                  sx={{ justifyContent: 'space-between' }}
-                >
-                  全部模块
-                  <Chip size="small" label={activeInterfaces.length} />
-                </Button>
-                {modules.map((module) => {
-                  const moduleStatus = MODULE_STATUS_META[module.status] || { label: module.status || '未知', color: 'default' };
-                  const isModuleExcluded = ['excluded', 'removed'].includes(module.status);
-                  return (
-                    <Stack key={module.module_id} direction="row" spacing={0.75} alignItems="center" sx={{ opacity: isModuleExcluded ? 0.65 : 1 }}>
-                      <Button
-                        fullWidth
-                        variant={activeModuleId === module.module_id ? 'contained' : 'outlined'}
-                        onClick={() => setActiveModuleId(module.module_id)}
-                        sx={{ justifyContent: 'space-between', textAlign: 'left', minWidth: 0 }}
-                      >
-                        <Typography noWrap variant="body2" fontWeight={700}>{module.name}</Typography>
-                        <Stack direction="row" spacing={0.5} alignItems="center">
-                          {module.status !== 'active' && <Chip size="small" label={moduleStatus.label} color={moduleStatus.color} variant="outlined" />}
-                          <Chip size="small" label={moduleCounts[module.module_id] || 0} />
-                        </Stack>
-                      </Button>
-                      <IconButton size="small" aria-label={`${module.name} 模块操作`} onClick={(event) => openModuleMenu(event, module)}>
-                        <MoreVert fontSize="small" />
-                      </IconButton>
-                    </Stack>
-                  );
-                })}
-              </Stack>
-            </Paper>
+            <ModuleList
+              modules={modules}
+              activeModuleId={activeModuleId}
+              setActiveModuleId={setActiveModuleId}
+              moduleCounts={moduleCounts}
+              activeInterfaceCount={activeInterfaces.length}
+              openModuleMenu={openModuleMenu}
+            />
 
             <Stack spacing={1.5} sx={{ minWidth: 0 }}>
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr repeat(3, 1fr)' }, gap: 1 }}>
@@ -845,7 +694,7 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
                 </Stack>
               ) : (
                 <Typography variant="caption" color="text.secondary">
-                  当前显示 {filteredInterfaces.length} 个接口；点击“查看”可编辑资产信息、风险和状态。
+                  当前显示 {filteredInterfaces.length} 个接口；点击"查看"可编辑资产信息、风险和状态。
                 </Typography>
               )}
 
@@ -855,70 +704,14 @@ export default function AssetAgentWorkbench({ focus = 'all' } = {}) {
                 </Alert>
               )}
 
-              <TableContainer sx={{ maxHeight: 520, borderRadius: 2, border: '1px solid rgba(15, 23, 42, 0.08)', bgcolor: '#ffffff' }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      {showAgentActions && <TableCell padding="checkbox" />}
-                      <TableCell>方法</TableCell>
-                      <TableCell>接口</TableCell>
-                      <TableCell>模块</TableCell>
-                      <TableCell>风险</TableCell>
-                      <TableCell>状态</TableCell>
-                      <TableCell>最近测试</TableCell>
-                      <TableCell align="right">详情</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredInterfaces.map((item) => {
-                      const selected = selectedInterfaceIds.has(item.interface_id);
-                      const risk = RISK_META[item.risk_level] || { label: item.risk_level || '未知', color: 'default' };
-                      const status = STATUS_META[item.status] || { label: item.status || '未知', color: 'default' };
-                      const testStatus = getRunStatusMeta(item.last_test_status);
-                      const disabled = !ACTIVE_STATUSES.has(item.status);
-                      return (
-                        <TableRow key={item.interface_id} hover selected={selected} sx={{ opacity: disabled ? 0.55 : 1 }}>
-                          {showAgentActions && (
-                            <TableCell padding="checkbox">
-                              <Checkbox size="small" checked={selected} disabled={disabled} onChange={() => toggleInterface(item.interface_id)} />
-                            </TableCell>
-                          )}
-                          <TableCell>
-                            <Chip size="small" label={item.method} color={METHOD_COLORS[item.method] || 'default'} variant="outlined" sx={{ fontWeight: 800 }} />
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 240 }}>
-                            <Typography variant="body2" fontWeight={700}>{item.summary || getInterfaceLabel(item)}</Typography>
-                            <Typography variant="caption" sx={{ fontFamily: 'monospace' }} color="text.secondary">{item.path}</Typography>
-                          </TableCell>
-                          <TableCell>{item.module_name || item.module_key || '-'}</TableCell>
-                          <TableCell><Chip size="small" label={risk.label} color={risk.color} variant={item.risk_level === 'high' || item.risk_level === 'blocked' ? 'filled' : 'outlined'} /></TableCell>
-                          <TableCell><Chip size="small" label={status.label} color={status.color} variant="outlined" /></TableCell>
-                          <TableCell>
-                            {item.last_test_status ? (
-                              <Stack spacing={0.25}>
-                                <Chip size="small" label={testStatus.label} color={testStatus.color} variant="outlined" />
-                                <Typography variant="caption" color="text.secondary">{formatRunTime(item.last_tested_at)}</Typography>
-                              </Stack>
-                            ) : (
-                              <Typography variant="caption" color="text.secondary">未测试</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Button size="small" startIcon={<InfoOutlined />} onClick={() => openDetail(item)}>查看</Button>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {!filteredInterfaces.length && (
-                      <TableRow>
-                        <TableCell colSpan={showAgentActions ? 8 : 7}>
-                          <EmptyState compact title={isLoading ? '接口资产准备中' : '没有匹配接口'} description="请调整筛选条件，或先完成 OpenAPI 导入和项目资产同步。" />
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              <InterfaceTable
+                filteredInterfaces={filteredInterfaces}
+                selectedInterfaceIds={selectedInterfaceIds}
+                showAgentActions={showAgentActions}
+                isLoading={isLoading}
+                toggleInterface={toggleInterface}
+                openDetail={openDetail}
+              />
             </Stack>
           </Box>
         </Stack>
