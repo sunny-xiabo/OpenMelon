@@ -5,6 +5,36 @@
 格式编写基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/) 的指导规范，
 同时本项目的版本号遵循 [语义化版本管理 (Semantic Versioning)](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [0.3.0.0] - 2026-06-09
+
+### 新增 (Added)
+- **工作流编排模块**：新增独立的可视化工作流编排系统（Dify 风格），支持 DAG 图形化构建与执行。
+  - **后端引擎**：`backend/app/workflow/` 模块，包含 DAG 执行引擎（拓扑排序 + asyncio 并行）、通用变量池（作用域解析 + 并行隔离）、节点工厂注册表。
+  - **13 种节点类型**：开始、结束、LLM、HTTP 请求、代码执行（Python 沙盒）、条件分支（IF/ELSE）、知识检索、模板变换、变量聚合、迭代、工具调用、参数提取、问题分类。
+  - **执行队列**：异步执行队列 + SSE 实时事件流，支持并发控制、取消、超时。
+  - **DSL 导入/导出**：支持 JSON 和 YAML 格式的工作流定义序列化。
+  - **工作流模板**：内置模板库，支持保存/加载/删除自定义模板。
+  - **REST API**：完整的 CRUD + 执行 + SSE 端点（`/api/workflows/*`）。
+  - **PostgreSQL 存储**：`workflows`、`workflow_runs`、`workflow_templates` 表。
+
+### 变更 (Changed)
+- **代码质量优化**：
+  - **日志规范化**：`management_routes.py` 中 4 处 `print()` 替换为 `logger.warning()`。
+  - **通配符导入清理**：`testcase_gen` 路由和 `api_execution/ai` 模块共 12 处 `import *` 替换为显式导入。
+  - **后端模块拆分**：`asset_service.py`（1275 行）拆分为 `asset_utils.py`、`asset_plan_service.py`、`asset_module_service.py`、`asset_interface_service.py` 四个职责单一的模块，原文件保留为向后兼容的门面。
+  - **前端组件拆分**：`StepImport.jsx`（1355 行）、`IndexGovernancePage.jsx`（1253 行）、`AssetAgentWorkbench.jsx`（1250 行）拆分为更小的子组件。
+
+### 修复 (Fixed)
+- **工作流模块启动导入失败**：`postgres_store.py` 缺少 `get_pg_connection` 函数，导致 `workflow/store.py` 导入报错，后端无法启动。
+- **工作流 API 日志初始化错误**：`api.py` 使用 `logger.getLogger()` 而非 `logger.getChild()`，导致 `AttributeError`。
+- **Jinja2 模板节点渲染崩溃**：`template.py` 的 `_SilentUndefined` 未继承 `jinja2.Undefined`，Jinja2 渲染路径始终失败并回退到简单替换。
+- **条件分支无效**：`engine.py` 的 `_handle_condition_branches` 为空操作，条件节点的 true/false 分支均会执行。修复后根据条件结果和边的 `source_handle` 跳过非活跃分支及其下游节点。
+- **启动时恢复运行记录无返回**：`store.py` 的 `recover_stale_runs` 执行 UPDATE 后调用 `fetchall()` 但缺少 `RETURNING run_id`，导致恢复的运行 ID 列表始终为空。
+- **SSE 事件序列化失败**：`run_queue.py` 广播事件时使用 `model_dump()` 而非 `model_dump(mode='json')`，`datetime` 对象无法被 `json.dumps` 序列化。
+- **前端新建工作流保存后发布/运行失效**：`WorkflowPage.jsx` 首次创建保存后未更新本地 `workflowId` 状态，导致后续发布和运行仍判定为未保存状态。
+- **废弃 API 参数**：`api.py` 中 `Query(regex=...)` 改为 `Query(pattern=...)`，消除 FastAPI 废弃警告。
+- **asyncio 导入位置**：`api.py` 的 `import asyncio` 从函数体内移到文件顶部，避免潜在的 `NameError`。
+
 ## [0.2.9.0] - 2026-06-01
 
 ### 新增 (Added)
